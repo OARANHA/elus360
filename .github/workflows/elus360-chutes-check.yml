@@ -11,6 +11,10 @@ on:
       - 'lib/instalacao/ambiente.ts'
       - 'app/api/v1/cron/sync-model-catalog/route.ts'
       - 'tests/unit/elus360-chutes-plataforma.test.ts'
+      - 'lib/elus360/onboarding/**'
+      - 'lib/instalacao/retrato.ts'
+      - 'app/onboarding/_components/JaEstaPronto.tsx'
+      - 'tests/unit/elus360-ia-incluida-welcome.test.ts'
 concurrency:
   group: elus360-chutes-${{ github.ref }}
   cancel-in-progress: true
@@ -30,9 +34,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Lint de arquivos alterados
-        run: pnpm exec eslint lib/ai/pontos/provedores.ts lib/instalacao/ambiente.ts lib/agent-engine/env.ts lib/agent-engine/edge/llm/credentials.ts lib/agent-engine/edge/llm/providers.ts lib/ai/runtime/agent.ts lib/ai/provider-validators.ts lib/env.ts lib/ai/catalogo/chutes.ts app/api/v1/cron/sync-model-catalog/route.ts lib/ai/par-provedor-modelo.ts lib/agent-engine/edge/llm/capabilities.ts tests/unit/elus360-chutes-plataforma.test.ts
+        run: pnpm exec eslint lib/ai/pontos/provedores.ts lib/instalacao/ambiente.ts lib/agent-engine/env.ts lib/agent-engine/edge/llm/credentials.ts lib/agent-engine/edge/llm/providers.ts lib/ai/runtime/agent.ts lib/ai/provider-validators.ts lib/env.ts lib/ai/catalogo/chutes.ts app/api/v1/cron/sync-model-catalog/route.ts lib/ai/par-provedor-modelo.ts lib/agent-engine/edge/llm/capabilities.ts tests/unit/elus360-chutes-plataforma.test.ts lib/elus360/onboarding/ia-incluida.ts lib/instalacao/retrato.ts app/onboarding/_components/JaEstaPronto.tsx tests/unit/elus360-ia-incluida-welcome.test.ts
       - name: Testes unitários pertinentes
-        run: pnpm exec vitest run tests/unit/elus360-chutes-plataforma.test.ts tests/unit/provedores-x-registry.test.ts lib/ai/provider-validators.test.ts
+        run: pnpm exec vitest run tests/unit/elus360-chutes-plataforma.test.ts tests/unit/provedores-x-registry.test.ts lib/ai/provider-validators.test.ts tests/unit/elus360-ia-incluida-welcome.test.ts lib/instalacao/retrato.test.ts
       - name: Validar TypeScript
         env:
           NODE_OPTIONS: --max-old-space-size=6144
