@@ -1,6 +1,6 @@
 # ELUS 360 — Chutes.ai como IA incluída (branch ELUS, sem alterar upstream)
 
-Status: implementação em revisão, **não publicada em produção**. Origem: DeskcommCRM v1.94.0, repositório `OARANHA/elus360`.
+Status: suporte Chutes integrado à `main` na PR #8 (squash `66072e0`), publicado na instalação ELUS 360 com imagem da revisão `36f09a9` (28/10/2026). O ajuste do aviso de primeiro acesso vive em PR separada de revisão; não presumir esse ajuste publicado até merge/deploy. Base: DeskcommCRM v1.94.0.
 
 ## Decisão
 - O cliente recebe a opção de **IA incluída pela instalação ELUS 360**; BYOK por organização continua disponível e tem precedência. O segredo global nunca é enviado ao navegador ou gravado em `organizations.settings`.
@@ -13,13 +13,16 @@ Status: implementação em revisão, **não publicada em produção**. Origem: D
 ## Instalação e operação
 1. Cadastrar `CHUTES_API_KEY` no Portainer sem inserir segredo no GitHub.
 2. Definir `ELUS_DEFAULT_AI_PROVIDER=chutes` **apenas quando a integração tiver sido validada e publicada**.
-3. Rodar/verificar a sincronização do catálogo de modelos antes de receber os primeiros clientes. O cron executa Chutes e OpenRouter de forma independente: falha de uma fonte não impede sincronizar a outra. Se ambas falharem, o endpoint responde 503; erro de uma fonte aparece como código sanitizado no resultado e nos logs. **Ainda não há prova operacional de sincronização na instalação nova.**
+3. Rodar/verificar a sincronização do catálogo antes de receber clientes. O cron executa Chutes e OpenRouter de modo independente. Em 28/10/2026, a chamada autenticada pelo caminho interno da aplicação respondeu HTTP 200: 10 modelos Chutes gravados, 10 aptos a ferramentas; 464 OpenRouter gravados. A mesma rota pelo domínio público retornara 403 (origem do bloqueio externo não isolada); não abrir a rota do cron sem autenticação ou expor `INTERNAL_SECRET`. Um novo ambiente precisa de verificação própria, não inferir deste aceite.
 4. Configurar limites de consumo de IA por organização/plano em `ai_budgets`; sem orçamento, o fallback compartilhado transfere todo o custo para a instalação. Validar o enforcement real em uma organização de teste.
 5. Validar jornada fresca (conta → organização → boas-vindas → treinar IA → criar/publicar agente → testar resposta por ferramentas), política de autorização e telemetria de custos; **CI unitário sozinho não basta**.
 
-## Atualizações
-- `feat/elus360-chutes-plataforma-20261028` é branch de desenvolvimento, **não é mecanismo de rollback em produção**.
-- Depois de revisão, merge por PR em `OARANHA/elus360/main` e releases da nossa imagem GHCR. Atualizações oficiais do DeskcommCRM são integradas por PR com verificação de compatibilidade de catálogo, credenciais, registry, worker e onboarding.
-- Preservar `OARANHA/elus360-landing` e a PR visual do login (#3) separadas. Não alterar a produção, Caddy, Supabase ou Portainer nesta PR de desenvolvimento.
+## Isolamento, primeiro acesso e futuras atualizações
+- O próprio núcleo do DeskcommCRM cria uma organização com `settings.llm` provisório da Anthropic. A integração ELUS só persiste `chutes` **junto com um modelo compatível do catálogo** no aceite inicial de boas-vindas. Se o catálogo estiver vazio, não troca só o provedor nem inventa modelo.
+- A personalização visual reside em `lib/elus360/onboarding/ia-incluida.ts`, consumida por dois pontos pequenos: `lib/instalacao/retrato.ts` (leitura somente, com flag e prova de catálogo) e `app/onboarding/_components/JaEstaPronto.tsx` (rótulo). Antes do aceite, com chave mas sem catálogo, mostrar **catálogo pendente**, nunca **falta a chave** ou **agente pronto**. Após o aceite, as regras originais do runtime/tenant vencem.
+- **Feature flag de ativação:** `ELUS_DEFAULT_AI_PROVIDER=chutes` com `CHUTES_API_KEY` apenas em ambiente de servidor. Desligar a flag restaura o comportamento original do primeiro acesso em um novo deploy, mas **não reverte automaticamente** provedores/modelos já escolhidos por empresas existentes — isso exige decisão explícita da organização. BYOK continua prioritário.
+- **Branch é veículo de desenvolvimento, não de operação ou rollback.** Novas alterações vão por branch específica → testes → PR → CI → merge em `main` → imagens por digest → deploy. Atualizações upstream entram em PR separada, revisando apenas as interfaces com `lib/elus360/`, sem sobrescrever módulos ELUS. Um rollback de produção usa digest conhecido, não checkout antigo.
+- A correção visual está isolada na branch `fix/elus360-chutes-onboarding-ready-20261028`, com testes cobrindo flag ligada/desligada, modelo presente/ausente, BYOK, organização já iniciada, e ausência de segredo no HTML. Sem merge/deploy até gates.
+- Preservar `OARANHA/elus360-landing` e o fluxo de login da PR #3; esta correção não altera autenticação, Caddy, Supabase nem Portainer.
 
 Referências: `lib/ai/pontos/provedores.ts`, `lib/agent-engine/edge/llm/credentials.ts`, `app/onboarding/setup-ai`, `app/actions/onboarding/acceptWelcome.ts`, `app/api/v1/cron/sync-model-catalog/route.ts`.
