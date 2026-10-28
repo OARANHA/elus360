@@ -49,6 +49,7 @@ import {
   type ModeloExistente,
 } from "@/lib/ai/catalogo/sincronizar";
 import { logger } from "@/lib/logger";
+import { executarSincronizacoesIndependentes } from "@/lib/ai/catalogo/fontes-independentes";
 import { CHUTES_CATALOG_URL, FONTE_CHUTES, traduzirCatalogoChutes, type ModeloChutes } from "@/lib/ai/catalogo/chutes";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -180,10 +181,10 @@ async function handler(req: NextRequest): Promise<Response> {
   }
   // Cada fonte precisa rodar mesmo se a outra estiver indisponível.
   // A falha de uma não pode impedir o catálogo da outra de atualizar.
-  const fontes = await Promise.allSettled([
-    sincronizarCatalogo(createAdminClient(), buscarDaOpenRouter),
-    sincronizarChutes(createAdminClient()),
-  ]);
+  const fontes = await executarSincronizacoesIndependentes(
+    () => sincronizarCatalogo(createAdminClient(), buscarDaOpenRouter),
+    () => sincronizarChutes(createAdminClient()),
+  );
   const [openrouter, chutes] = fontes;
   const erros: Record<string, string> = {};
   if (openrouter.status === "rejected") {
