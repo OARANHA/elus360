@@ -122,6 +122,15 @@ export const PROVEDORES = [
     prefixoDaChave: "sk-or-…",
   },
   {
+    id: "chutes",
+    rotulo: "Chutes.ai",
+    quandoUsar: "IA incluída pela instalação ELUS 360 ou credencial própria da empresa, com catálogo OpenAI-compatível de modelos.",
+    aceitaEndpointProprio: false,
+    catalogoSincronizavel: true,
+    ondePegarAChave: "https://chutes.ai/app/settings/api-keys",
+    prefixoDaChave: "cpk_…",
+  },
+  {
     id: "deepseek",
     rotulo: "DeepSeek",
     quandoUsar:
