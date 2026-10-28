@@ -4,7 +4,7 @@
 
 ## Contrato desta etapa
 
-`lib/elus360/ai-managed/guard.ts` liga a política pura aprovada na PR #13 a um **leitor injetável** de autonomia por organização. Essa fronteira fica marcada `server-only` e não chama automaticamente `createAdminClient()` em fluxos de usuário.
+`lib/elus360/ai-managed/guard.ts` liga a política pura aprovada na PR #13 a um **leitor injetável** de autonomia por organização. Essa fronteira é reservada a chamadas do servidor e não chama automaticamente `createAdminClient()` em fluxos de usuário.
 
 O leitor fornecido pelo chamador futuro precisa resolver a coluna `organizations.ai_autonomy` por `orgId` obtido da sessão/API Token validado, jamais do payload. O chamador verifica antes autorização RBAC, vínculo ativo do tenant, MFA/suporte, teto de API Token e origem da referência da versão técnica. O resolvedor **não** substitui esses gates e não autentica ninguém.
 
