@@ -129,3 +129,44 @@ test("recusa versão regressiva e argumentos extras", () => {
     assert.equal(JSON.parse(unknown.stderr).reason, "argumentos_invalidos");
   });
 });
+
+
+test("mudanças em telas de IA exigem revisão mesmo fora das APIs", () => {
+  withFixture("app/app/ai/providers/page.tsx", (dir) => {
+    const r = run(dir);
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(JSON.parse(r.stdout).files[0].reason, "core_nao_classificado_falha_fechada");
+  });
+});
+
+test("pacote, lockfile e configuração nova não ficam no caminho ordinário", () => {
+  for (const path of ["package.json", "pnpm-lock.yaml", "src/novo-adapter.ts", "next.config.ts"]) {
+    withFixture(path, (dir) => {
+      const r = run(dir);
+      assert.equal(r.status, 2, path + ": " + r.stderr);
+      const report = JSON.parse(r.stdout);
+      assert.equal(report.gate, "manual_review_required", path);
+      assert.equal(report.files[0].reason, "core_nao_classificado_falha_fechada", path);
+    });
+  }
+});
+
+test("mudanças no manifesto e capacidades de extensões exigem revisão", () => {
+  for (const path of ["lib/extensions/manifest.ts", "lib/extensions/capacidades.ts"]) {
+    withFixture(path, (dir) => {
+      const r = run(dir);
+      assert.equal(r.status, 2, path + ": " + r.stderr);
+      assert.equal(JSON.parse(r.stdout).files[0].risk, "review");
+    });
+  }
+});
+
+test("documentação comum sem execução permanece ordinária", () => {
+  withFixture("docs/guides/novo-guia.md", (dir) => {
+    const r = run(dir);
+    assert.equal(r.status, 0, r.stderr);
+    const report = JSON.parse(r.stdout);
+    assert.equal(report.files[0].reason, "documentacao_sem_execucao");
+    assert.match(report.provenance, /publicacao_nao_verificada/);
+  });
+});
