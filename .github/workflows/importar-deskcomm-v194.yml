@@ -1,0 +1,31 @@
+name: Importar DeskcommCRM v1.94.0
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Importar release oficial mantendo workflow autorizado
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --branch v1.94.0 https://github.com/melgarafael/DeskcommCRM.git upstream
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/OARANHA/elus360.git" bootstrap
+          cd upstream
+          test "$(git rev-parse HEAD)" = "ba24d4d366b7caf056b88553e0ed434cb0fb46de"
+          git rm -r --quiet -- .github/workflows
+          mkdir -p .github/workflows
+          cp ../bootstrap/.github/workflows/importar-deskcomm-v194.yml .github/workflows/
+          git add .github/workflows/importar-deskcomm-v194.yml
+          git -c user.name="ELUS 360 Import" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "chore(elus360): importar DeskcommCRM 1.94 preservando workflow autorizado"
+          git remote add elus360 "https://x-access-token:${GH_TOKEN}@github.com/OARANHA/elus360.git"
+          esperado="$(git -C ../bootstrap rev-parse HEAD)"
+          git push "--force-with-lease=refs/heads/main:${esperado}" elus360 HEAD:refs/heads/main
