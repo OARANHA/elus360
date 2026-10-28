@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "title": "ELUS 360 — Gate 2B — superfícies de mutação técnica de IA",
+  "source_main_sha": "7ba91446510d687e9232663cbf1fc3ff68d26c55",
+  "status": "INITIAL_INVENTORY_NOT_AUTHORIZATION",
+  "notice": "A listagem prova somente presença das entradas; NÃO prova segurança nem exaustividade. Rotas/Server Actions adicionais devem ser descobertas antes do runtime gate.",
+  "surfaces": [
+    {
+      "id": "ai-providers-point-put",
+      "path": "app/api/v1/ai/providers/route.ts",
+      "entry_point": "PUT",
+      "technical_effect": "provider,model,credential,base_url,is_enabled",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-providers-default-patch",
+      "path": "app/api/v1/ai/providers/route.ts",
+      "entry_point": "PATCH",
+      "technical_effect": "organization.settings.llm default_model/provider",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-credentials-create",
+      "path": "app/api/v1/ai/credentials/route.ts",
+      "entry_point": "POST",
+      "technical_effect": "credentials",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-credentials-change",
+      "path": "app/api/v1/ai/credentials/[id]/route.ts",
+      "entry_point": "PATCH",
+      "technical_effect": "credentials",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-credentials-delete",
+      "path": "app/api/v1/ai/credentials/[id]/route.ts",
+      "entry_point": "DELETE",
+      "technical_effect": "credentials",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-credentials-revalidate",
+      "path": "app/api/v1/ai/credentials/[id]/revalidate/route.ts",
+      "entry_point": "POST",
+      "technical_effect": "credentials metadata; assess distinction from key changes",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-agent-create",
+      "path": "app/api/v1/ai/agents/route.ts",
+      "entry_point": "POST",
+      "technical_effect": "initial provider/model from server or request",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-agent-edit",
+      "path": "app/api/v1/ai/agents/[id]/route.ts",
+      "entry_point": "PATCH",
+      "technical_effect": "legacy model field and business settings",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-agent-new-version",
+      "path": "app/api/v1/ai/agents/[id]/versions/route.ts",
+      "entry_point": "POST",
+      "technical_effect": "copy/create provider/model/credential/operator_model",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-agent-version-patch",
+      "path": "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
+      "entry_point": "PATCH",
+      "technical_effect": "provider/model/credential/operator_model",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-agent-publish",
+      "path": "app/api/v1/ai/agents/[id]/publish/route.ts",
+      "entry_point": "POST",
+      "technical_effect": "published version; enforce server referenced pair where needed",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ai-agent-duplicate",
+      "path": "app/api/v1/ai/agents/[id]/duplicate/route.ts",
+      "entry_point": "POST",
+      "technical_effect": "copy technical selections; verify no override",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "knowledge-provider",
+      "path": "app/api/v1/ai/knowledge/provedor/route.ts",
+      "entry_point": "PUT",
+      "technical_effect": "embedding family and reindex",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "onboarding-byok",
+      "path": "app/actions/onboarding/chaveDaIa.ts",
+      "entry_point": "salvarChaveDaIa",
+      "technical_effect": "BYOK and company LLM default",
+      "classification": "review",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "onboarding-defaults",
+      "path": "app/actions/onboarding/acceptWelcome.ts",
+      "entry_point": "acceptWelcome",
+      "technical_effect": "server-owned initial provider/model",
+      "classification": "server_owned",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "onboarding-agent",
+      "path": "app/actions/onboarding/createDefaultAgent.ts",
+      "entry_point": "createDefaultAgent",
+      "technical_effect": "server-created agent/version",
+      "classification": "server_owned",
+      "guard_status": "PENDING_REVIEW"
+    },
+    {
+      "id": "platform-admin-tenant-update",
+      "path": "app/api/v1/admin/tenants/[id]/route.ts",
+      "entry_point": "PATCH",
+      "technical_effect": "platform admin settings; verify no grants reintroduced",
+      "classification": "platform_admin",
+      "guard_status": "PENDING_REVIEW"
+    }
+  ]
+}
