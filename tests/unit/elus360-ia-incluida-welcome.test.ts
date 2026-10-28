@@ -85,7 +85,8 @@ describe("ELUS 360 — aviso de IA incluída antes do primeiro aceite", () => {
     expect(r.inteligencia.ofertaChutes).toBe("modelo_disponivel");
     expect(r.inteligencia.prontaParaPublicar).toBe(false); // não ativa agente antes do aceite
     const html = renderToStaticMarkup(createElement(JaEstaPronto, { retrato: r, idioma: "pt-BR" }));
-    expect(html).toContain("IA incluída no ELUS 360: Chutes.ai");
+    expect(html).not.toContain("Chutes.ai");
+    expect(html).toContain("IA incluída no ELUS 360 — disponível para ativar ao continuar");
     expect(html).not.toContain("Falta a chave da inteligência artificial");
     expect(html).not.toContain(CHUTES_ON.CHUTES_API_KEY);
   });
@@ -94,7 +95,8 @@ describe("ELUS 360 — aviso de IA incluída antes do primeiro aceite", () => {
     const r = await retrato({ catalogo: false });
     expect(r.inteligencia.ofertaChutes).toBe("catalogo_pendente");
     const html = renderToStaticMarkup(createElement(JaEstaPronto, { retrato: r, idioma: "pt-BR" }));
-    expect(html).toContain("catálogo de modelos pendente");
+    expect(html).toContain("IA incluída no ELUS 360 — chave configurada; catálogo de modelos pendente");
+    expect(html).not.toContain("Chutes.ai");
     expect(html).not.toContain("Falta a chave da inteligência artificial");
   });
 
