@@ -49,6 +49,8 @@ import {
   type ModeloExistente,
 } from "@/lib/ai/catalogo/sincronizar";
 import { logger } from "@/lib/logger";
+import { executarSincronizacoesIndependentes } from "@/lib/ai/catalogo/fontes-independentes";
+import { CHUTES_CATALOG_URL, FONTE_CHUTES, traduzirCatalogoChutes, type ModeloChutes } from "@/lib/ai/catalogo/chutes";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -126,6 +128,42 @@ async function buscarDaOpenRouter(): Promise<ModeloDaOpenRouter[]> {
   return json.data;
 }
 
+/**
+ * Fonte independente: só grava linhas source=chutes; jamais altera modelos
+ * semeados ou vindos da OpenRouter. Se a resposta vier vazia/parcial, recusa
+ * a depreciação em massa pela mesma régua do sincronizador oficial.
+ */
+async function sincronizarChutes(admin: ReturnType<typeof createAdminClient>) {
+  const resposta = await fetch(CHUTES_CATALOG_URL, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    headers: { accept: "application/json" },
+  });
+  if (!resposta.ok) throw new Error(`chutes_catalog_status_${resposta.status}`);
+  const json = (await resposta.json()) as { data?: ModeloChutes[] };
+  if (!Array.isArray(json.data)) throw new Error("chutes_catalog_shape_invalido");
+  const linhas = traduzirCatalogoChutes(json.data);
+  if (!linhas.length) throw new Error("chutes_catalog_sem_modelos_validos");
+  const { data: existentes, error } = await admin.from("ai_models")
+    .select("model_id, deprecated_at").eq("source", FONTE_CHUTES);
+  if (error) throw new Error(`chutes_catalog_leitura: ${error.message}`);
+  const plano = planejarSincronizacao(linhas, (existentes ?? []) as ModeloExistente[]);
+  const agora = new Date().toISOString();
+  if (plano.paraGravar.length) {
+    const { error: erro } = await admin.from("ai_models").upsert(
+      plano.paraGravar.map((l) => ({ ...l, synced_at: agora, deprecated_at: null })),
+      { onConflict: "provider,model_id" },
+    );
+    if (erro) throw new Error(`chutes_catalog_upsert: ${erro.message}`);
+  }
+  if (plano.paraDepreciar.length) {
+    const { error: erro } = await admin.from("ai_models")
+      .update({ deprecated_at: agora }).eq("source", FONTE_CHUTES)
+      .in("model_id", plano.paraDepreciar);
+    if (erro) throw new Error(`chutes_catalog_depreciacao: ${erro.message}`);
+  }
+  return { fonte: FONTE_CHUTES, recebidos: linhas.length, gravados: plano.paraGravar.length };
+}
+
 // Esta rota aceitava SÓ o primeiro segredo definido (`INTERNAL_CRON_SECRET ||
 // INTERNAL_SECRET`), e era a única das rotas de cron a fazer isso. O efeito era
 // 401 em toda instalação do kit: o `install.sh` gera os DOIS segredos com valores
@@ -141,29 +179,41 @@ async function handler(req: NextRequest): Promise<Response> {
   if (!autorizaCron(req)) {
     return fail("unauthorized", "cron secret ausente ou inválido", 401, { requestId });
   }
-  try {
-    const resultado = await sincronizarCatalogo(createAdminClient(), buscarDaOpenRouter);
-    logger.info("[sync-model-catalog] concluído", { ...resultado, request_id: requestId });
-    return ok(resultado, { requestId });
-  } catch (err) {
-    if (err instanceof CatalogoSuspeitoError) {
-      // Não é erro do servidor: a origem respondeu, e nós recusamos. 200 com o
-      // motivo, para o agendador não tratar como incidente e ficar retentando
-      // contra uma origem que está tendo problema.
-      logger.warn("[sync-model-catalog] rodada recusada pelo piso de sanidade", {
-        recebidos: err.recebidos,
-        conhecidos: err.conhecidos,
-        request_id: requestId,
-      });
-      return ok(
-        { fonte: FONTE_OPENROUTER, recusado: true, motivo: err.message },
-        { requestId },
-      );
-    }
-    const detalhe = err instanceof Error ? err.message : String(err);
-    logger.error("[sync-model-catalog] falhou", { error: detalhe, request_id: requestId });
-    return fail("cron_failed", detalhe, 500, { requestId });
+  // Cada fonte precisa rodar mesmo se a outra estiver indisponível.
+  // A falha de uma não pode impedir o catálogo da outra de atualizar.
+  const fontes = await executarSincronizacoesIndependentes(
+    () => sincronizarCatalogo(createAdminClient(), buscarDaOpenRouter),
+    () => sincronizarChutes(createAdminClient()),
+  );
+  const [openrouter, chutes] = fontes;
+  const erros: Record<string, string> = {};
+  if (openrouter.status === "rejected") {
+    erros[FONTE_OPENROUTER] = openrouter.reason instanceof CatalogoSuspeitoError
+      ? "catalogo_suspeito"
+      : "sincronizacao_falhou";
+    logger.warn("[sync-model-catalog] OpenRouter não sincronizado", {
+      motivo: erros[FONTE_OPENROUTER], request_id: requestId,
+    });
   }
+  if (chutes.status === "rejected") {
+    erros[FONTE_CHUTES] = "sincronizacao_falhou";
+    logger.warn("[sync-model-catalog] Chutes não sincronizado", {
+      motivo: erros[FONTE_CHUTES], request_id: requestId,
+    });
+  }
+  const sucessoOpenRouter = openrouter.status === "fulfilled" ? openrouter.value : null;
+  const sucessoChutes = chutes.status === "fulfilled" ? chutes.value : null;
+  if (!sucessoOpenRouter && !sucessoChutes) {
+    logger.error("[sync-model-catalog] nenhuma fonte sincronizada", {
+      fontes: Object.keys(erros), request_id: requestId,
+    });
+    return fail("cron_failed", "Nenhuma fonte de catálogo foi sincronizada", 503, { requestId });
+  }
+  logger.info("[sync-model-catalog] concluído", {
+    openrouter: sucessoOpenRouter, chutes: sucessoChutes,
+    fontes_com_erro: Object.keys(erros), request_id: requestId,
+  });
+  return ok({ openrouter: sucessoOpenRouter, chutes: sucessoChutes, erros }, { requestId });
 }
 
 export const GET = handler;

@@ -9,6 +9,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { audit } from "@/lib/audit";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { definirPadraoDeIaDaOrganizacao } from "@/lib/ai/pontos/padrao-da-organizacao";
 import { welcomeSchema } from "@/lib/schemas/onboarding";
 import { requireOnboardingCtx, patchOnboardingState, OnboardingError } from "./_shared";
 
@@ -75,6 +77,21 @@ export async function acceptWelcome(formData: FormData): Promise<AcceptWelcomeRe
       return { ok: false, error: "db_error", details: err.message };
     }
     throw err;
+  }
+
+  // ELUS 360: escolha SOMENTE no primeiro onboarding, sem alterar empresas
+  // existentes nem reutilizar o segredo na sessão do cliente. A seleção
+  // precisa gravar (provedor, modelo) juntos; sem catálogo, não muda nada.
+  if (process.env.ELUS_DEFAULT_AI_PROVIDER === "chutes" && process.env.CHUTES_API_KEY?.trim()) {
+    const padrao = await definirPadraoDeIaDaOrganizacao({
+      admin: createAdminClient(),
+      orgId: ctx.orgId,
+      actorUserId: ctx.userId,
+      provider: "chutes",
+    });
+    if (!padrao.ok) {
+      console.warn("[elus360-onboarding] Chutes não ativado no primeiro acesso:", padrao.motivo);
+    }
   }
 
   // MEDIDO percorrendo o wizard: o cabeçalho continuava dizendo "Minha Empresa"

@@ -302,6 +302,7 @@ const schema = z.object({
   // OpenAI. Opcional — sem ela nada muda; com ela o chat passa a ser roteado
   // por lá. Ver resolveLanguageModel() em lib/ai/gateway.ts.
   OPENROUTER_API_KEY: z.string().optional().default(""),
+  CHUTES_API_KEY: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z.string().optional().default(""),
   // Atribuição OPCIONAL da OpenRouter (`HTTP-Referer` / `X-Title`): identifica a
   // instalação no painel e no ranking público DELES. A doc da OpenRouter chama

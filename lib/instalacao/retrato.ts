@@ -120,7 +120,18 @@ export async function lerRetratoDaInstalacao(
       ? "instalacao"
       : "nenhuma";
 
-  const modeloCurado = (modelo?.model_id as string | undefined) ?? null;
+  // A Chutes sincroniza modelos sem marcar "is_default_for_provider".
+  // O onboarding já gravou provider+default_model pareados; provar no catálogo
+  // antes de anunciar "pronta para publicar" evita aviso falso de IA ausente.
+  const llmDaOrg = (orgRow?.settings as { llm?: { default_model?: string } } | null)?.llm;
+  const modeloEscolhido = provider === "chutes" ? llmDaOrg?.default_model : undefined;
+  const { data: modeloChutes } = modeloEscolhido
+    ? await supabase.from("ai_models").select("model_id")
+        .eq("provider", "chutes").eq("model_id", modeloEscolhido)
+        .eq("supports_tools", true).is("deprecated_at", null).maybeSingle()
+    : { data: null };
+  const modeloCurado = (modelo?.model_id as string | undefined) ??
+    (modeloChutes?.model_id as string | undefined) ?? null;
 
   return {
     empresa: {

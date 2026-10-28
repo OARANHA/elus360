@@ -407,6 +407,8 @@ export function validateProviderKey(
       return validateOpenRouterKey(apiKey);
     case "deepseek":
       return validateDeepSeekKey(apiKey);
+    case "chutes":
+      return validateCustomKey(apiKey, "https://llm.chutes.ai/v1");
     case "requesty":
       return validateRequestyKey(apiKey);
     case "custom":

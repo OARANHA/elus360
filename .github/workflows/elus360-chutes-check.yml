@@ -1,0 +1,39 @@
+name: ELUS 360 - Integração Chutes.ai
+on:
+  push:
+    branches: [feat/elus360-chutes-plataforma-20261028]
+  pull_request:
+    paths:
+      - 'lib/ai/pontos/provedores.ts'
+      - 'lib/ai/catalogo/chutes.ts'
+      - 'lib/agent-engine/**'
+      - 'lib/ai/runtime/agent.ts'
+      - 'lib/instalacao/ambiente.ts'
+      - 'app/api/v1/cron/sync-model-catalog/route.ts'
+      - 'tests/unit/elus360-chutes-plataforma.test.ts'
+concurrency:
+  group: elus360-chutes-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint de arquivos alterados
+        run: pnpm exec eslint lib/ai/pontos/provedores.ts lib/instalacao/ambiente.ts lib/agent-engine/env.ts lib/agent-engine/edge/llm/credentials.ts lib/agent-engine/edge/llm/providers.ts lib/ai/runtime/agent.ts lib/ai/provider-validators.ts lib/env.ts lib/ai/catalogo/chutes.ts app/api/v1/cron/sync-model-catalog/route.ts lib/ai/par-provedor-modelo.ts lib/agent-engine/edge/llm/capabilities.ts tests/unit/elus360-chutes-plataforma.test.ts
+      - name: Testes unitários pertinentes
+        run: pnpm exec vitest run tests/unit/elus360-chutes-plataforma.test.ts tests/unit/provedores-x-registry.test.ts lib/ai/provider-validators.test.ts
+      - name: Validar TypeScript
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm exec tsc --noEmit
