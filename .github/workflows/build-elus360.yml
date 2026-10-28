@@ -2,13 +2,6 @@ name: Build ELUS 360 v1.94.0
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/build-elus360.yml'
-      - 'Dockerfile'
-      - 'Dockerfile.worker'
-      - 'Dockerfile.scheduler'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
   workflow_dispatch:
 
 permissions:
