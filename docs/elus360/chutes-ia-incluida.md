@@ -13,7 +13,7 @@ Status: implementação em revisão, **não publicada em produção**. Origem: D
 ## Instalação e operação
 1. Cadastrar `CHUTES_API_KEY` no Portainer sem inserir segredo no GitHub.
 2. Definir `ELUS_DEFAULT_AI_PROVIDER=chutes` **apenas quando a integração tiver sido validada e publicada**.
-3. Rodar/verificar a sincronização do catálogo de modelos antes de receber os primeiros clientes. O cron atual só tenta Chutes após sucesso na chamada à OpenRouter; indisponibilidade da OpenRouter pode adiar o primeiro catálogo Chutes — pendência operacional a resolver antes do lançamento.
+3. Rodar/verificar a sincronização do catálogo de modelos antes de receber os primeiros clientes. O cron executa Chutes e OpenRouter de forma independente: falha de uma fonte não impede sincronizar a outra. Se ambas falharem, o endpoint responde 503; erro de uma fonte aparece como código sanitizado no resultado e nos logs. **Ainda não há prova operacional de sincronização na instalação nova.**
 4. Configurar limites de consumo de IA por organização/plano em `ai_budgets`; sem orçamento, o fallback compartilhado transfere todo o custo para a instalação. Validar o enforcement real em uma organização de teste.
 5. Validar jornada fresca (conta → organização → boas-vindas → treinar IA → criar/publicar agente → testar resposta por ferramentas), política de autorização e telemetria de custos; **CI unitário sozinho não basta**.
 
