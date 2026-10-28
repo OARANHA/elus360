@@ -178,38 +178,41 @@ async function handler(req: NextRequest): Promise<Response> {
   if (!autorizaCron(req)) {
     return fail("unauthorized", "cron secret ausente ou inválido", 401, { requestId });
   }
-  try {
-    const resultado = await sincronizarCatalogo(createAdminClient(), buscarDaOpenRouter);
-    // Falha de Chutes não pode impedir o catálogo da OpenRouter de atualizar.
-    let chutes: { fonte: string; recebidos: number; gravados: number } | null = null;
-    try {
-      chutes = await sincronizarChutes(createAdminClient());
-    } catch (err) {
-      logger.warn("[sync-model-catalog] Chutes não sincronizado", {
-        motivo: err instanceof Error ? err.message : "erro_desconhecido", request_id: requestId,
-      });
-    }
-    logger.info("[sync-model-catalog] concluído", { ...resultado, chutes, request_id: requestId });
-    return ok({ ...resultado, chutes }, { requestId });
-  } catch (err) {
-    if (err instanceof CatalogoSuspeitoError) {
-      // Não é erro do servidor: a origem respondeu, e nós recusamos. 200 com o
-      // motivo, para o agendador não tratar como incidente e ficar retentando
-      // contra uma origem que está tendo problema.
-      logger.warn("[sync-model-catalog] rodada recusada pelo piso de sanidade", {
-        recebidos: err.recebidos,
-        conhecidos: err.conhecidos,
-        request_id: requestId,
-      });
-      return ok(
-        { fonte: FONTE_OPENROUTER, recusado: true, motivo: err.message },
-        { requestId },
-      );
-    }
-    const detalhe = err instanceof Error ? err.message : String(err);
-    logger.error("[sync-model-catalog] falhou", { error: detalhe, request_id: requestId });
-    return fail("cron_failed", detalhe, 500, { requestId });
+  // Cada fonte precisa rodar mesmo se a outra estiver indisponível.
+  // A falha de uma não pode impedir o catálogo da outra de atualizar.
+  const fontes = await Promise.allSettled([
+    sincronizarCatalogo(createAdminClient(), buscarDaOpenRouter),
+    sincronizarChutes(createAdminClient()),
+  ]);
+  const [openrouter, chutes] = fontes;
+  const erros: Record<string, string> = {};
+  if (openrouter.status === "rejected") {
+    erros[FONTE_OPENROUTER] = openrouter.reason instanceof CatalogoSuspeitoError
+      ? "catalogo_suspeito"
+      : "sincronizacao_falhou";
+    logger.warn("[sync-model-catalog] OpenRouter não sincronizado", {
+      motivo: erros[FONTE_OPENROUTER], request_id: requestId,
+    });
   }
+  if (chutes.status === "rejected") {
+    erros[FONTE_CHUTES] = "sincronizacao_falhou";
+    logger.warn("[sync-model-catalog] Chutes não sincronizado", {
+      motivo: erros[FONTE_CHUTES], request_id: requestId,
+    });
+  }
+  const sucessoOpenRouter = openrouter.status === "fulfilled" ? openrouter.value : null;
+  const sucessoChutes = chutes.status === "fulfilled" ? chutes.value : null;
+  if (!sucessoOpenRouter && !sucessoChutes) {
+    logger.error("[sync-model-catalog] nenhuma fonte sincronizada", {
+      fontes: Object.keys(erros), request_id: requestId,
+    });
+    return fail("cron_failed", "Nenhuma fonte de catálogo foi sincronizada", 503, { requestId });
+  }
+  logger.info("[sync-model-catalog] concluído", {
+    openrouter: sucessoOpenRouter, chutes: sucessoChutes,
+    fontes_com_erro: Object.keys(erros), request_id: requestId,
+  });
+  return ok({ openrouter: sucessoOpenRouter, chutes: sucessoChutes, erros }, { requestId });
 }
 
 export const GET = handler;
