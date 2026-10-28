@@ -1,0 +1,52 @@
+name: ELUS 360 — verificação de integração visual
+on:
+  push:
+    branches:
+      - feat/elus360-login-publica-upstream-safe-20261028
+    paths:
+      - 'app/(public)/login/page.tsx'
+      - 'app/page.tsx'
+      - 'components/elus360/**'
+      - 'public/brand/elus/**'
+      - '.github/workflows/elus360-check.yml'
+  pull_request:
+    paths:
+      - 'app/(public)/login/page.tsx'
+      - 'app/page.tsx'
+      - 'components/elus360/**'
+      - 'public/brand/elus/**'
+      - 'components/auth/**'
+      - 'app/actions/auth/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validacao:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+      - name: Validar TypeScript
+        run: pnpm exec tsc --noEmit
+      - name: Lint das rotas personalizadas
+        run: pnpm exec eslint 'app/(public)/login/page.tsx' app/page.tsx components/elus360
+      - name: Verificar assets e rotas protegidas
+        run: |
+          set -euo pipefail
+          test -s public/brand/elus/login-hero.png
+          test -s public/brand/elus/logo-horizontal.png
+          test -s public/brand/elus/logo-symbol.png
+          grep -q 'LoginForm next={next} email={convite?.email}' 'app/(public)/login/page.tsx'
+          grep -q 'EntrarComGoogle next={next}' 'app/(public)/login/page.tsx'
+          grep -q 'if (user) redirect("/app")' app/page.tsx
+          grep -q '/legal/privacy' app/page.tsx
+          grep -q '/legal/terms' app/page.tsx
