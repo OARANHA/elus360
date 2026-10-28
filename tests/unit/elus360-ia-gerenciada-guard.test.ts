@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("server-only", () => ({}));
-
 import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
 
 const ORG_A = "11111111-1111-4111-8111-111111111111";
