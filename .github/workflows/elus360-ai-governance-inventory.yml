@@ -1,0 +1,26 @@
+name: ELUS 360 - IA Governance Surface Inventory
+
+on:
+  pull_request:
+    paths:
+      - "docs/elus360/ai-governance-write-surfaces.json"
+      - "docs/specs/elus360-ia-gerenciada-gate2b.md"
+      - "tests/operational/elus360-governanca-superficies.test.mjs"
+      - ".github/workflows/elus360-ai-governance-inventory.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  write-surface-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Sintaxe dos testes
+        run: node --check tests/operational/elus360-governanca-superficies.test.mjs
+      - name: Conferir superfícies inventariadas
+        run: node --test tests/operational/elus360-governanca-superficies.test.mjs
