@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { PROVEDOR_POR_ID } from "@/lib/ai/pontos/provedores";
 import { lerAmbiente, nomeAindaEhPlaceholder, type FonteDeAmbiente } from "@/lib/instalacao/ambiente";
+import { deveOferecerChutesIncluido, estadoChutesIncluido, type EstadoChutesIncluido } from "@/lib/elus360/onboarding/ia-incluida";
 
 export interface RetratoDaInstalacao {
   empresa: { nome: string | null; aindaSemNomeProprio: boolean };
@@ -29,6 +30,8 @@ export interface RetratoDaInstalacao {
     chaveDaOrg: { id: string; label: string; final: string } | null;
     modeloCurado: string | null;
     prontaParaPublicar: boolean;
+    /** Extensão ELUS: oferta ainda não aplicada à organização (sem prometer agente funcional). */
+    ofertaChutes?: EstadoChutesIncluido | null;
   };
   whatsapp: { transporteApontado: boolean; canais: { total: number; conectados: number } | null };
   email: { configurado: boolean };
@@ -59,11 +62,12 @@ export async function lerRetratoDaInstalacao(
   deps: DependenciasDoRetrato,
 ): Promise<RetratoDaInstalacao> {
   const { supabase, orgId } = deps;
-  const ambiente = lerAmbiente(deps.ambiente);
+  const fonte = deps.ambiente ?? process.env;
+  const ambiente = lerAmbiente(fonte);
 
   const { data: orgRow } = await supabase
     .from("organizations")
-    .select("slug, display_name, settings")
+    .select("slug, display_name, settings, onboarded_at, onboarding_state")
     .eq("id", orgId)
     .maybeSingle();
 
@@ -96,6 +100,23 @@ export async function lerRetratoDaInstalacao(
   const credencial = (credenciais ?? []).find((c) => c.validated_at !== null) ?? null;
   const emVerificacao =
     !credencial && (credenciais ?? []).some((c) => c.validated_at === null);
+
+  // ELUS: enquanto o primeiro passo não foi aceito, o padrão Anthropic do
+  // trigger não deve mascarar a chave Chutes fornecida pela instalação.
+  // Não muda a seleção persistida nem a precedência de credenciais BYOK.
+  const welcome = (orgRow?.onboarding_state as { welcome?: { accepted_at?: string } } | null)?.welcome;
+  const oferecerChutes = deveOferecerChutesIncluido({
+    ambiente: fonte,
+    provedorAtual: provider,
+    onboardingConcluido: Boolean(orgRow?.onboarded_at),
+    boasVindasAceitas: Boolean(welcome?.accepted_at),
+    credencialDaOrganizacao: Boolean(credencial || emVerificacao),
+  });
+  const { data: modeloDisponivelChutes } = oferecerChutes
+    ? await supabase.from("ai_models").select("model_id")
+        .eq("provider", "chutes").eq("supports_tools", true)
+        .is("deprecated_at", null).limit(1).maybeSingle()
+    : { data: null };
 
   const { data: modelo } = await supabase
     .from("ai_models")
@@ -154,6 +175,7 @@ export async function lerRetratoDaInstalacao(
       // Chave sem modelo no catálogo não publica agente — é o estado de uma
       // instalação nova em OpenRouter, cujo catálogo só chega no cron diário.
       prontaParaPublicar: origemDaChave !== "nenhuma" && Boolean(modeloCurado),
+      ofertaChutes: oferecerChutes ? estadoChutesIncluido(Boolean(modeloDisponivelChutes)) : null,
     },
     whatsapp: {
       transporteApontado: ambiente.transporteDeWhatsapp.apontado && ambiente.transporteDeWhatsapp.comChave,

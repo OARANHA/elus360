@@ -1,6 +1,7 @@
 import type { RetratoDaInstalacao } from "@/lib/instalacao/retrato";
 import type { Idioma } from "@/lib/i18n/idiomas";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { textoChutesIncluido } from "@/lib/elus360/onboarding/ia-incluida";
 
 /**
  * A primeira coisa que a pessoa lê no wizard: o que ela JÁ tem.
@@ -34,9 +35,12 @@ export function JaEstaPronto({
       // conferida, e nenhuma. A do meio existe porque a validação roda em
       // segundo plano — e dizer "falta a chave" a quem acabou de colá-la é a
       // frase que manda a pessoa cadastrar de novo o que já está lá.
-      pronto: retrato.inteligencia.origemDaChave !== "nenhuma",
-      texto:
-        retrato.inteligencia.origemDaChave !== "nenhuma"
+      pronto: retrato.inteligencia.ofertaChutes
+        ? retrato.inteligencia.ofertaChutes === "modelo_disponivel"
+        : retrato.inteligencia.origemDaChave !== "nenhuma",
+      texto: retrato.inteligencia.ofertaChutes
+        ? textoChutesIncluido(retrato.inteligencia.ofertaChutes, idioma)
+        : retrato.inteligencia.origemDaChave !== "nenhuma"
           ? `${t("Inteligência contratada:")} ${retrato.inteligencia.rotulo}`
           : retrato.inteligencia.chaveEmVerificacao
             ? t("Chave cadastrada — conferindo com a empresa de IA")
