@@ -3,7 +3,6 @@ import { precoChutesCents, traduzirCatalogoChutes } from "@/lib/ai/catalogo/chut
 import { createDefaultRegistry, CHUTES_ENDPOINT } from "@/lib/agent-engine/edge/llm/providers";
 import { llmEdgeConfigFromEnv } from "@/lib/agent-engine/edge/llm/credentials";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
-import { chaveDePlataforma } from "@/lib/ai/runtime/agent";
 import { validarParProvedorModelo } from "@/lib/ai/par-provedor-modelo";
 
 describe("Chutes.ai — IA incluída na instalação ELUS 360", () => {
