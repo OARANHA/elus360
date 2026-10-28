@@ -61,6 +61,8 @@ export const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com';
  * `https://router.eu.requesty.ai/v1`.
  */
 export const REQUESTY_ENDPOINT = 'https://router.requesty.ai/v1';
+/** Endpoint oficial Chutes.ai. */
+export const CHUTES_ENDPOINT = 'https://llm.chutes.ai/v1';
 
 /**
  * O endpoint do CODEX — o mesmo login do ChatGPT, falando a API de resposta.
@@ -374,6 +376,8 @@ export function createDefaultRegistry(opts?: {
      * `.chat()` pela mesma razão também: Chat Completions é o formato que o
      * roteador serve para qualquer família de modelo.
      */
+    chutes: (apiKey, modelId) =>
+      createOpenAI({ apiKey, baseURL: CHUTES_ENDPOINT, fetch: contain(CHUTES_ENDPOINT) }).chat(modelId),
     requesty: (apiKey, modelId, baseUrl) => {
       const endpoint = baseUrl ?? REQUESTY_ENDPOINT;
       return createOpenAI({ apiKey, baseURL: endpoint, fetch: contain(endpoint) }).chat(modelId);
