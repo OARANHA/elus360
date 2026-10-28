@@ -83,4 +83,4 @@ As rotas de versões, configurações da empresa, fluxos e workers precisam ser 
 - [Governança anterior](https://github.com/OARANHA/elus/blob/main/lib/ai/governanca-da-ia.ts) e [PR #18](https://github.com/OARANHA/elus/pull/18).
 - [Qwen3 anterior](https://github.com/OARANHA/crm-wandora/blob/main/lib/ai/embeddings/chutes-qwen3-tee.ts) e [PR #121](https://github.com/OARANHA/crm-wandora/pull/121).
 
-**Estado nesta PR:** documentação APROVADA para revisão, contrato IMPLEMENTADO se acompanhado dos arquivos correspondentes, governança no runtime NÃO IMPLEMENTADA, embeddings da instalação NÃO IMPLEMENTADOS.
+**Estado nesta PR:** especificação PROPOSTA/EM REVISÃO; contrato puro IMPLEMENTADO e sujeito ao CI; governança no runtime NÃO IMPLEMENTADA, embeddings da instalação NÃO IMPLEMENTADOS.
