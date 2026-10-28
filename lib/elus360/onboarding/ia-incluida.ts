@@ -31,6 +31,7 @@ export function deveOferecerChutesIncluido(ctx: ContextoOfertaChutes): boolean {
 }
 
 /** Rótulo verdadeiro: modelo compatível no catálogo é diferente de chave existente. */
+// A origem técnica (Chutes) fica interna: o cliente vê a IA incluída na marca ELUS.
 export function estadoChutesIncluido(modeloComFerramentas: boolean): EstadoChutesIncluido {
   return modeloComFerramentas ? "modelo_disponivel" : "catalogo_pendente";
 }
@@ -41,10 +42,10 @@ export function textoChutesIncluido(
 ): string {
   if (idioma === "es") {
     return estado === "modelo_disponivel"
-      ? "IA incluida en ELUS 360: Chutes.ai — disponible para activar al continuar"
-      : "IA incluida en ELUS 360: Chutes.ai — clave configurada; catálogo de modelos pendiente";
+      ? "IA incluida en ELUS 360 — disponible para activar al continuar"
+      : "IA incluida en ELUS 360 — clave configurada; catálogo de modelos pendiente";
   }
   return estado === "modelo_disponivel"
-    ? "IA incluída no ELUS 360: Chutes.ai — disponível para ativar ao continuar"
-    : "IA incluída no ELUS 360: Chutes.ai — chave configurada; catálogo de modelos pendente";
+    ? "IA incluída no ELUS 360 — disponível para ativar ao continuar"
+    : "IA incluída no ELUS 360 — chave configurada; catálogo de modelos pendente";
 }
