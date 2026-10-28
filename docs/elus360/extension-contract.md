@@ -25,6 +25,25 @@
 
 O sistema de extensões (`lib/extensions/manifest.ts`) aceita perfis declarativos/de dados e contribuições limitadas, não plugins arbitrários que substituam o runtime de autenticação e agentes. Logo, governança e embeddings devem ser *módulos de código ELUS* compilados nas nossas imagens, com integração mínima e explícita às rotas oficiais. Módulos de negócio e extensões originais permanecem intactos.
 
+## Reuso obrigatório da plataforma oficial de extensões (ADR-0005)
+
+**Reconciliação em 28/10/2026.** Verificados `melgarafael/DeskcommCRM/main` (`f13d26f6`) e `OARANHA/elus360/main` (`0693fc8d`): `docs/doctrine/extensoes.md`, `docs/adr/0005-plataforma-de-modulos-de-terceiro.md`, `lib/extensions/manifest.ts` e `lib/extensions/capacidades.ts` possuíam os mesmos blobs. A [ADR-0005](https://github.com/melgarafael/DeskcommCRM/blob/main/docs/adr/0005-plataforma-de-modulos-de-terceiro.md) é a autoridade arquitetural para **módulos de terceiro**, sem substituir o núcleo.
+
+| Classe oficial | Estado comprovado no código | Uso proposto no ELUS |
+| --- | --- | --- |
+| `declarative` | **IMPLEMENTADA**: manifesto JSON estrito; cards, tema e portas de navegação fechadas | Guias, aparência e navegação sem lógica privilegiada |
+| `data` | **PARCIAL** (onda 1a): objetos declarados, tabelas compiladas pelo host, leitura e fichas no contato; faltam escrita/telas próprias/LGPD/reaplicação completa | Dados adicionais de nichos após gates de tenancy e manutenção |
+| `connected` | **PROPOSTA O2**; ainda não aceita pelo `ExtensionManifest` atual | Futuras integrações externas, quando o upstream fornecer os contratos e provas |
+| `hosted` | **ADIADA**; executor Wasm não disponível | Não planejar como dependência do ELUS atual |
+
+**As classes oficiais não recebem código executável no processo Next/worker** e suas capacidades efetivas são as de `lib/extensions/capacidades.ts`: `tasks.open`, `inbox.open`, `kanban.open`, `contacts.open`, `agenda.open`, `radar.open`. Credenciais, configurações administrativas, webhooks e provedores de IA ficam **fora** desse contrato. O núcleo é responsável por autenticação, autorização, RLS, auditoria, infraestrutura de IA e envio; instalar extensão **não** concede autorização técnica.
+
+**Decisão de integração ELUS:** não construir catálogo ou instalador de extensões paralelo. Entregar capacidades de nicho pelas extensões nativas quando o contrato presente atender; preservar no **núcleo** os guards de autorização, seleção segura de provider/modelo e embeddings — via adaptadores de código ELUS com pontos de integração pequenos, explícitos e testados. Uma futura API oficial mais capaz poderá substituir alguns adaptadores **após** prova de equivalência/migração, sem comprometer o núcleo com zero extensões ativas.
+
+A ADR-0005 D6 proíbe extensões de terceiro no caminho quente de ingestão, turno do agente e envio. Não resolver proteção de IA ou embeddings por chamada de serviço de extensão a cada turno. Novos ganchos oficiais só entram mediante consumidor real, contrato e prova dos dois lados (D10). Atualização do upstream não é autorização para migrar recursos já entregues silenciosamente (doutrina, não-negociável 12).
+
+Referências: [Doutrina](https://github.com/melgarafael/DeskcommCRM/blob/main/docs/doctrine/extensoes.md), [ADR-0005](https://github.com/melgarafael/DeskcommCRM/blob/main/docs/adr/0005-plataforma-de-modulos-de-terceiro.md), [Spec atual](https://github.com/melgarafael/DeskcommCRM/blob/main/docs/specs/extensoes-declarativas-v1.md).
+
 ## Contratos a portar seletivamente — não copiar cegamente
 
 1. **Autorização técnica:** contrato original `OARANHA/elus/lib/ai/governanca-da-ia.ts`, `governanca-da-ia-contrato.ts` e painel `TenantAiPermissions.tsx`. Política falha-fechada; autorização de escrita no backend, não apenas ocultação de Credenciais/Provedores. Apenas Platform Admin full/MFA quando aplicável concede poderes, sempre com auditoria.
