@@ -17,13 +17,21 @@ O leitor fornecido pelo chamador futuro precisa resolver a coluna `organizations
 | Reenvio idêntico com leitura bem-sucedida | Permitido sem grant adicional |
 | Grant `true` para outro tenant | Não se herda: filtro sempre por organização autenticada |
 
-**Nenhuma rota chama ainda este resolvedor.** Isso evita falhar parcialmente na instalação antes da migration e não confunde pré-código com segurança concluída.
+**Nenhuma rota de configuração do tenant chama ainda este resolvedor.** Isso evita falhar parcialmente na instalação antes da migration e não confunde pré-código com segurança concluída.
+
+### API isolada do Superadmin (adicionada nesta PR)
+
+Foi portada seletivamente a rota `app/api/v1/admin/tenants/[id]/ai-permissions/route.ts` do ELUS anterior, adaptada aos módulos atuais. GET exige `requirePlatformAdmin` e apenas lê `ai_autonomy`. PATCH exige `requireSupportWrite` e `requirePlatformAdminEscrita` (full/MFA), corpo estrito com os quatro booleanos, leitura anterior no servidor, gravação CAS na mesma coluna e auditoria após sucesso. Uma atualização concorrente retorna conflito sem conceder permissões. Não altera `organizations.settings`.
+
+**Não está operacional sem a migration**: a coluna `ai_autonomy` ainda não existe na instalação. Nessa condição, GET/PATCH respondem erro e não alteram grants. Nenhuma tela liga essa API e nenhuma rota de cliente teve seus guards ativados. A query de comparação de JSONB no PostgREST ainda requer teste de integração contra Postgres descartável e cenário de concorrência real; mocks não comprovam CAS no banco. Não habilitar a UI antes desses testes.
+
+O teste `app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts` cobre suporte/escopo negados, input malformado, falta de coluna, não-escrita idempotente, CAS sem linha, auditoria e leitura isolada. Os mocks demonstram o fluxo, **não** a autenticação/MFA real nem a semântica de CAS no PostgreSQL.
 
 ## Bloqueios para ativação
 
 1. Confrontar `supabase/migrations` e PRs de schema em voo para reservar número e timestamp sem colisão.
 2. Criar migration nova com `organizations.ai_autonomy` e proteção em banco, com `-- manifest:` no cabeçalho; **também** adicionar apêndice idempotente ao `supabase/baseline.sql`, preservando o dump existente. Não editar `MANIFEST.md` histórico. Cumprir `CLAUDE.md` (tripla migration + baseline + manifest), testes fresh/update Postgres e revisão de permissões/RLS.
-3. Adicionar API e painel somente para Superadmin full/MFA, escrita CAS e auditoria; impedir grant por tenant, API Token, support e impersonation. Não usar `organizations.settings` como fonte de grants.
+3. Validar contra Postgres a API de Superadmin full/MFA já adicionada em PR: CAS e auditoria; depois adicionar painel e impedir grant por tenant, API Token, support e impersonation. Não usar `organizations.settings` como fonte de grants.
 4. Integrar todos os caminhos relevantes do [inventário inicial](../elus360/ai-governance-write-surfaces.json), atualizando-o à medida que a enumeração se tornar exaustiva. Cobrir a `PATCH` de provider padrão, os métodos de credenciais, edição/publicação/duplicação de agentes, versão, onboarding e alterações do provedor da base; testar URL direta, API Tokens e concorrência.
 5. Ativar apenas após coordenação schema↔código, CI green, imagens GHCR por SHA, deploy Portainer seguro, health/version e canário. Sem force/reset, sem builds pesados na VPS, sem canário antecipado.
 
