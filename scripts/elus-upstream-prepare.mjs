@@ -93,7 +93,14 @@ function riskFor(path) {
     path.startsWith("hostgator-setup-kit/")
   ) return { risk: "review", reason: "infraestrutura_e_release" };
 
-  return { risk: "ordinary", reason: "revisar_diff_normal" };
+  // Falha fechada: mudanças novas em rota, componente, configuração ou script
+  // não podem passar como seguras só porque o caminho não estava no inventário.
+  if (
+    /^(?:README|CHANGELOG|CONTRIBUTING|LICENSE)(?:\.[A-Za-z0-9_-]+)?$/.test(path) ||
+    (path.startsWith("docs/") && /\.(?:md|mdx|txt)$/.test(path))
+  ) return { risk: "ordinary", reason: "documentacao_sem_execucao" };
+
+  return { risk: "review", reason: "core_nao_classificado_falha_fechada" };
 }
 
 function main() {
@@ -155,6 +162,7 @@ function main() {
         tool: "elus-upstream-prepare",
         mode: "read_only",
         source: "melgarafael/DeskcommCRM",
+        provenance: "refs_git_locais; origem_remota_conferida_por_nome; publicacao_nao_verificada",
         fork: "OARANHA/elus360",
         fork_main_sha: git("rev-parse", "--verify", "main"),
         from: { release: from, sha: fromSha },
@@ -166,7 +174,7 @@ function main() {
             : "analysis_ready",
         totals,
         files,
-        note: "Nao fez merge nem provou compatibilidade funcional. Revisao, CI e gates de banco e deploy sao obrigatorios.",
+        note: "Refs locais e main local nao comprovam release publicada ou remoto sincronizado; confira GitHub oficial. Sem merge/compatibilidade funcional/deploy; revisao, CI e gates de banco/deploy obrigatorios.",
       },
       null,
       2,
