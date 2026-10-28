@@ -22,11 +22,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: deskcommcrm
+          - name: elus360-app
             dockerfile: Dockerfile
-          - name: deskcomm-worker
+          - name: elus360-worker
             dockerfile: Dockerfile.worker
-          - name: deskcomm-scheduler
+          - name: elus360-scheduler
             dockerfile: Dockerfile.scheduler
     steps:
       - uses: actions/checkout@v4
