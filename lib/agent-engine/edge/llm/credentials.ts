@@ -56,6 +56,7 @@ export interface LlmEdgeConfig {
    * era mudo: 5 tentativas, `media_derived_status='failed'`, zero avisos.
    */
   openrouterApiKey?: string;
+  chutesApiKey?: string;
   /**
    * TTL do prefixo estável de cache (knob LLM_CACHE_TTL). Opcional para quem
    * monta a config na mão (testes) — o seam aplica a doutrina '1h' quando ausente.
@@ -96,6 +97,7 @@ export function llmEdgeConfigFromEnv(env: {
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
+  CHUTES_API_KEY?: string;
   LLM_CACHE_TTL?: string;
   AI_BUDGET_ENFORCEMENT?: string;
   DEEPSEEK_THINKING?: string;
@@ -112,6 +114,7 @@ export function llmEdgeConfigFromEnv(env: {
     ...(env.ANTHROPIC_API_KEY ? { anthropicApiKey: env.ANTHROPIC_API_KEY } : {}),
     ...(env.OPENAI_API_KEY ? { openaiApiKey: env.OPENAI_API_KEY } : {}),
     ...(env.OPENROUTER_API_KEY ? { openrouterApiKey: env.OPENROUTER_API_KEY } : {}),
+    ...(env.CHUTES_API_KEY ? { chutesApiKey: env.CHUTES_API_KEY } : {}),
     cacheTtl: ttl,
     deepseekThinking: raciocinio,
     // Sem `if` de valor vazio, ao contrário das chaves acima: aqui o ausente
@@ -447,6 +450,9 @@ export async function resolveOrgLlmConfig(
     origemDaChave = 'chave_da_instalacao';
   } else if (provider === 'openrouter' && cfg.openrouterApiKey) {
     apiKey = cfg.openrouterApiKey;
+    origemDaChave = 'chave_da_instalacao';
+  } else if (provider === 'chutes' && cfg.chutesApiKey) {
+    apiKey = cfg.chutesApiKey;
     origemDaChave = 'chave_da_instalacao';
   } else {
     throw new LlmNotConfiguredError();
