@@ -1,5 +1,3 @@
-import "server-only";
-
 import {
   avaliarAutonomiaParaMudanca,
   type CamposTecnicosIa,
@@ -13,6 +11,7 @@ import {
  * O chamador precisa validar autenticação, RBAC/tenant, API Token e o orgId
  * antes de invocar esta função. Nunca aceitar orgId ou "anterior" do body.
  *
+ * Este módulo é para chamadas exclusivas do servidor; não contém I/O nem segredos.
  * O acesso à coluna ai_autonomy é injetado, para não criar um acesso com
  * service_role escondido em uma rota comum. O adaptador real deve ser testado
  * contra auth e RLS antes da ligação no runtime.
