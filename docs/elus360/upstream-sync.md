@@ -33,6 +33,13 @@ node scripts/elus-upstream-prepare.mjs --from v1.94.0 --to v1.95.0
 
 A etapa de `git fetch` atualiza apenas refs no checkout de desenvolvimento. O analisador em si **não faz fetch, checkout, merge, push, escrita de arquivos, acesso ao banco ou chamadas externas**. Requer `origin` apontando para `OARANHA/elus360`, `upstream` para `melgarafael/DeskcommCRM`, `main` ativa, working tree limpa, duas refs de release existentes e ancestralidade progressiva entre elas.
 
+### Limites do diagnóstico e proveniência
+
+- O comando confere o **nome e endereço configurado do remoto** e examina apenas as refs Git locais. Isso **não comprova por si só** que elas foram baixadas da release oficial, que a tag foi assinada ou que o `main` local está sincronizado com GitHub. Confrontar release/tag, commit (inclusive tag anotada) e `main` com o GitHub antes de qualquer PR de atualização.
+- **Falha fechada para caminhos novos:** código, componentes de UI, `package.json`, lockfile, scripts, configuração, pipelines e caminhos não classificados exigem revisão manual. Apenas documentação textual comum fora de `docs/elus360/` é ordinária. Um arquivo do upstream colidindo com a camada ELUS bloqueia a análise.
+- `analysis_ready` é apenas uma classificação de caminhos, **não uma autorização de merge**. O analisador não detecta incompatibilidades semânticas entre o código ELUS e o upstream, não valida RLS, não garante ausência de regressões nem é um verificador de integridade criptográfica de tags.
+- A [ADR-0005 do DeskcommCRM](https://github.com/melgarafael/DeskcommCRM/blob/main/docs/adr/0005-plataforma-de-modulos-de-terceiro.md) é referência de reutilização. Extensões `connected` e `hosted` não estão disponíveis na implementação atual; integrações de segurança/runtime permanecem em adaptadores próprios ELUS com gates no núcleo (ver [contrato](./extension-contract.md)).
+
 ### Códigos de saída
 
 | Código | Resultado | Procedimento |
