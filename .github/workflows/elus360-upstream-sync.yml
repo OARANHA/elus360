@@ -1,0 +1,27 @@
+name: ELUS 360 - Upstream Sync Gate 1
+
+on:
+  pull_request:
+    paths:
+      - "docs/elus360/extension-contract.md"
+      - "docs/elus360/upstream-sync.md"
+      - "scripts/elus-upstream-prepare.mjs"
+      - "tests/operational/elus-upstream-prepare.test.mjs"
+      - ".github/workflows/elus360-upstream-sync.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contrato-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Sintaxe do analisador
+        run: node --check scripts/elus-upstream-prepare.mjs
+      - name: Gates sem rede externa, banco ou Docker
+        run: node --test tests/operational/elus-upstream-prepare.test.mjs
