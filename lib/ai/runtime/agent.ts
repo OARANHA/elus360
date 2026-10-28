@@ -35,6 +35,7 @@ import {
   OPENAI_CODEX_ENDPOINT,
   OPENROUTER_ENDPOINT,
   REQUESTY_ENDPOINT,
+  CHUTES_ENDPOINT,
 } from "@/lib/agent-engine/edge/llm/providers";
 import { CredentialUnavailableError, loadCredential } from "@/lib/ai/credentials";
 import { lerLoginCodexRenovandoSeProxima } from "@/lib/ai/credenciais/login-codex";
@@ -169,7 +170,7 @@ function buildSentinelRegex(keywords: string[]): RegExp | null {
  * lá não existe faria o ensaio passar e a mensagem real falhar.
  */
 export function chaveDePlataforma(provider: string): string | null {
-  const nome = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY" }[
+  const nome = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY", chutes: "CHUTES_API_KEY" }[
     provider
   ];
   if (!nome) return null;
@@ -228,6 +229,8 @@ export function buildModel(
     // Requesty: roteador OpenAI-compatível, pelo mesmo `.chat()` do registry.
     case "requesty":
       return createOpenAI({ apiKey, baseURL: REQUESTY_ENDPOINT }).chat(modelId);
+    case "chutes":
+      return createOpenAI({ apiKey, baseURL: CHUTES_ENDPOINT }).chat(modelId);
     // Provedor personalizado (#1642): o endereço vem da credencial, junto da
     // chave. SEM endereço a chamada é RECUSADA — ensaio que fosse para a
     // OpenAI com a chave de um gateway privado diria que o produto não
