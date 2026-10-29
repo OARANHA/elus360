@@ -10,9 +10,9 @@ GRANT SELECT, UPDATE, INSERT ON public.organizations TO authenticated, service_r
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('request.jwt.claim.role', true), '')
 $$;
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $auth_uid$
   SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
-$;
+$auth_uid$;
 -- Supabase concede USAGE no schema auth aos papeis de API; simular esse contrato.
 GRANT USAGE ON SCHEMA auth TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.role(), auth.uid() TO authenticated, service_role;
