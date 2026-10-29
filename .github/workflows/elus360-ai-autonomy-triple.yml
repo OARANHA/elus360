@@ -11,6 +11,7 @@ on:
       - "tests/operational/elus360-ai-autonomy-concurrency.sh"
       - ".github/workflows/elus360-ai-autonomy-triple.yml"
       - "lib/elus360/ai-managed/**"
+      - "lib/ai/credenciais/**"
       - "app/api/v1/ai/**"
       - "app/app/ai/agents/[id]/_actions.ts"
       - "app/api/v1/admin/tenants/**/ai-permissions/**"
