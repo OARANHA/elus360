@@ -21,6 +21,11 @@ import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/a
 import { versionCreateSchema } from "@/lib/ai/agents/validation";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
+
+
+
+
 
 export const dynamic = "force-dynamic";
 
@@ -117,106 +122,129 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
 
   const admin = createAdminClient();
 
-  // Ordering: insert with retry on 23505 (race com unique(agent_id,version_number)).
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const { data: maxRow } = await admin
-      .from("ai_agent_versions")
-      .select("version_number")
-      .eq("agent_id", id)
-      .eq("organization_id", organizationId)
-      .order("version_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  // A nova versão deve herdar a referência técnica da versão mais recente
+  // deste agente, lida do servidor. Nunca confiar em estado anterior do body.
+  // Sem versão de referência não é possível autorizar uma seleção técnica.
+  const { data: referencia, error: erroReferencia } = await admin
+    .from("ai_agent_versions")
+    .select("provider, model, credential_id, operator_model")
+    .eq("organization_id", organizationId)
+    .eq("agent_id", id)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (erroReferencia || !referencia)
+    return fail("configuracao_ia_indisponivel", "Versão de referência de IA indisponível.", 503, { requestId });
 
-    // ⚠️ FALHA FECHADA: `credential_id: null` significa "usa a chave da
-    // instalação". Se ela não existir para este provedor, a versão seria
-    // publicada para morrer em toda mensagem — e o dono só descobriria com o
-    // primeiro cliente. O schema valida FORMA; quem conhece o ambiente do
-    // servidor é esta rota.
-    if (v.credential_id === null && lerAmbiente().chavesDeProvedor[v.provider] !== true) {
-      return fail(
-        "credential_required",
-        `Esta instalação não tem chave de ${v.provider} no ambiente. Cadastre uma chave em IA › Credenciais ou escolha outra empresa de inteligência artificial.`,
-        422,
-        { requestId },
-      );
-    }
-
-    // O escopo aponta para coisas que EXISTEM nesta organização. Sem esta
-    // conferência, um id de outra organização (ou de um material apagado) entra
-    // no array, a versão é publicada, e o assistente não acha nada — sem erro,
-    // com a tela mostrando a marcação como se estivesse valendo.
-    const escopo = await validarEscopoDaVersao(admin, organizationId, {
-      provider: v.provider,
-      pipeline_ids: v.pipeline_ids,
-      knowledge_source_ids: v.knowledge_source_ids,
-      credential_id: v.credential_id,
-      channel_session_id: v.channel_session_id,
-    });
-    if (!escopo.ok) {
-      return fail(codigoDoEscopo(escopo), mensagemDoEscopo(escopo), 422, { requestId });
-    }
-
-    const nextNumber = (maxRow?.version_number ?? 0) + 1;
-
-    const { data, error } = await admin
-      .from("ai_agent_versions")
-      .insert({
-        organization_id: organizationId,
-        agent_id: id,
-        version_number: nextNumber,
-        system_prompt: v.system_prompt,
-        provider: v.provider,
-        model: v.model,
-        credential_id: v.credential_id,
-        tool_ids: v.tool_ids,
-        trigger_config: v.trigger_config ?? undefined,
-        channel_session_id: v.channel_session_id,
-        max_steps: v.max_steps,
-        token_budget: v.token_budget,
-        cost_budget_cents: v.cost_budget_cents,
-        history_message_window: v.history_message_window,
-        history_token_window: v.history_token_window,
-        handoff_keywords: v.handoff_keywords,
-        handoff_tool_enabled: v.handoff_tool_enabled,
-        handoff_legal_enabled: v.handoff_legal_enabled,
-        proposal_ai_draft_enabled: v.proposal_ai_draft_enabled,
-        cases_enabled: v.cases_enabled,
-        split_messages: v.split_messages,
-        split_max_chars: v.split_max_chars,
-        inbound_debounce_ms: v.inbound_debounce_ms,
-        followup: v.followup,
-        // Mesmo descarte silencioso da rota de criação de agente: o corpo aceita
-        // e o INSERT ignorava. Criar uma versão nova pela API com escopo ou
-        // acervo produzia uma versão vazia, com 201.
-        operator_enabled: v.operator_enabled,
-        operator_model: v.operator_model,
-        operator_tool_ids: v.operator_tool_ids,
-        pipeline_ids: v.pipeline_ids,
-        knowledge_source_ids: v.knowledge_source_ids,
-        status: "draft",
-        created_by: authUserId,
-      })
-      .select(VERSION_COLUMNS)
-      .single();
-
-    if (!error && data) {
-      void audit({
-        action: "ai_agent.version_created",
-        actorUserId: authUserId,
-        actorApiTokenId: apiTokenId ?? null,
-        organizationId,
-        resourceType: "ai_agent_version",
-        resourceId: data.id,
-        requestId,
-        metadata: { agent_id: id, version_number: nextNumber },
-      });
-      return ok(data, { status: 201, requestId });
-    }
-    if (error?.code !== "23505") {
-      return fail("internal_error", "Erro ao criar version.", 500, { requestId });
-    }
+  const propostaTecnica = {
+    provider: v.provider,
+    model: v.model,
+    credential_id: v.credential_id,
+    operator_model: v.operator_model,
+  };
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: authz.via,
+    authUserId,
+    organizationId,
+    anteriorDoServidor: referencia,
+    propostaValidada: propostaTecnica,
+  }))) {
+    return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
   }
 
-  return fail("internal_error", "Conflito de versionamento — tente novamente.", 500, { requestId });
+  // ⚠️ FALHA FECHADA: `credential_id: null` significa "usa a chave da
+  // instalação". Se ela não existir para este provedor, a versão seria
+  // publicada para morrer em toda mensagem — e o dono só descobriria com o
+  // primeiro cliente. O schema valida FORMA; quem conhece o ambiente do
+  // servidor é esta rota.
+  if (v.credential_id === null && lerAmbiente().chavesDeProvedor[v.provider] !== true) {
+    return fail(
+      "credential_required",
+      `Esta instalação não tem chave de ${v.provider} no ambiente. Cadastre uma chave em IA › Credenciais ou escolha outra empresa de inteligência artificial.`,
+      422,
+      { requestId },
+    );
+  }
+
+  // O escopo aponta para coisas que EXISTEM nesta organização. Sem esta
+  // conferência, um id de outra organização (ou de um material apagado) entra
+  // no array, a versão é publicada, e o assistente não acha nada — sem erro,
+  // com a tela mostrando a marcação como se estivesse valendo.
+  const escopo = await validarEscopoDaVersao(admin, organizationId, {
+    provider: v.provider,
+    pipeline_ids: v.pipeline_ids,
+    knowledge_source_ids: v.knowledge_source_ids,
+    credential_id: v.credential_id,
+    channel_session_id: v.channel_session_id,
+  });
+  if (!escopo.ok) {
+    return fail(codigoDoEscopo(escopo), mensagemDoEscopo(escopo), 422, { requestId });
+  }
+
+  // Transação única: bloqueia organização, referencia a versão mais recente
+  // no servidor e cria a próxima versão após conferir grants atuais.
+  const { data, error } = await admin.rpc("fn_elus_ai_version_create_guarded", {
+    p_org: organizationId,
+    p_agent: id,
+    p_payload: {
+      system_prompt: v.system_prompt,
+      provider: v.provider,
+      model: v.model,
+      credential_id: v.credential_id,
+      tool_ids: v.tool_ids,
+      trigger_config: v.trigger_config,
+      channel_session_id: v.channel_session_id,
+      max_steps: v.max_steps,
+      token_budget: v.token_budget,
+      cost_budget_cents: v.cost_budget_cents,
+      history_message_window: v.history_message_window,
+      history_token_window: v.history_token_window,
+      handoff_keywords: v.handoff_keywords,
+      handoff_tool_enabled: v.handoff_tool_enabled,
+      handoff_legal_enabled: v.handoff_legal_enabled,
+      proposal_ai_draft_enabled: v.proposal_ai_draft_enabled,
+      cases_enabled: v.cases_enabled,
+      split_messages: v.split_messages,
+      split_max_chars: v.split_max_chars,
+      inbound_debounce_ms: v.inbound_debounce_ms,
+      followup: v.followup,
+      operator_enabled: v.operator_enabled,
+      operator_model: v.operator_model,
+      operator_tool_ids: v.operator_tool_ids,
+      pipeline_ids: v.pipeline_ids,
+      knowledge_source_ids: v.knowledge_source_ids,
+      created_by: authUserId,
+    },
+    p_platform_bypass: authz.via === "session" && (await (async () => {
+      const { loadAuthUser } = await import("@/lib/auth/server");
+      const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+      const usuario = await loadAuthUser();
+      if (!usuario || usuario.id !== authUserId || !podeGerenciarIaDaPlataforma(usuario)) return false;
+      try {
+        const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+        await requirePlatformAdminEscrita();
+        return true;
+      } catch { return false; }
+    })()),
+  });
+  if (error) return fail("internal_error", "Erro ao criar versão.", 500, { requestId });
+  if (!data || typeof data !== "object" || Array.isArray(data))
+    return fail("internal_error", "Resposta inválida da criação transacional.", 500, { requestId });
+  if ("error" in data) {
+    if (data.error === "forbidden_platform_ai")
+      return fail("forbidden_platform_ai", "Permissão técnica revogada ou indisponível.", 403, { requestId });
+    if (data.error === "agent_not_found") return fail("not_found", "Agent não encontrado.", 404, { requestId });
+    return fail("version_conflict", "Versão de referência indisponível. Recarregue.", 409, { requestId });
+  }
+  void audit({
+    action: "ai_agent.version_created",
+    actorUserId: authUserId,
+    actorApiTokenId: apiTokenId ?? null,
+    organizationId,
+    resourceType: "ai_agent_version",
+    resourceId: data.id,
+    requestId,
+    metadata: { agent_id: id, version_number: data.version_number },
+  });
+  return ok(data, { status: 201, requestId });
 }

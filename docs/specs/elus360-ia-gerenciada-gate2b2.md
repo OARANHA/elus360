@@ -1,0 +1,239 @@
+# ELUS 360 — Gate 2B.2: resolvedor fail-closed (primeira parte)
+
+> **Estado: IMPLEMENTAÇÃO PREPARATÓRIA EM PR / NÃO ATIVA NO RUNTIME.** Base: `OARANHA/elus360/main@7eef3f3fc801a22d0b6aa31adacab62365572620`, após PR #14 GREEN e merge. Não instalar ou anunciar governança real antes de todos os guards e da migração consistente.
+
+## Contrato desta etapa
+
+`lib/elus360/ai-managed/guard.ts` liga a política pura aprovada na PR #13 a um **leitor injetável** de autonomia por organização. Essa fronteira é reservada a chamadas do servidor e não chama automaticamente `createAdminClient()` em fluxos de usuário.
+
+O leitor fornecido pelo chamador futuro precisa resolver a coluna `organizations.ai_autonomy` por `orgId` obtido da sessão/API Token validado, jamais do payload. O chamador verifica antes autorização RBAC, vínculo ativo do tenant, MFA/suporte, teto de API Token e origem da referência da versão técnica. O resolvedor **não** substitui esses gates e não autentica ninguém.
+
+| Caso | Resultado |
+| --- | --- |
+| Organização malformada | Recusa sem consultar leitor |
+| Banco indisponível, coluna ausente ou linha inexistente | Recusa `autonomia_indisponivel` |
+| Referência técnica anterior indisponível | Recusa `referencia_indisponivel` |
+| Pedido com provider/modelo diferente sem grant | Recusa `forbidden_platform_ai` |
+| Reenvio idêntico com leitura bem-sucedida | Permitido sem grant adicional |
+| Grant `true` para outro tenant | Não se herda: filtro sempre por organização autenticada |
+
+**Nenhuma rota de configuração do tenant chama ainda este resolvedor.** Isso evita falhar parcialmente na instalação antes da migration e não confunde pré-código com segurança concluída.
+
+### API isolada do Superadmin (adicionada nesta PR)
+
+Foi portada seletivamente a rota `app/api/v1/admin/tenants/[id]/ai-permissions/route.ts` do ELUS anterior, adaptada aos módulos atuais. GET exige `requirePlatformAdmin` e apenas lê `ai_autonomy`. PATCH exige `requireSupportWrite` e `requirePlatformAdminEscrita` (full/MFA), corpo estrito com os quatro booleanos, leitura anterior no servidor, gravação CAS na mesma coluna e auditoria após sucesso. Uma atualização concorrente retorna conflito sem conceder permissões. Não altera `organizations.settings`.
+
+**Não está operacional sem a migration**: a coluna `ai_autonomy` ainda não existe na instalação. Nessa condição, GET/PATCH respondem erro e não alteram grants. Nenhuma tela liga essa API e nenhuma rota de cliente teve seus guards ativados. A query de comparação de JSONB no PostgREST ainda requer teste de integração contra Postgres descartável e cenário de concorrência real; mocks não comprovam CAS no banco. Não habilitar a UI antes desses testes.
+
+O teste `app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts` cobre suporte/escopo negados, input malformado, falta de coluna, não-escrita idempotente, CAS sem linha, auditoria e leitura isolada. Os mocks demonstram o fluxo, **não** a autenticação/MFA real nem a semântica de CAS no PostgreSQL.
+
+## Bloqueios para ativação
+
+1. **Preparado no código, ainda não aplicado:** migration `supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql`, `-- manifest:` e apêndice idempotente em `supabase/baseline.sql`. Conteúdo anterior do baseline preservado por SHA de origem. `MANIFEST.md` histórico não foi alterado. **Revalidar** `pnpm checar:colisao-de-migration` e todas as PRs de schema no momento do merge: o número 9037 foi escolhido após exame das 97 PRs do upstream em 28/10/2026, cuja maior numeração encontrada era 9036.
+2. **Validação de banco pendente:** instalar e reaplicar o baseline em PostgreSQL descartável, executar a migration isoladamente, testar trigger sob `authenticated` / `service_role`, grants, RLS, CAS JSONB via PostgREST e concorrência. Regenerar `lib/database.types.ts` após schema validado; a migration não foi aplicada a Supabase Cloud nem a produção.
+3. Validar contra Postgres a API de Superadmin full/MFA já adicionada em PR: CAS e auditoria; depois adicionar painel e impedir grant por tenant, API Token, support e impersonation. Não usar `organizations.settings` como fonte de grants.
+4. Integrar todos os caminhos relevantes do [inventário inicial](../elus360/ai-governance-write-surfaces.json), atualizando-o à medida que a enumeração se tornar exaustiva. Cobrir a `PATCH` de provider padrão, os métodos de credenciais, edição/publicação/duplicação de agentes, versão, onboarding e alterações do provedor da base; testar URL direta, API Tokens e concorrência.
+5. Ativar apenas após coordenação schema↔código, CI green, imagens GHCR por SHA, deploy Portainer seguro, health/version e canário. Sem force/reset, sem builds pesados na VPS, sem canário antecipado.
+
+## Reconciliação da cadeia de migrations — 28/10/2026
+
+- Fonte versionada: `OARANHA/elus360/main@7eef3f3fc801a22d0b6aa31adacab62365572620` tinha 575 migrations canônicas quando consultada; upstream `melgarafael/DeskcommCRM/main` avançou durante a revisão e continha 578. O número 9037 foi escolhido **provisoriamente** após ler a lista de PRs abertas do upstream e seus arquivos: o maior número em voo encontrado era 9036 (PR #3648), e 9032 já estava ocupado (PR #3637). O dado é datado, não é uma reserva.
+- O `baseline.sql` pôde ser recuperado integralmente pelo endpoint de blobs Git do GitHub: SHA anterior `b8beb8af8321409f2b2cbf89d9b44f2451d63cce`, aproximadamente 3,43 milhões de caracteres. O novo bloco foi acrescentado ao **final**, preservando o conteúdo anterior. Nenhuma substituição arbitrária do dump.
+- Foi adotado `security invoker` no trigger, exigindo **simultaneamente** `current_user = 'service_role'` no PostgreSQL e `auth.role() = 'service_role'` no contexto JWT para a escrita pelo serviço. A verificação dupla evita que um `SECURITY DEFINER` invoque a função por um usuário comum com privilégio apenas no papel SQL. O gatilho também admite `postgres` sem usuário nem papel JWT para atividades administrativas do banco. O uso de `auth.role()` aqui é dentro de um trigger (não de uma policy RLS, na qual o Supabase recomenda o `TO`). A API de permissões exige `requirePlatformAdminEscrita` para o uso de `service_role` e compara mudanças via CAS. Essas propriedades ainda requerem **prova no PostgreSQL**; a checagem textual não confirma a autorização real.
+- `tests/operational/elus360-ai-autonomy-triple.test.mjs`: verificados sintaxe, bloco único no apêndice e paridade exata com o SQL, DDL idempotente, revogação de EXECUTE público e proteção da coluna. Em execução isolada de Node 22, 4/4 passaram. Workflow próprio `elus360-ai-autonomy-triple.yml` acompanha a PR.
+- **Ainda não realizados:** PostgreSQL descartável fresh/update, `pnpm checar:colisao-de-migration` com checkout completo e remotos atualizados, revisão das definições de banco efetivamente aplicadas, regeneração de tipos, Vitest/TypeScript globais, CI da PR e testes de autorização com atores reais. Nenhuma operação de banco de produção ocorreu.
+
+## Testes e limitações
+
+`tests/unit/elus360-ia-gerenciada-guard.test.ts` cobre falha fechada, organização inválida e isolamento lógico de grants. São testes de função com leitor mockado, **não** testes de RLS em Postgres, de autorização das APIs ou de deploy. O objetivo é fixar a semântica do adaptador para não reabrir acesso ao faltar `ai_autonomy`.
+
+O próximo trabalho deve continuar **na mesma PR de Gate 2B.2**, adicionando migration, integração e testes pertinentes. Se o escopo exigir uma PR separada, deixar explícita a dependência e não interpretar esta PR preparatória como lançamento da governança.
+
+Conforme exigido pelo proprietário: consultar banco de memória **`Elus360`** e GitHub ao iniciar/finalizar cada gate, gravando somente decisões, evidências e pendências úteis.
+
+Referências:
+- [Gate 2B inventário](./elus360-ia-gerenciada-gate2b.md)
+- [Política pura](../../lib/elus360/ai-managed/policy.ts)
+- [Contrato de extensões](../elus360/extension-contract.md)
+- [Governança antiga](https://github.com/OARANHA/elus/blob/main/lib/ai/governanca-da-ia.ts)
+
+## Continuidade da portabilidade — credenciais (29/10/2026)
+
+Aceite funcional da governança no repositório legado `OARANHA/elus` foi confirmado pelo proprietário e não é um gate a repetir. A validação desta PR é exclusivamente a compatibilidade com a versão atual do DeskcommCRM.
+
+- `lib/elus360/ai-managed/server.ts` porta o resolvedor do legado com concessões por `organizations.ai_autonomy`, tenant proveniente do contexto autenticado, recusa em erro de banco e bloqueio de suporte; `server.test.ts` adiciona casos de regressão (ainda sem execução Vitest comprovada).
+- `app/api/v1/ai/credentials/route.ts`: GET e POST agora chamam `recusaConfiguracaoDeIa(authz.user, authz.org.orgId, "credentials", requestId)` após `requireRole` e antes do acesso sensível.
+- `app/api/v1/ai/credentials/[id]/route.ts`: PATCH e DELETE usam o mesmo gate antes de qualquer alteração de credencial. Nenhum acesso por organização fornecida no payload foi introduzido.
+- Conferidos os quatro pontos de chamada diretamente no GitHub, commit `4f1f2267b0071bbf6f4c94fe0207582480fd594c`. **Não houve execução de Vitest, TypeScript, teste DB ou CI desse HEAD.**
+- **Dependência de ativação:** a migration da coluna `ai_autonomy` ainda não foi aplicada e, até isso acontecer, esses handlers falham fechados para tenants. A PR continua Draft; **não integrar nem publicar isoladamente**. Continuam pendentes todas as demais superfícies do inventário, CAS no PostgREST, RLS, colisões de migration, testes e coordenação schema↔código.
+
+## Continuidade — padrão de provider/model por organização
+
+Na PR #15, o commit `d91682cdeb43b9d68181eb6325360dad3a8768cc` restabeleceu a guarda de autonomia na rota `PATCH /api/v1/ai/providers`, tomando como referência a implementação funcional aceita pelo proprietário em `OARANHA/elus`. A rota carrega a configuração anterior de `organizations.settings` por `org.orgId` autenticado, falha fechada quando a consulta falha e exige `provider` e/ou `model` somente quando seus valores mudam, antes de gravar com `createAdminClient`.
+
+A nova consulta faz parte do código da PR, **não** representa homologação do runtime. A comparação não é CAS de `settings`: o comportamento de concorrência e o `PUT` de bindings continuam em análise de portabilidade, assim como testes de integração no banco. Ativação ainda bloqueada até sincronizar migration, guards de todas as portas e CI. O workflow GREEN informado pelo proprietário refere-se ao momento anterior a este commit; não extrapolar para o novo HEAD.
+
+## Continuidade — PATCH da versão de agente
+
+A rota lê a configuração técnica da versão por organização e agente autenticados, compara a proposta validada e exige os grants correspondentes para alterações; sessão Superadmin full sem acompanhamento mantém o poder de plataforma, enquanto API Token depende dos grants da organização. A edição do prompt e o reenvio de valores técnicos idênticos não exigem autonomia técnica. A gravação condiciona status, agente, tenant e valores técnicos à leitura anterior; o prompt e o JSON de follow-up também são comparados quando enviados. `operator_model`, aceito pelo schema, passa a ser gravado após a autorização.
+
+**Limites para ativação:** os filtros de concorrência precisam de prova em PostgREST/PostgreSQL real; outros campos de conteúdo não têm controle de versão geral. A leitura de `ai_autonomy` e a atualização da versão são requisições distintas: uma revogação de grant concorrente pode ocorrer entre as duas. Resolver atomicidade de autorização e escrita em banco, assim como as demais rotas, migration e testes de banco, antes de integrar ou publicar a governança. Esta alteração isolada não conclui o gate.
+
+## Revisão de TypeScript após d754f520 (29/10/2026)
+
+- Commit `ba36b68c5f79171bf8fdcfe89e2a66bed07aae79`: renomeada a variável de leitura `settings` para `settingsLidos` dentro do `PATCH app/api/v1/ai/providers/route.ts`, removendo a redeclaração com a variável `settings` usada no update.
+- Ainda **não foi executado `tsc` global do HEAD** após a correção. Dois erros reportados na rota `app/api/v1/admin/tenants/[id]/ai-permissions/route.ts` ainda requerem diagnóstico concreto de linha/código TS antes de alterações, para evitar casts que escondam erro de PostgREST ou alteração indevida da política de CAS.
+- O relato de 61 testes passing/0 erros lint se refere ao HEAD `d754f520` anterior à correção. CI green anterior não cobre o novo commit. A migration e os testes reais de banco permanecem pendentes. Não promover nem deployar a PR Draft.
+
+## Inspeção da rota Superadmin — revisão posterior ao HEAD 11a27b9e
+
+No commit `fb14f822ff0c15189153a70c4f346aeb9557aa3e`, a comparação no PATCH de `ai-permissions` passou a enumerar explicitamente as quatro chaves do contrato (`provider`, `model`, `credentials`, `operator_model`). É uma refatoração pontual que evita indexação dinâmica do resultado Zod, sem alterar a semântica de permissões.
+
+O teste existente `app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts` valida por mocks ausência de escrita em erro, restrição a Superadmin e resposta 409 quando o update simulado não casa linha. **Ele não comprova que o filtro JSONB `.eq("ai_autonomy", JSON.stringify(...))` funciona no PostgREST real, nem a atomicidade de revogações durante outra escrita.** Não substituir esse gate por sucesso de unitários.
+
+**Estado desta revisão:** edição commitada no GitHub; nenhuma execução TypeScript/Vitest/Postgres nesta sessão, pois não existe checkout do repositório acessível no ambiente e a tentativa de conexão Git remota falhou por DNS. Os erros exatos de TypeScript reportados no PR anterior ainda precisam ser capturados no ambiente de CI/checkout antes de afirmar correção global. Migration continua pendente; PR Draft, sem merge/deploy.
+
+## Novas versões de agentes — integração na PR #15
+
+Commit `94dc58eae4650d19b9721f42c0a0d33bf3e2cc7f` adicionou proteção de `POST /api/v1/ai/agents/[id]/versions`: após `resolveAuthDual`, escopo e `tetoDeEscritaDoToken`, consulta no servidor a versão de maior `version_number` filtrada por `organizationId` e `agent_id`. Compara `provider`, `model`, `credential_id` e `operator_model` com a proposta e exige grants apenas para mudanças técnicas. Uma versão sem mudança técnica segue sem exigir grants novos. Superadmin full autenticado em sessão mantém exceção; suporte não recebe bypass. Sem referência anterior, falha fechada (503), não cria uma versão arbitrária.
+
+**Limites do novo caminho:** ainda não há prova PostgreSQL/PostgREST nem Vitest/TypeScript do novo HEAD. A referência técnica e os grants são lidos antes da inserção, sem transação única: revogação simultânea continua como risco. Entre leitura e insert, outra versão concorrente também pode ser criada; o retry de `23505` ainda não revalida a referência/grants. Esse caminho NÃO resolve o fluxo de criação inicial de agente (rota distinta). Não promover PR Draft até resolver atomicidade, schema, testes e cobertura completa.
+
+## Criação inicial de agentes — PR #15
+
+Commit `b4aad565719600a4cecfee44b90886fb35cf4c16`: a rota `POST /api/v1/ai/agents` agora consulta `organizations.settings.llm` por organização autenticada para obter a referência técnica padrão do servidor. Depois de `resolveAuthDual` e do teto do token, compara `provider`, `model`, `credential_id` e `operator_model` efetivos da versão v1 com o padrão (`anthropic` como fallback de provider, modelo nullable, credenciais e operador nulos). Mudança técnica demanda grants na coluna protegida; usuário da sessão é reconciliado e Superadmin pleno sem support mantém bypass. Ausência do registro de organização ou falha de leitura resulta em 503, antes de criar `ai_agents`/`ai_agent_versions`.
+
+**Limitação crítica:** defaults e grants são lidos fora de uma mesma transação com as duas inserções, de modo que revogação concorrente ainda exige solução transacional. Criação de versão, rotas de onboarding e caminhos alternativos ainda precisam de verificação de cobertura. Este commit não teve Vitest, TypeScript ou PostgreSQL executados. PR segue Draft, sem ativação/merge/deploy.
+
+## Redução de divergência com upstream — 29/10/2026
+
+Conforme decisão aprovada **ELUS Upstream Sync** (PR #12 mesclada), foram identificadas oito rotas originais modificadas na PR #15. Para reduzir a duplicação, os commits `482d5c5951cc7b4a9aeabd5558052777312e88e4`, `4ea1dec957f28cf8d63b3fbfe5a74aeae33b57e0` e `aef95f4d722b069268a751de6a90671dec86a0f1` substituíram leitores locais repetidos de `organizations.ai_autonomy` nas rotas POST de agentes, POST de versões e PATCH de versão pelo leitor canônico `lerAutonomiaIa` de `lib/elus360/ai-managed/server.ts`. O leitor mantém filtro explícito pela organização autenticada e falha fechado em erros; os guards e as autorizações das rotas foram mantidos. Três fontes de duplicação removidas; **não significa que as oito rotas estejam estabilizadas para a futura 1.95**.
+
+Revisão estática de arquivos via GitHub confirmou imports, uso do leitor compartilhado e preservação dos guards. Vitest, TypeScript global, concorrência e PostgreSQL **não foram executados** neste HEAD. A migração 9037 não foi aplicada. Não promover/mesclar/implantar sem os gates. A página de conhecimento 'ELUS Upstream Sync — Compatibilidade e governança de IA' foi criada no banco `Elus360` com refresh automático desativado e atualização manual pelo proprietário.
+
+## Fronteira única para autorização das versões — 29/10/2026
+
+Commits `230db0787325d0ef11b55dfd4d8ca0b91c753bdd`, `ccad7a270c3b5cf02be04f77abe027447b7c276b`, `cba6511d489ef6bbcedcce9acae91792c2c802b4` e `77ddcff8c95c9be6ff99beab24a3f3a75b2f1a2e` centralizaram a lógica repetida de comparação técnica, reconciliação de identidade de sessão, bypass de Superadmin e leitura de grants em `lib/elus360/ai-managed/authorize-version-write.ts`. As três rotas de agentes/versões chamam somente `podeAlterarTecnicaDeVersao` após os checks de autorização do handler e as leituras do servidor. O retorno false mantém a recusa HTTP 403. O discriminador de token `authz.via` foi corrigido para `"session" | "token"` no commit `14dcb53253f76c1ad2a0f4639765481241bb0320`, conforme `lib/api/auth-dual.ts` do HEAD.
+
+**Não comprovado:** TypeScript/Vitest/DB/execução da nova integração, race entre leitura de grants e gravação, compatibilidade com release 1.95, comportamento de onboarding e de providers. A refatoração não cria autorização atômica; manter PR Draft e sem merge/deploy até teste. O contrato do Upstream Sync da PR #12 continua sendo read-only e detecta áreas de risco, não quebra funcional real automaticamente.
+
+## Gate de liberação — reconciliação após GREEN informado (29/10/2026)
+
+- Evidência GitHub: PR #15 `OPEN/DRAFT`, HEAD `58b0ddfeb64fa2a82327108eb497eaf4052a1c09`, `mergeable=true`, 0 commits atrás da `main`. Proprietário informou GREEN; não fazer polling de Actions.
+- Foi acrescentado um teste PostgreSQL descartável para recusa de CAS com snapshot de grants obsoleto, além de paridade baseline/migration, grants por papéis, Vitest e typecheck.
+- **Limitação da prova:** o teste de CAS revogado é sequencial. As rotas de versões leem grants no servidor e depois gravam versões em comando separado. O CAS existente sobre campos da versão evita sobrescrita concorrente da versão, **mas não faz uma verificação transacional da revogação de `organizations.ai_autonomy` no mesmo commit**. Teste sequencial de `organizations` não comprova essa propriedade.
+- **Bloqueio antes da ativação em produção:** definir e comprovar uma fronteira transacional no PostgreSQL que condicione escrita técnica ao grant vigente no instante da mutação, com caso de revogação intercalada, e validar que rotas POST/PATCH de agentes e demais configurações técnicas não o contornam. Não substituir essa prova por documentação ou pelo GREEN de gates parciais.
+- Migration 9037 **versionada apenas**; nenhuma aplicação ao banco real, merge, publicação de imagens ou deploy é comprovada.
+
+## Contrato de fechamento do gate transacional (29/10/2026)
+
+**Problema comprovado no código:** o helper `podeAlterarTecnicaDeVersao` consulta `organizations.ai_autonomy` e devolve um booleano; o PATCH de `ai_agent_versions` faz o `UPDATE` em outra transação. A comparação CAS da versão protege contra mudança simultânea **da mesma versão**, não contra revogação de grants de organização.
+
+**Semântica de segurança exigida:** uma gravação técnica e uma revogação devem possuir uma ordem inequívoca de serialização. Se a revogação obtiver a linha de `organizations` primeiro, a gravação posterior deve recusá-la; se a gravação obtiver primeiro, a revogação deve aguardar, e o resultado é interpretado como gravação anterior à revogação. Nenhuma autorização armazenada em cookie, JWT, request body ou cache substitui o valor bloqueado da linha no banco.
+
+**Implementação a ser feita antes de remover Draft:**
+1. Reutilizar o resolvedor puro de campos/grants e a autorização existente de sessão, token, tenant e Superadmin; não duplicar providers nem criar caminho permissivo. Projetar um único comando SQL transacional sob controle do servidor para mutações técnicas.
+2. Na mesma transação que grava versão/binding/credencial, bloquear a linha da organização com `SELECT ... FOR UPDATE`, ler `ai_autonomy` atual, verificar os grants necessários com igualdade booleana estrita e só então executar a escrita. A revogação atualiza essa mesma linha e participa do mesmo bloqueio. Ausência de organização, coluna, concessão ou contexto de ator => falha fechada. Superadmin full/MFA e impersonação devem ter regras explícitas, auditáveis, sem privilégio herdado por API Token.
+3. Preservar CAS da versão para edições concorrentes e escopo por `organization_id`; não expor um RPC `SECURITY DEFINER` diretamente a `anon`/`authenticated` sem cercas internas de identidade e autorização. Preferir operação mediada no backend e revisar privilégios de `EXECUTE` e `search_path` se RPC for necessário.
+4. Criar prova PostgreSQL com **duas conexões simultâneas** e bloqueio controlado (uma revoga e a outra tenta escrever), cobrindo ambas as ordens, grant indevido, isolamento multi-tenant e falha técnica; executar em DB descartável e CI. O teste CAS sequencial atual é apenas regressão parcial.
+5. Inventariar e fechar as rotas que ainda escrevem `provider`, `model`, `credential_id`, `operator_model`, `base_url` e `is_enabled`, incluindo ações server-side e providers/credentials; testar bypasses e cobertura de todas as portas, não apenas as três rotas de versão.
+
+**Critério de aceite:** GREEN em TypeScript, testes das rotas, banco com corrida real e contrato upstream; após isso, revalidar a migration 9037, preparar rollback e digests, e seguir sequencialmente merge → schema → imagens → deploy → health/version → canário. CI verde dos testes existentes não satisfaz este critério sozinho.
+
+
+## Gate de aceite — revisão de 29/10/2026 (PR #15)
+
+**Estado: revisão executada; NÃO LIBERADO PARA MERGE.** Evidência:
+HEAD `61776bf5ac67820425396c755547020bc336dbd5`, baseado em
+`main@7eef3f3fc801a22d0b6aa31adacab62365572620`,
+`behind=0`, `mergeable=true`, CI
+`ELUS 360 - AI Autonomy Migration Triple` SUCCESS.
+Isso valida os três jobs executados, não produção nem o conjunto completo
+de critérios deste documento.
+
+- **Comprovado no HEAD:** o editor usa RPC transacional para salvar rascunho e
+  cadastro, com teste de rollback/sucesso em PostgreSQL descartável; paridade da
+  migration `9037` e do apêndice do baseline validada pelo CI. O gatilho do
+  workflow contempla `app/app/ai/agents/[id]/_actions.ts`.
+- **Concorrência ainda parcial:** `tests/operational/elus360-ai-autonomy-concurrency.sh`
+  mede a ordem *revogação segura primeiro, tentativa de escrita depois*.
+  A especificação exige também a ordem inversa com duas conexões controladas;
+  não declarar corrida bidirecional integralmente comprovada.
+- **Portas técnicas ainda em revisão de cobertura:** versões, agents, providers,
+  credentials, pontos e ações server-side possuem caminhos distintos. GREEN
+  não comprova sozinho que `provider`, `model`, `credential_id`,
+  `operator_model`, `base_url` e `is_enabled` estão todos protegidos
+  contra revogação concorrente ou bypass. Fechar a matriz por rota e testar
+  negativas antes de marcar Ready.
+- **Superadmin:** a rota REST PATCH calcula `p_platform_bypass` em sessão;
+  o editor `saveAgentDraftAction` envia `false` em ambos os RPCs.
+  Confirmar o contrato de Superadmin full/MFA no editor para não produzir
+  comportamento inconsistente entre as duas superfícies.
+- **Upstream Sync:** PR #12 introduziu contrato e preflight somente leitura,
+  não atualização automática. Preservados `docs/elus360/extension-contract.md`
+  e `docs/elus360/upstream-sync.md`; nenhum merge com o upstream executado
+  nesta revisão. Compatibilidade com uma próxima release depende de preflight
+  específico sobre refs e diferenças efetivas.
+
+**Próximo gate:** concluir testes bidirecionais de concorrência, matriz das
+portas de escrita e regra Superadmin; executar CI no novo HEAD; revisar impacto
+upstream novamente. Não realizar merge, migration real ou deploy antes do aceite.
+
+
+### Continuidade de implementação — 29/10/2026 (após revisão)
+
+- **IMPLEMENTADO NA PR (não validado ainda pelo novo CI):** o editor usa
+  `p_platform_bypass` somente quando `podeGerenciarIaDaPlataforma(authUser)`
+  identifica sessão Superadmin `full` fora de suporte e
+  `requirePlatformAdminEscrita()` confirma MFA; falha recusa o salvamento.
+  O comportamento foi alinhado à rota REST de PATCH de versão.
+- **IMPLEMENTADO NA PR (CI pendente):** o script PostgreSQL descartável
+  exercita também a ordem inversa: escrita protegida/commit, revogação que
+  aguarda o lock e revogação efetiva após a escrita. Incluídas asserções de
+  regressão para ambas as ordens.
+- **INVENTARIADO COM TESTES ESTÁTICOS:** foram incluídos no contrato de
+  regressão os handlers de providers PUT/PATCH, credentials POST/PATCH/DELETE
+  e conhecimento do provedor, além de agents/versions. Os preflights
+  existentes não equivalem a proteção transacional.
+- **BLOQUEIO DE ACEITE QUE PERMANECE:** `ai_purpose_bindings` (PUT), padrão
+  `organizations.settings.llm` (PATCH), credenciais e outros escritores
+  técnicos que não usam o lock de grant no mesmo comando SQL podem sofrer
+  corrida entre autorização e persistência. Exigir desenho do gate SQL
+  compartilhado/reutilizável, preservar RLS e os handlers existentes,
+  adicionar testes de revogação e de negativas reais, sem introduzir
+  `SECURITY DEFINER` ou bypass implícito. Não marcar Ready apenas com o
+  GREEN dos testes estáticos.
+
+
+### Proteção transacional — implementação adicional (29/10/2026, PR #15)
+
+**Estado: IMPLEMENTADO EM BRANCH, CI E ACEITE PENDENTES.** Sem alteração de
+produção e sem criar outra migration; SQL permanece na `9037` com baseline
+espelhado.
+
+| Superfície | Escrita transacional preparada | Observação |
+| --- | --- | --- |
+| Provedores PUT (`ai_purpose_bindings`) | `fn_elus_ai_purpose_binding_write_guarded` | Lock da organização, comparação com registro anterior, grants por campo e CAS |
+| Provedores PATCH (padrão `organizations.settings.llm`) | `fn_elus_ai_default_write_guarded` | Preserva outras settings, verifica provider/model sob o mesmo lock |
+| Credencial POST (helper compartilhado) | `fn_elus_ai_credential_write_guarded` — insert | AES-GCM mantido no código; SQL recebe campos cifrados |
+| Credencial PATCH/rotação (helper compartilhado) | Mesmo RPC — update | Grant de credentials e lock no mesmo comando |
+| Credencial DELETE (rota REST) | Mesmo RPC — delete | FK ainda impede exclusão em uso |
+| Refresh automático de login por assinatura | Mesmo RPC — `refresh_login` | Apenas row preexistente `openai-assinatura`, identidade e label fixos, token cifrado e metadados da renovação; não aceita criar credencial nem trocar provider |
+
+O bypass técnico desses handlers HTTP é condicionado ao Superadmin `full`,
+fora de suporte, com MFA via `requirePlatformAdminEscrita`. Na manutenção
+automática dos tokens não se emite grant, pois o objetivo é renovar a
+conexão já existente, sem modificar o provedor do cliente.
+
+O teste PostgreSQL descartável cobre grant ausente/concedido/revogado,
+operações de credenciais e a exceção restrita da renovação. Os testes
+estáticos conferem o vínculo das rotas com os RPCs. A verificação com duas
+conexões já cobre o mecanismo de lock da organização para versões; a
+semântica equivalente dos novos RPCs é inferida do SQL e **não constitui
+ainda canário funcional ou aceitação de produção**.
+
+**Antes do merge:** receber GREEN do novo HEAD, revisar outros writers
+técnicos fora dessas superfícies (incluindo eventual integração de login e
+rotinas de background), validar mensagens de erro e isolamento tenant, e
+preparar rollback/digests. Não confundir implantação de código com aplicação
+da migration.

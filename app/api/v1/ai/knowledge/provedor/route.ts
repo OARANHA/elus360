@@ -42,6 +42,7 @@ import { enfileirarTodosOsMateriais } from "@/lib/ai/knowledge/reprepara-tudo";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
+import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -96,6 +97,11 @@ export async function PUT(req: NextRequest): Promise<Response> {
   if (provedorAnterior === provedor) {
     return ok({ provedor, mudou: false, fila: null }, { requestId });
   }
+
+  // A família de embeddings define a saída dos dados da organização.
+  // Só uma alteração real exige o grant técnico de provider.
+  const negado = await recusaConfiguracaoDeIa(user, org.orgId, "provider", requestId);
+  if (negado) return negado;
 
   const destino = await resolverChaveDeEmbedding(org.orgId, "embedding_indexar", {
     familia: provedor,

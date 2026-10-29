@@ -24,6 +24,9 @@ import { z } from "zod";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
+import { podeGerenciarIaDaPlataforma, recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
+import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
+import { lerAutonomiaIa } from "@/lib/elus360/ai-managed/server";
 import { roleAtLeast } from "@/lib/auth/types";
 import {
   decidirBinding,
@@ -337,6 +340,18 @@ const corpoDoPut = z.object({
   is_enabled: z.boolean().optional(),
 });
 
+const bindingAnteriorDoPut = z.object({
+  id: z.string().uuid(),
+  organization_id: z.string().uuid(),
+  purpose: z.string().min(1),
+  provider: z.string().min(1),
+  model_id: z.string().min(1),
+  credential_id: z.string().uuid().nullable(),
+  base_url: z.string().url().nullable(),
+  is_enabled: z.boolean(),
+});
+
+
 export async function PUT(req: NextRequest): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
@@ -357,7 +372,51 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const ponto = PONTO_POR_ID.get(corpo.purpose);
   if (!ponto) return fail("ponto_desconhecido", `"${corpo.purpose}" não é um ponto do sistema`, 404);
 
+  // Estado anterior autenticado por org/purpose, nunca fornecido pelo cliente.
   const db = await createClient();
+  let anterior: z.infer<typeof bindingAnteriorDoPut> | null = null;
+  try {
+    const { data, error } = await db.from("ai_purpose_bindings")
+      .select("id, organization_id, purpose, provider, model_id, credential_id, base_url, is_enabled")
+      .eq("organization_id", org.orgId)
+      .eq("purpose", corpo.purpose)
+      .maybeSingle();
+    if (error || data === undefined) throw new Error("binding_indisponivel");
+    if (data !== null) {
+      anterior = bindingAnteriorDoPut.parse(data);
+      if (anterior.organization_id !== org.orgId || anterior.purpose !== corpo.purpose)
+        throw new Error("binding_fora_do_escopo");
+    }
+  } catch {
+    return fail("configuracao_ia_indisponivel", t("Não foi possível ler a configuração anterior de IA."), 503);
+  }
+
+  // PUT substitui campos opcionais ausentes pelos defaults efetivamente gravados.
+  const proposta = {
+    provider: corpo.provider,
+    model: corpo.model_id,
+    credential_id: corpo.credential_id ?? null,
+    base_url: corpo.base_url ?? null,
+    is_enabled: corpo.is_enabled ?? true,
+  };
+  const decisao = await decidirEscritaTecnicaIa(
+    {
+      orgIdConfiavel: org.orgId,
+      anteriorDoServidor: {
+        provider: anterior?.provider ?? null,
+        model: anterior?.model_id ?? null,
+        credential_id: anterior?.credential_id ?? null,
+        base_url: anterior?.base_url ?? null,
+        is_enabled: anterior?.is_enabled ?? null,
+      },
+      propostaValidada: proposta,
+    },
+    { lerAutonomiaPorOrganizacao: lerAutonomiaIa },
+  );
+  if (!podeGerenciarIaDaPlataforma(user) && !decisao.permitido)
+    return fail(decisao.motivo === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_indisponivel",
+      "Esta configuração técnica de IA não está autorizada.", decisao.motivo === "forbidden_platform_ai" ? 403 : 503);
+
 
   // A capacidade vem do catálogo (o que o FABRICANTE declara), nunca de
   // heurística sobre o nome do modelo.
@@ -428,29 +487,57 @@ export async function PUT(req: NextRequest): Promise<Response> {
     }
   }
 
-  const { data: gravado, error } = await db
-    .from("ai_purpose_bindings")
-    .upsert(
-      {
-        organization_id: org.orgId,
-        purpose: corpo.purpose,
-        provider: corpo.provider,
-        model_id: corpo.model_id,
-        credential_id: corpo.credential_id ?? null,
-        base_url: corpo.base_url ?? null,
-        is_enabled: corpo.is_enabled ?? true,
-      },
-      { onConflict: "organization_id,purpose" },
-    )
-    .select("id, purpose, provider, model_id, credential_id, base_url, is_enabled")
-    .maybeSingle();
+  if (anterior &&
+    anterior.provider === proposta.provider &&
+    anterior.model_id === proposta.model &&
+    anterior.credential_id === proposta.credential_id &&
+    anterior.base_url === proposta.base_url &&
+    anterior.is_enabled === proposta.is_enabled)
+    return ok({ binding: anterior, avisos: validacao.avisos });
 
-  if (error) return fail("save_failed", error.message, 500);
-  if (!gravado) {
-    // Upsert que casa zero linhas devolve sucesso no PostgREST — a tela diria
-    // "salvo" sem nada ter sido gravado.
-    return fail("save_failed", t("nada foi gravado — verifique as permissões da organização"), 500);
+  // A escrita e a consulta dos grants são atômicas sob lock da organização.
+  // O bypass requer a mesma MFA full usada nas rotas de versão.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(user)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin precisa de sessão full com MFA.", 403);
+    }
   }
+  const { data: result, error } = await createAdminClient().rpc(
+    "fn_elus_ai_purpose_binding_write_guarded",
+    {
+      p_org: org.orgId,
+      p_purpose: corpo.purpose,
+      p_values: {
+        provider: proposta.provider,
+        model_id: proposta.model,
+        credential_id: proposta.credential_id,
+        base_url: proposta.base_url,
+        is_enabled: proposta.is_enabled,
+      },
+      p_expected: anterior ? {
+        provider: anterior.provider,
+        model_id: anterior.model_id,
+        credential_id: anterior.credential_id,
+        base_url: anterior.base_url,
+        is_enabled: anterior.is_enabled,
+      } : {},
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (error) return fail("save_failed", "Não foi possível gravar a configuração de IA.", 500);
+  if (!result || typeof result !== "object" || Array.isArray(result))
+    return fail("save_failed", "Nenhuma configuração foi gravada.", 500);
+  if ("error" in result) {
+    return fail(result.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_alterada",
+      "Permissão técnica revogada ou configuração alterada; recarregue antes de salvar.",
+      result.error === "forbidden_platform_ai" ? 403 : 409);
+  }
+  const gravado = result;
 
   void audit({
     action: "ai.purpose_binding_updated",
@@ -513,6 +600,33 @@ export async function PATCH(req: NextRequest): Promise<Response> {
     return fail("invalid_body", t("corpo inválido"), 422, { details: parsed.error.issues });
   }
   const corpo = parsed.data;
+
+  // Portado do ELUS legado: o PATCH também é uma porta de alteração técnica.
+  // Comparar apenas o que realmente mudou preserva grants parciais.
+  // A org é a identidade verificada pelo requireRole, nunca do body.
+  const { data: padraoAtual, error: erroPadrao } = await createAdminClient()
+    .from("organizations")
+    .select("settings")
+    .eq("id", org.orgId)
+    .maybeSingle();
+  if (erroPadrao || !padraoAtual)
+    return fail("configuracao_ia_indisponivel", "Não foi possível ler o padrão da organização.", 503);
+  const settingsBruto = padraoAtual.settings;
+  const settingsLidos = settingsBruto && typeof settingsBruto === "object" && !Array.isArray(settingsBruto)
+    ? settingsBruto as Record<string, unknown> : {};
+  const llmBruto = settingsLidos.llm;
+  const llm = llmBruto && typeof llmBruto === "object" && !Array.isArray(llmBruto)
+    ? llmBruto as Record<string, unknown> : {};
+  const providerAnterior = typeof llm.provider === "string" && llm.provider ? llm.provider : "anthropic";
+  const modelAnterior = typeof llm.default_model === "string" ? llm.default_model : null;
+  if (providerAnterior !== corpo.provider) {
+    const negado = await recusaConfiguracaoDeIa(user, org.orgId, "provider");
+    if (negado) return negado;
+  }
+  if (modelAnterior !== corpo.default_model) {
+    const negado = await recusaConfiguracaoDeIa(user, org.orgId, "model");
+    if (negado) return negado;
+  }
   const desligado = await provedorDesligado(corpo.provider);
   if (desligado) return desligado;
 
@@ -591,36 +705,30 @@ export async function PATCH(req: NextRequest): Promise<Response> {
   // service role passa por cima da RLS, então o filtro de tenant vira
   // responsabilidade deste arquivo. `org.orgId` vem do `requireRole` (cookie/
   // JWT), nunca do corpo.
-  const admin = createAdminClient();
-
-  // MERGE, nunca sobrescrita. `organizations.settings` é um jsonb compartilhado
-  // — `branding` (a marca da instalação) e `security` (a política de MFA) moram
-  // nele. Um `update({ settings: { llm } })` ingênuo apaga os dois em silêncio, e
-  // o sintoma aparece dias depois, longe daqui.
-  const { data: orgAtual } = await admin
-    .from("organizations")
-    .select("settings")
-    .eq("id", org.orgId)
-    .maybeSingle();
-
-  const settingsAtuais = ((orgAtual?.settings ?? {}) as Record<string, unknown>) || {};
-  const settings = {
-    ...settingsAtuais,
-    llm: { provider: corpo.provider, default_model: corpo.default_model },
-  };
-
-  const { data: gravado, error } = await admin
-    .from("organizations")
-    .update({ settings })
-    .eq("id", org.orgId)
-    .select("settings")
-    .maybeSingle();
-
-  if (error) return fail("save_failed", error.message, 500);
-  if (!gravado) {
-    // Mesma armadilha do PUT: no PostgREST, update que casa zero linhas volta
-    // como sucesso, e a tela diria "salvo" sem nada ter sido gravado.
-    return fail("save_failed", t("nada foi gravado — verifique as permissões da organização"), 500);
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(user)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin precisa de sessão full com MFA.", 403);
+    }
+  }
+  const { data: gravado, error } = await createAdminClient().rpc(
+    "fn_elus_ai_default_write_guarded", {
+      p_org: org.orgId,
+      p_provider: corpo.provider,
+      p_model: corpo.default_model,
+      p_expected: { provider: providerAnterior, model: modelAnterior },
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (error || !gravado) return fail("save_failed", "Erro na gravação segura do padrão de IA.", 500);
+  if (typeof gravado === "object" && !Array.isArray(gravado) && "error" in gravado) {
+    return fail(gravado.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_alterada",
+      "Grant revogado ou padrão alterado. Recarregue antes de salvar.",
+      gravado.error === "forbidden_platform_ai" ? 403 : 409);
   }
 
   void audit({

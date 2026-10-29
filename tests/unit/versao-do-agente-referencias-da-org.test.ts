@@ -56,6 +56,7 @@ type Linha = Record<string, unknown>;
 /** Banco de mentira: filtra por `eq`/`in` de verdade, como o PostgREST faria. */
 function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }>) {
   const tabelas: Record<string, Linha[]> = {
+    organizations: [{ id: ORG, ai_autonomy: { credentials: true, provider: true, model: true } }],
     ai_provider_credentials: [
       { id: CRED_MINHA, organization_id: ORG },
       { id: CRED_ALHEIA, organization_id: OUTRA_ORG },
@@ -75,10 +76,65 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
       },
     ],
     ai_agent_versions: [
-      { id: VERSAO, organization_id: ORG, agent_id: AGENTE, status: "draft", followup: {} },
+      {
+        id: VERSAO,
+        organization_id: ORG,
+        agent_id: AGENTE,
+        status: "draft",
+        followup: {},
+        provider: "openai",
+        model: "modelo",
+        credential_id: null,
+        operator_model: null,
+      },
     ],
   };
   return {
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn === "fn_elus_ai_agent_create_guarded") {
+        const agent = args.p_agent as Linha;
+        const version = args.p_version as Linha;
+        const currentOrg = (tabelas.organizations ?? []).find(x => x.id === args.p_org);
+        if (!currentOrg) return { data: { error: "organization_not_found" }, error: null };
+        const policy = (currentOrg.ai_autonomy ?? {}) as Linha;
+        if (!args.p_platform_bypass &&
+            (policy.provider !== true || policy.model !== true)) {
+          return { data: { error: "forbidden_platform_ai" }, error: null };
+        }
+        const agentRow = { ...agent, organization_id: args.p_org, is_active: false };
+        const versionRow = { ...version, organization_id: args.p_org, agent_id: agent.id, version_number: 1 };
+        escritas.push({ tabela: "ai_agents", op: "rpc", valor: agentRow });
+        escritas.push({ tabela: "ai_agent_versions", op: "rpc", valor: versionRow });
+        return { data: { agent: agentRow, version: versionRow }, error: null };
+      }
+
+      if (fn !== "fn_elus_ai_version_patch_guarded") {
+        return { data: null, error: { message: "unexpected_rpc" } };
+      }
+      const versao = (tabelas.ai_agent_versions ?? []).find(l =>
+        l.id === args.p_version && l.agent_id === args.p_agent && l.organization_id === args.p_org,
+      );
+      if (!versao) return { data: { error: "version_not_found" }, error: null };
+      const expected = args.p_expected as Linha;
+      for (const campo of ["provider", "model", "credential_id", "operator_model"]) {
+        if ((versao[campo] ?? null) !== (expected[campo] ?? null)) {
+          return { data: { error: "version_conflict" }, error: null };
+        }
+      }
+      const patch = args.p_patch as Linha;
+      const grants = (tabelas.organizations ?? []).find(l => l.id === args.p_org)?.ai_autonomy as Linha | undefined;
+      const powers = { provider: "provider", model: "model", credential_id: "credentials", operator_model: "operator_model" };
+      if (!args.p_platform_bypass) {
+        for (const [campo, poder] of Object.entries(powers)) {
+          if (campo in patch && (versao[campo] ?? null) !== (patch[campo] ?? null) && grants?.[poder] !== true) {
+            return { data: { error: "forbidden_platform_ai" }, error: null };
+          }
+        }
+      }
+      escritas.push({ tabela: "ai_agent_versions", op: "rpc", valor: patch });
+      Object.assign(versao, patch);
+      return { data: { ...versao }, error: null };
+    },
     from(tabela: string) {
       const filtros: Array<(l: Linha) => boolean> = [];
       let carga: Linha | null = null;
@@ -86,9 +142,13 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
       const q = {
         select: () => q,
         eq: (c: string, v: unknown) => (filtros.push((l) => l[c] === v), q),
+        is: (c: string, v: unknown) => (filtros.push((l) => l[c] === v), q),
         in: (c: string, vs: unknown[]) => (filtros.push((l) => vs.includes(l[c])), q),
         limit: () => q,
-        maybeSingle: async () => ({ data: linhas()[0] ?? null, error: null }),
+        maybeSingle: async () => ({
+          data: linhas()[0] ? { ...linhas()[0], ...(carga ?? {}) } : null,
+          error: null,
+        }),
         single: async () =>
           carga && tabela === "ai_agents"
             ? { data: { id: AGENTE }, error: null }
@@ -167,7 +227,7 @@ describe("PATCH /ai/agents/:id/versions/:vid", () => {
     expect(escritas).toEqual([
       {
         tabela: "ai_agent_versions",
-        op: "update",
+        op: "rpc",
         valor: { credential_id: CRED_MINHA, channel_session_id: CANAL_MEU },
       },
     ]);
@@ -215,8 +275,8 @@ describe("createMcpAgentAction (tela /ai/agents/new)", () => {
     const r = await createMcpAgentAction(corpo(CANAL_MEU));
     expect(r.ok).toBe(true);
     expect(escritas.map((e) => `${e.tabela}:${e.op}`)).toEqual([
-      "ai_agents:insert",
-      "ai_agent_versions:insert",
+      "ai_agents:rpc",
+      "ai_agent_versions:rpc",
     ]);
   });
 });

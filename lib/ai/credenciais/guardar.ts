@@ -32,7 +32,7 @@ export type ResultadoDeGuardar =
        * `label_em_uso` é o único que o chamador precisa distinguir: é escolha do
        * usuário e tem conserto óbvio (mudar o nome). O resto é falha nossa.
        */
-      motivo: "cifragem" | "label_em_uso" | "banco" | "assinatura_so_pelo_login";
+      motivo: "cifragem" | "label_em_uso" | "banco" | "assinatura_so_pelo_login" | "forbidden_platform_ai";
       detalhe?: string;
     };
 
@@ -53,7 +53,7 @@ export type ResultadoDeRotacionar =
        * leitura da rota e o update. `label_em_uso` é escolha do usuário; o
        * resto é falha nossa — mesma divisão de `guardarCredencial`.
        */
-      motivo: "cifragem" | "label_em_uso" | "nao_encontrada" | "banco";
+      motivo: "cifragem" | "label_em_uso" | "nao_encontrada" | "banco" | "forbidden_platform_ai";
       detalhe?: string;
     };
 
@@ -73,6 +73,7 @@ export interface PedidoDeGuardar {
    */
   baseUrl?: string;
   requestId?: string;
+  platformBypass?: boolean; // somente após validação Superadmin full/MFA pelo handler
 }
 
 /**
@@ -149,29 +150,32 @@ async function inserirCredencial(p: PedidoDeGuardar): Promise<ResultadoDeGuardar
     return { ok: false, motivo: "cifragem", detalhe: err instanceof Error ? err.message : undefined };
   }
 
-  const { data: created, error } = await p.admin
-    .from("ai_provider_credentials")
-    .insert({
-      organization_id: p.orgId,
-      provider: p.provider,
-      label: p.label,
-      api_key_encrypted: cifrada.api_key_encrypted,
-      api_key_iv: cifrada.api_key_iv,
-      api_key_tag: cifrada.api_key_tag,
-      api_key_last4: cifrada.api_key_last4,
-      ...(p.baseUrl !== undefined ? { base_url: p.baseUrl } : {}),
-      // O LOGIN POR ASSINATURA nasce VALIDADO (#1672, item 4): quem prova o
-      // login é a troca do código colado, que acabou de acontecer aqui em
-      // cima. `loadCredential` recusa credencial sem `validated_at`, então
-      // gravar sem isto faria a fiação encontrar a credencial e recusá-la.
-      ...(p.provider === PROVEDOR_POR_ASSINATURA ? { validated_at: new Date().toISOString() } : {}),
-      is_active: true,
-      created_by: p.userId,
-    })
-    .select("id")
-    .single();
-
-  if (error || !created) {
+  const { data: created, error } = await p.admin.rpc(
+    "fn_elus_ai_credential_write_guarded", {
+      p_org: p.orgId,
+      p_op: "insert",
+      p_id: null,
+      p_patch: {
+        provider: p.provider,
+        label: p.label,
+        api_key_encrypted: cifrada.api_key_encrypted,
+        api_key_iv: cifrada.api_key_iv,
+        api_key_tag: cifrada.api_key_tag,
+        api_key_last4: cifrada.api_key_last4,
+        ...(p.baseUrl !== undefined ? { base_url: p.baseUrl } : {}),
+        ...(p.provider === PROVEDOR_POR_ASSINATURA
+          ? { validated_at: new Date().toISOString() } : {}),
+        is_active: true,
+        created_by: p.userId,
+      },
+      p_platform_bypass: p.platformBypass === true,
+    },
+  );
+  if (created && typeof created === "object" && !Array.isArray(created)
+      && "error" in created && created.error === "forbidden_platform_ai") {
+    return { ok: false, motivo: "forbidden_platform_ai" };
+  }
+  if (error || !created || typeof created !== "object" || Array.isArray(created) || !("id" in created)) {
     if (error?.code === "23505") return { ok: false, motivo: "label_em_uso" };
     return { ok: false, motivo: "banco", detalhe: error?.message };
   }
@@ -223,6 +227,8 @@ export interface PedidoDeRotacionar {
   /** Presente = trocar o rótulo. Ausente = manter. */
   label?: string;
   requestId?: string;
+  platformBypass?: boolean;
+  automatedRenewal?: boolean; // apenas renovação automática de tokens do login já existente
 }
 
 export async function rotacionarCredencial(
@@ -264,19 +270,25 @@ export async function rotacionarCredencial(
 
   if (p.label !== undefined) patch.label = p.label;
 
-  const { data: updated, error } = await p.admin
-    .from("ai_provider_credentials")
-    .update(patch)
-    .eq("id", p.credentialId)
-    .eq("organization_id", p.orgId)
-    .select("id")
-    .maybeSingle();
-
+  const { data: updated, error } = await p.admin.rpc(
+    "fn_elus_ai_credential_write_guarded", {
+      p_org: p.orgId,
+      p_op: p.automatedRenewal === true ? "refresh_login" : "update",
+      p_id: p.credentialId,
+      p_patch: patch,
+      p_platform_bypass: p.platformBypass === true,
+    },
+  );
+  if (updated && typeof updated === "object" && !Array.isArray(updated)
+      && "error" in updated && updated.error === "forbidden_platform_ai") {
+    return { ok: false, motivo: "forbidden_platform_ai" };
+  }
   if (error) {
     if (error.code === "23505") return { ok: false, motivo: "label_em_uso" };
     return { ok: false, motivo: "banco", detalhe: error.message };
   }
-  if (!updated) return { ok: false, motivo: "nao_encontrada" };
+  if (!updated || typeof updated !== "object" || Array.isArray(updated) || !("id" in updated))
+    return { ok: false, motivo: "nao_encontrada" };
 
   await audit({
     action: "ai.credential_updated",

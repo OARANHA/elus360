@@ -15,6 +15,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { versionPatchSchema } from "@/lib/ai/agents/validation";
 import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
+
+
+
+
 
 export const dynamic = "force-dynamic";
 
@@ -100,14 +105,17 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   }
 
   const admin = createAdminClient();
-  const { data: existing } = await admin
+  const { data: existing, error: existingError } = await admin
     .from("ai_agent_versions")
-    .select("id, status, agent_id, organization_id, followup")
+    .select(
+      "id, status, agent_id, organization_id, followup, system_prompt, provider, model, credential_id, operator_model",
+    )
     .eq("id", vid)
     .eq("organization_id", organizationId)
     .eq("agent_id", id)
     .maybeSingle();
 
+  if (existingError) return fail("internal_error", "Erro ao buscar version.", 500, { requestId });
   if (!existing) return fail("not_found", t("Version não encontrada."), 404, { requestId });
   if (existing.status !== "draft") {
     return fail("version_immutable", t("Apenas versões 'draft' podem ser editadas."), 409, {
@@ -127,11 +135,28 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     return fail(codigoDoEscopo(escopo), mensagemDoEscopo(escopo), 422, { requestId });
   }
 
+  const anterior = {
+    provider: existing.provider,
+    model: existing.model,
+    credential_id: existing.credential_id,
+    operator_model: existing.operator_model,
+  };
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: authz.via,
+    authUserId,
+    organizationId,
+    anteriorDoServidor: anterior,
+    propostaValidada: patch,
+  }))) {
+    return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
+  }
+
   const update: Record<string, unknown> = {};
   if (patch.system_prompt !== undefined) update.system_prompt = patch.system_prompt;
   if (patch.provider !== undefined) update.provider = patch.provider;
   if (patch.model !== undefined) update.model = patch.model;
   if (patch.credential_id !== undefined) update.credential_id = patch.credential_id;
+  if (patch.operator_model !== undefined) update.operator_model = patch.operator_model;
   if (patch.tool_ids !== undefined) update.tool_ids = patch.tool_ids;
   if (patch.trigger_config !== undefined) update.trigger_config = patch.trigger_config;
   if (patch.channel_session_id !== undefined) update.channel_session_id = patch.channel_session_id;
@@ -152,7 +177,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (patch.cases_enabled !== undefined) update.cases_enabled = patch.cases_enabled;
   if (patch.split_messages !== undefined) update.split_messages = patch.split_messages;
   if (patch.split_max_chars !== undefined) update.split_max_chars = patch.split_max_chars;
-  if (patch.inbound_debounce_ms !== undefined) update.inbound_debounce_ms = patch.inbound_debounce_ms;
+  if (patch.inbound_debounce_ms !== undefined)
+    update.inbound_debounce_ms = patch.inbound_debounce_ms;
   // Os dois escopos da versão entravam só no schema, não neste objeto: o PATCH
   // respondia 200 com a lista antiga e o agente seguia sem o funil ou sem o
   // material. Integrações por token chegam aqui; a tela usa
@@ -172,16 +198,46 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     update.followup = { ...existingFollowup, ...patch.followup };
   }
 
-  const { data, error } = await admin
-    .from("ai_agent_versions")
-    .update(update)
-    .eq("id", vid)
-    .eq("organization_id", organizationId)
-    .select(VERSION_COLUMNS)
-    .single();
-
-  if (error || !data) {
-    return fail("internal_error", "Erro ao atualizar version.", 500, { requestId });
+  // RPC service-only: lock da organização e do draft na MESMA transação
+  // da escrita, evitando TOCTOU entre leitura de grant e UPDATE.
+  const { data, error } = await admin.rpc("fn_elus_ai_version_patch_guarded", {
+    p_org: organizationId,
+    p_agent: id,
+    p_version: vid,
+    p_patch: update,
+    p_expected: {
+      provider: existing.provider,
+      model: existing.model,
+      credential_id: existing.credential_id,
+      operator_model: existing.operator_model,
+      ...(patch.system_prompt !== undefined ? { system_prompt: existing.system_prompt } : {}),
+      ...(patch.followup !== undefined ? { followup: existing.followup } : {}),
+    },
+    p_platform_bypass: authz.via === "session" && (await (async () => {
+      const { loadAuthUser } = await import("@/lib/auth/server");
+      const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+      const usuario = await loadAuthUser();
+      if (!usuario || usuario.id !== authUserId || !podeGerenciarIaDaPlataforma(usuario)) return false;
+      try {
+        // Bypass exclusivo de sessão Superadmin full com MFA validado agora.
+        const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+        await requirePlatformAdminEscrita();
+        return true;
+      } catch {
+        return false;
+      }
+    })()),
+  });
+  if (error) return fail("internal_error", "Erro na escrita atômica da versão.", 500, { requestId });
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return fail("internal_error", "Resposta inválida da escrita atômica.", 500, { requestId });
+  }
+  if ("error" in data) {
+    if (data.error === "forbidden_platform_ai") {
+      return fail("forbidden_platform_ai", "Permissão técnica revogada ou indisponível.", 403, { requestId });
+    }
+    if (data.error === "version_not_found") return fail("not_found", "Version não encontrada.", 404, { requestId });
+    return fail("version_conflict", "A versão foi alterada. Recarregue e tente novamente.", 409, { requestId });
   }
 
   void audit({

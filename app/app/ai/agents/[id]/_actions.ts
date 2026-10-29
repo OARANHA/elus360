@@ -33,6 +33,9 @@ import {
 } from "@/lib/ai/agents/validation";
 import { publishAgentVersion } from "@/lib/ai/agents/publish";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
+import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { requirePlatformAdminEscrita } from "@/lib/auth/requirePlatformAdmin";
 import { toolIdAceito } from "@/lib/mcp/servidor-externo/ids";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools";
 
@@ -67,44 +70,19 @@ async function ensureAdmin() {
  * encheria `api_audit_log` de linha sem efeito. A comparação é contra a linha
  * lida no mesmo request.
  */
-async function gravarCadastroDoAgente(
-  admin: ReturnType<typeof createAdminClient>,
-  args: {
-    agentId: string;
-    orgId: string;
-    actorUserId: string;
-    requestId: string;
-    atual: { name?: unknown; description?: unknown; priority?: unknown };
-    pedido: { name?: string; description?: string | null; priority?: number };
-  },
-): Promise<{ erro: string } | { mudou: string[] }> {
+function montarPatchCadastro(
+  atual: { name?: unknown; description?: unknown; priority?: unknown },
+  pedido?: { name?: string; description?: string | null; priority?: number },
+): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
+  if (!pedido) return patch;
   for (const campo of ["name", "description", "priority"] as const) {
-    const novo = args.pedido[campo];
-    if (novo === undefined) continue;
-    if ((args.atual[campo] ?? null) === (novo ?? null)) continue;
-    patch[campo] = novo ?? null;
+    const novo = pedido[campo];
+    if (novo !== undefined && (atual[campo] ?? null) !== (novo ?? null)) {
+      patch[campo] = novo ?? null;
+    }
   }
-  if (Object.keys(patch).length === 0) return { mudou: [] };
-
-  // Service role bypassa RLS: o filtro de organização é manual e obrigatório.
-  const { error } = await admin
-    .from("ai_agents")
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("id", args.agentId)
-    .eq("organization_id", args.orgId);
-  if (error) return { erro: error.message };
-
-  void audit({
-    action: "ai_agent.updated",
-    actorUserId: args.actorUserId,
-    organizationId: args.orgId,
-    resourceType: "ai_agent",
-    resourceId: args.agentId,
-    requestId: args.requestId,
-    metadata: { fields: Object.keys(patch) },
-  });
-  return { mudou: Object.keys(patch) };
+  return patch;
 }
 
 export async function saveAgentDraftAction(
@@ -163,6 +141,19 @@ export async function saveAgentDraftAction(
     .maybeSingle();
   if (!agent) return { ok: false, error: "not_found" };
   if (agent.archived_at) return { ok: false, error: "agent_archived" };
+  const cadastroPatch = montarPatchCadastro(agent, cadastroParsed?.success ? cadastroParsed.data : undefined);
+  // Mesmo bypass da API REST: somente sessão do próprio Superadmin full,
+  // com MFA validado neste request. Suporte/impersonação nunca herdam bypass.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    try {
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return { ok: false, error: "forbidden_platform_ai" };
+    }
+  }
+
 
   // O escopo aponta para coisas que EXISTEM nesta organização. Marcar um
   // material apagado (ou de outra organização) produz uma configuração muda: a
@@ -229,17 +220,48 @@ export async function saveAgentDraftAction(
     if (!patchValidated.success) {
       return { ok: false, error: "validation_failed", details: patchValidated.error.flatten() };
     }
-    const update: Record<string, unknown> = { ...patchValidated.data };
-    const { data: updated, error } = await admin
+    const { data: previous, error: readError } = await admin
       .from("ai_agent_versions")
-      .update(update)
+      .select("id, status, provider, model, credential_id, operator_model, system_prompt, followup")
       .eq("id", existingDraft.id)
+      .eq("agent_id", agentId)
       .eq("organization_id", activeOrg.orgId)
-      .select(VERSION_COLUMNS)
-      .single();
+      .maybeSingle();
+    if (readError || !previous) return { ok: false, error: "version_conflict" };
+    if (previous.status !== "draft") return { ok: false, error: "version_immutable" };
 
-    if (error || !updated) {
-      return { ok: false, error: "internal_error", message: error?.message };
+    const update: Record<string, unknown> = { ...patchValidated.data };
+    const allowed = await podeAlterarTecnicaDeVersao({
+      via: "session",
+      authUserId: authUser.id,
+      organizationId: activeOrg.orgId,
+      anteriorDoServidor: previous,
+      propostaValidada: patchValidated.data,
+    });
+    if (!allowed) return { ok: false, error: "forbidden_platform_ai" };
+
+    const { data: updated, error } = await admin.rpc("fn_elus_ai_draft_save_guarded", {
+      p_org: activeOrg.orgId,
+      p_agent: agentId,
+      p_version: existingDraft.id,
+      p_mode: "patch",
+      p_version_payload: update,
+      p_agent_patch: cadastroPatch,
+      p_expected: {
+        provider: previous.provider,
+        model: previous.model,
+        credential_id: previous.credential_id,
+        operator_model: previous.operator_model,
+        ...(update.system_prompt !== undefined ? { system_prompt: previous.system_prompt } : {}),
+        ...(update.followup !== undefined ? { followup: previous.followup } : {}),
+      },
+      p_platform_bypass: platformBypass,
+    });
+    if (error || !updated || typeof updated !== "object" || Array.isArray(updated)) {
+      return { ok: false, error: "internal_error" };
+    }
+    if ("error" in updated) {
+      return { ok: false, error: updated.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "version_conflict" };
     }
 
     void audit({
@@ -252,27 +274,12 @@ export async function saveAgentDraftAction(
       metadata: { agent_id: agentId, fields: Object.keys(update) },
     });
 
-    if (cadastroParsed?.success) {
-      const r = await gravarCadastroDoAgente(admin, {
-        agentId,
-        orgId: activeOrg.orgId,
-        actorUserId: authUser.id,
-        requestId,
-        atual: agent,
-        pedido: cadastroParsed.data,
-      });
-      // As duas escritas não são atômicas. O desfecho tem de dizer o que
-      // gravou: um toast verde genérico aqui reproduz o defeito com outra cara.
-      if ("erro" in r) {
-        return {
-          ok: false,
-          error: "internal_error",
-          message: `O rascunho foi salvo, mas o cadastro do agente não: ${r.erro}`,
-        };
-      }
-      if (r.mudou.length > 0) revalidatePath("/app/ai/agents");
+    if (Object.keys(cadastroPatch).length) {
+      void audit({ action: "ai_agent.updated", actorUserId: authUser.id,
+        organizationId: activeOrg.orgId, resourceType: "ai_agent",
+        resourceId: agentId, requestId, metadata: { fields: Object.keys(cadastroPatch) } });
+      revalidatePath("/app/ai/agents");
     }
-
     revalidatePath(`/app/ai/agents/${agentId}`);
     return {
       ok: true,
@@ -283,93 +290,68 @@ export async function saveAgentDraftAction(
     };
   }
 
-  // Cria draft v(max+1) com retry em 23505.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const { data: maxRow } = await admin
-      .from("ai_agent_versions")
-      .select("version_number")
-      .eq("agent_id", agentId)
-      .eq("organization_id", activeOrg.orgId)
-      .order("version_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const nextNumber = (maxRow?.version_number ?? 0) + 1;
-
-    const { data: created, error } = await admin
-      .from("ai_agent_versions")
-      .insert({
-        organization_id: activeOrg.orgId,
-        agent_id: agentId,
-        version_number: nextNumber,
-        system_prompt: v.system_prompt,
-        provider: v.provider,
-        model: v.model,
-        credential_id: v.credential_id,
-        tool_ids: v.tool_ids,
-        trigger_config: v.trigger_config ?? undefined,
-        channel_session_id: v.channel_session_id,
-        max_steps: v.max_steps,
-        token_budget: v.token_budget,
-        cost_budget_cents: v.cost_budget_cents,
-        history_message_window: v.history_message_window,
-        history_token_window: v.history_token_window,
-        handoff_keywords: v.handoff_keywords,
-        handoff_tool_enabled: v.handoff_tool_enabled,
-        handoff_legal_enabled: v.handoff_legal_enabled,
-        proposal_ai_draft_enabled: v.proposal_ai_draft_enabled,
-        cases_enabled: v.cases_enabled,
-        operator_enabled: v.operator_enabled,
-        operator_model: v.operator_model,
-        operator_tool_ids: v.operator_tool_ids,
-        pipeline_ids: v.pipeline_ids,
-        knowledge_source_ids: v.knowledge_source_ids,
-        split_messages: v.split_messages,
-        split_max_chars: v.split_max_chars,
-        inbound_debounce_ms: v.inbound_debounce_ms ?? null,
-        followup: v.followup,
-        status: "draft",
-        created_by: authUser.id,
-      })
-      .select("id, version_number")
-      .single();
-
-    if (!error && created) {
-      void audit({
-        action: "ai_agent.version_created",
-        actorUserId: authUser.id,
-        organizationId: activeOrg.orgId,
-        resourceType: "ai_agent_version",
-        resourceId: created.id,
-        requestId,
-        metadata: { agent_id: agentId, version_number: created.version_number },
-      });
-      if (cadastroParsed?.success) {
-        const r = await gravarCadastroDoAgente(admin, {
-          agentId,
-          orgId: activeOrg.orgId,
-          actorUserId: authUser.id,
-          requestId,
-          atual: agent,
-          pedido: cadastroParsed.data,
-        });
-        if ("erro" in r) {
-          return {
-            ok: false,
-            error: "internal_error",
-            message: `O rascunho foi salvo, mas o cadastro do agente não: ${r.erro}`,
-          };
-        }
-        if (r.mudou.length > 0) revalidatePath("/app/ai/agents");
-      }
-
-      revalidatePath(`/app/ai/agents/${agentId}`);
-      return { ok: true, data: { version_id: created.id, version_number: created.version_number } };
-    }
-    if (error?.code !== "23505") {
-      return { ok: false, error: "internal_error", message: error?.message };
-    }
+  // A criação também passa pelo lock da organização e verificação de grants
+  // no PostgreSQL. Não calcular version_number fora da transação.
+  const { data: reference, error: referenceError } = await admin
+    .from("ai_agent_versions")
+    .select("provider, model, credential_id, operator_model")
+    .eq("organization_id", activeOrg.orgId)
+    .eq("agent_id", agentId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (referenceError || !reference) {
+    return { ok: false, error: "configuracao_ia_indisponivel" };
   }
-  return { ok: false, error: "internal_error", message: "Conflito de versionamento." };
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: "session",
+    authUserId: authUser.id,
+    organizationId: activeOrg.orgId,
+    anteriorDoServidor: reference,
+    propostaValidada: v,
+  }))) {
+    return { ok: false, error: "forbidden_platform_ai" };
+  }
+  const { data: created, error: createError } = await admin.rpc(
+    "fn_elus_ai_draft_save_guarded",
+    {
+      p_org: activeOrg.orgId,
+      p_agent: agentId,
+      p_mode: "create",
+      p_version: null,
+      p_expected: {},
+      p_agent_patch: cadastroPatch,
+      p_version_payload: { ...v, created_by: authUser.id },
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
+    return { ok: false, error: "internal_error" };
+  }
+  if ("error" in created) {
+    return {
+      ok: false,
+      error: created.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "version_conflict",
+    };
+  }
+
+  void audit({
+    action: "ai_agent.version_created",
+    actorUserId: authUser.id,
+    organizationId: activeOrg.orgId,
+    resourceType: "ai_agent_version",
+    resourceId: created.id,
+    requestId,
+    metadata: { agent_id: agentId, version_number: created.version_number },
+  });
+  if (Object.keys(cadastroPatch).length) {
+    void audit({ action: "ai_agent.updated", actorUserId: authUser.id,
+      organizationId: activeOrg.orgId, resourceType: "ai_agent",
+      resourceId: agentId, requestId, metadata: { fields: Object.keys(cadastroPatch) } });
+    revalidatePath("/app/ai/agents");
+  }
+  revalidatePath(`/app/ai/agents/${agentId}`);
+  return { ok: true, data: { version_id: created.id, version_number: created.version_number } };
 }
 
 // ---------------------------------------------------------------------------
@@ -726,74 +708,40 @@ export async function createMcpAgentAction(
     return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
   }
 
-  // Cria agent kind='mcp_agent' + v1 draft. Compensa rollback se versão falhar.
-  const { data: agentRow, error: agentErr } = await admin
-    .from("ai_agents")
-    .insert({
-      organization_id: activeOrg.orgId,
-      name: parsed.data.name,
-      description: parsed.data.description ?? null,
-      model: parsed.data.version.model,
-      system_prompt: parsed.data.version.system_prompt,
-      kind: "mcp_agent",
-      priority: parsed.data.priority,
-      is_active: false,
-      is_default: false,
-      created_by: authUser.id,
-    })
-    .select("id")
-    .single();
-
-  if (agentErr || !agentRow) {
-    return { ok: false, error: "internal_error", message: agentErr?.message };
+  // O mesmo RPC protegido da API REST cria agente e versão atomicamente.
+  // A permissão técnica é reavaliada no banco sob lock de organizations.
+  const { mcpAgentDraftRecords } = await import("@/lib/ai/agents/create-draft");
+  const records = mcpAgentDraftRecords(
+    { orgId: activeOrg.orgId, userId: authUser.id }, parsed.data,
+  );
+  const { data: created, error: createError } = await admin.rpc(
+    "fn_elus_ai_agent_create_guarded",
+    {
+      p_org: activeOrg.orgId,
+      p_agent: { ...records.agent, is_active: false, created_by: authUser.id },
+      p_version: { ...records.version, created_by: authUser.id },
+      p_platform_bypass: await (async () => {
+        const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+        if (!podeGerenciarIaDaPlataforma(authUser)) return false;
+        try {
+          const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+          await requirePlatformAdminEscrita();
+          return true;
+        } catch { return false; }
+      })(),
+    },
+  );
+  if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
+    return { ok: false, error: "internal_error" };
   }
-
-  const v = parsed.data.version;
-  const { error: versionErr } = await admin.from("ai_agent_versions").insert({
-    organization_id: activeOrg.orgId,
-    agent_id: agentRow.id,
-    version_number: 1,
-    system_prompt: v.system_prompt,
-    provider: v.provider,
-    model: v.model,
-    credential_id: v.credential_id,
-    tool_ids: v.tool_ids,
-    trigger_config: v.trigger_config ?? undefined,
-    channel_session_id: v.channel_session_id,
-    max_steps: v.max_steps,
-    token_budget: v.token_budget,
-    cost_budget_cents: v.cost_budget_cents,
-    history_message_window: v.history_message_window,
-    history_token_window: v.history_token_window,
-    handoff_keywords: v.handoff_keywords,
-    handoff_tool_enabled: v.handoff_tool_enabled,
-    handoff_legal_enabled: v.handoff_legal_enabled,
-    proposal_ai_draft_enabled: v.proposal_ai_draft_enabled,
-    cases_enabled: v.cases_enabled,
-    split_messages: v.split_messages,
-    split_max_chars: v.split_max_chars,
-    inbound_debounce_ms: v.inbound_debounce_ms ?? null,
-    followup: v.followup,
-    // O corpo ACEITAVA estes cinco e o INSERT os descartava: criar o assistente
-    // pela tela com papel Operador, escopo de funil ou material marcado produzia
-    // uma versão com tudo no default do banco — desligado e vazio.
-    operator_enabled: v.operator_enabled,
-    operator_model: v.operator_model,
-    operator_tool_ids: v.operator_tool_ids,
-    pipeline_ids: v.pipeline_ids,
-    knowledge_source_ids: v.knowledge_source_ids,
-    status: "draft",
-    created_by: authUser.id,
-  });
-
-  if (versionErr) {
-    // Compensação — archiva o agent recém criado para evitar lixo.
-    await admin
-      .from("ai_agents")
-      .update({ archived_at: new Date().toISOString() })
-      .eq("id", agentRow.id)
-      .eq("organization_id", activeOrg.orgId);
-    return { ok: false, error: "internal_error", message: versionErr.message };
+  if ("error" in created) {
+    return { ok: false, error:
+      created.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_indisponivel",
+    };
+  }
+  const agentRow = created.agent;
+  if (!agentRow || typeof agentRow !== "object" || !("id" in agentRow)) {
+    return { ok: false, error: "internal_error" };
   }
 
   void audit({

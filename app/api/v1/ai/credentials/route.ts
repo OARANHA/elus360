@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
 import { guardarCredencial, MENSAGEM_ASSINATURA_SO_PELO_LOGIN } from "@/lib/ai/credenciais/guardar";
 import { IDS_COM_CHAVE } from "@/lib/ai/pontos/provedores";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -50,6 +51,8 @@ export async function GET(): Promise<Response> {
   const requestId = randomUUID();
   const authz = await requireRole("manager", { requestId, resource: "ai_credentials" });
   if (!authz.ok) return authz.response;
+  const platformDenied = await recusaConfiguracaoDeIa(authz.user, authz.org.orgId, "credentials", requestId);
+  if (platformDenied) return platformDenied;
   const { org: activeOrg } = authz;
 
   const supabase = await createClient();
@@ -72,8 +75,23 @@ export async function POST(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
   const authz = await requireRole("admin", { requestId, resource: "ai_credentials" });
   if (!authz.ok) return authz.response;
+  const platformDenied = await recusaConfiguracaoDeIa(authz.user, authz.org.orgId, "credentials", requestId);
+  if (platformDenied) return platformDenied;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
+
+  let platformBypass = false;
+  const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin requer sessão full com MFA.", 403, { requestId });
+    }
+  }
+
 
   let rawBody: unknown;
   try {
@@ -137,9 +155,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     apiKey: input.api_key,
     baseUrl: baseUrl === "" ? undefined : baseUrl,
     requestId,
+    platformBypass,
   });
 
   if (!guardado.ok) {
+    if (guardado.motivo === "forbidden_platform_ai") {
+      return fail("forbidden_platform_ai", "Permissão para gerenciar credenciais foi revogada.", 403, { requestId });
+    }
     if (guardado.motivo === "label_em_uso") {
       return fail(
         "label_already_used",
