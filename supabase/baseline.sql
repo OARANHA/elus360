@@ -65946,7 +65946,7 @@ begin
     is_active,is_default,created_by
   ) values (
     v_agent.id,p_org,v_agent.name,v_agent.description,v_agent.model,
-    v_agent.system_prompt,'mcp_agent',v_agent.priority,true,false,v_agent.created_by
+    v_agent.system_prompt,'mcp_agent',v_agent.priority,coalesce(v_agent.is_active,false),false,v_agent.created_by
   ) returning to_jsonb(ai_agents) into v_agent_row;
   insert into public.ai_agent_versions(
     id,organization_id,agent_id,version_number,status,created_by,system_prompt,
