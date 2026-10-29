@@ -74,4 +74,58 @@ describe("Gate 2B.2 — decisão no servidor, ainda não conectada a APIs", () =
     );
     expect(result).toEqual({ permitido: true, motivo: null, negados: [] });
   });
+
+  it("preserva a separação dos quatro grants validada no ELUS anterior", async () => {
+    const anterior = {
+      provider: "anthropic",
+      model: "anthropic/x",
+      credential_id: null,
+      operator_model: null,
+      base_url: "https://api.exemplo.test",
+      is_enabled: true,
+    };
+    const proposta = {
+      provider: "openai",
+      model: "openai/y",
+      credential_id: ORG_A,
+      operator_model: "openai/z",
+      base_url: "https://outro.exemplo.test",
+      is_enabled: false,
+    };
+    const resultado = await decidirEscritaTecnicaIa(
+      { orgIdConfiavel: ORG_A, anteriorDoServidor: anterior, propostaValidada: proposta },
+      { lerAutonomiaPorOrganizacao: async () => ({ model: true }) },
+    );
+    expect(resultado).toEqual({
+      permitido: false,
+      motivo: "forbidden_platform_ai",
+      negados: ["provider", "credentials", "operator_model"],
+    });
+  });
+
+  it("não exige novos grants para editar apenas conteúdo sem mudar configuração técnica", async () => {
+    const resultado = await decidirEscritaTecnicaIa(
+      { orgIdConfiavel: ORG_A, anteriorDoServidor: ANTES, propostaValidada: {} },
+      { lerAutonomiaPorOrganizacao: async () => ({}) },
+    );
+    expect(resultado).toEqual({ permitido: true, motivo: null, negados: [] });
+  });
+
+  it("alteração da URL ou ativação do provider exige grant de provider", async () => {
+    for (const proposta of [{ base_url: "https://novo.exemplo.test" }, { is_enabled: false }]) {
+      const resultado = await decidirEscritaTecnicaIa(
+        {
+          orgIdConfiavel: ORG_A,
+          anteriorDoServidor: { ...ANTES, base_url: "https://antigo.exemplo.test", is_enabled: true },
+          propostaValidada: proposta,
+        },
+        { lerAutonomiaPorOrganizacao: async () => ({ model: true }) },
+      );
+      expect(resultado).toEqual({
+        permitido: false,
+        motivo: "forbidden_platform_ai",
+        negados: ["provider"],
+      });
+    }
+  });
 });
