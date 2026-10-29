@@ -36,6 +36,19 @@ CREATE TABLE public.ai_purpose_bindings (
   UNIQUE(organization_id,purpose)
 );
 GRANT SELECT, UPDATE, INSERT ON public.ai_purpose_bindings TO service_role;
+CREATE TABLE public.ai_provider_credentials (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL,
+  provider text NOT NULL, label text NOT NULL,
+  api_key_encrypted bytea NOT NULL,
+  api_key_iv bytea NOT NULL, api_key_tag bytea NOT NULL,
+  api_key_last4 text NOT NULL, base_url text,
+  validated_at timestamptz, validation_error text,
+  models_available text[], is_active boolean NOT NULL DEFAULT true,
+  created_by uuid NOT NULL, created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ai_provider_credentials TO service_role;
 GRANT SELECT, UPDATE, INSERT ON public.ai_agents TO service_role;
 GRANT SELECT, UPDATE, INSERT ON public.ai_agent_versions TO service_role;
 GRANT USAGE ON SCHEMA public TO authenticated, service_role;
