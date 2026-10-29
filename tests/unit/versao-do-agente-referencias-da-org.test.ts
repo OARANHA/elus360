@@ -94,7 +94,7 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
       if (fn !== "fn_elus_ai_version_patch_guarded") {
         return { data: null, error: { message: "unexpected_rpc" } };
       }
-      const versao = tabelas.ai_agent_versions.find(l =>
+      const versao = (tabelas.ai_agent_versions ?? []).find(l =>
         l.id === args.p_version && l.agent_id === args.p_agent && l.organization_id === args.p_org,
       );
       if (!versao) return { data: { error: "version_not_found" }, error: null };
@@ -105,7 +105,7 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
         }
       }
       const patch = args.p_patch as Linha;
-      const grants = tabelas.organizations.find(l => l.id === args.p_org)?.ai_autonomy as Linha | undefined;
+      const grants = (tabelas.organizations ?? []).find(l => l.id === args.p_org)?.ai_autonomy as Linha | undefined;
       const powers = { provider: "provider", model: "model", credential_id: "credentials", operator_model: "operator_model" };
       if (!args.p_platform_bypass) {
         for (const [campo, poder] of Object.entries(powers)) {
