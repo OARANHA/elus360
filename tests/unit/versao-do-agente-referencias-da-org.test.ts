@@ -56,7 +56,7 @@ type Linha = Record<string, unknown>;
 /** Banco de mentira: filtra por `eq`/`in` de verdade, como o PostgREST faria. */
 function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }>) {
   const tabelas: Record<string, Linha[]> = {
-    organizations: [{ id: ORG, ai_autonomy: { credentials: true } }],
+    organizations: [{ id: ORG, ai_autonomy: { credentials: true, provider: true, model: true } }],
     ai_provider_credentials: [
       { id: CRED_MINHA, organization_id: ORG },
       { id: CRED_ALHEIA, organization_id: OUTRA_ORG },
@@ -91,6 +91,23 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
   };
   return {
     rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn === "fn_elus_ai_agent_create_guarded") {
+        const agent = args.p_agent as Linha;
+        const version = args.p_version as Linha;
+        const currentOrg = tabelas.organizations.find(x => x.id === args.p_org);
+        if (!currentOrg) return { data: { error: "organization_not_found" }, error: null };
+        const policy = (currentOrg.ai_autonomy ?? {}) as Linha;
+        if (!args.p_platform_bypass &&
+            (policy.provider !== true || policy.model !== true)) {
+          return { data: { error: "forbidden_platform_ai" }, error: null };
+        }
+        const agentRow = { ...agent, organization_id: args.p_org, is_active: false };
+        const versionRow = { ...version, organization_id: args.p_org, agent_id: agent.id, version_number: 1 };
+        escritas.push({ tabela: "ai_agents", op: "rpc", valor: agentRow });
+        escritas.push({ tabela: "ai_agent_versions", op: "rpc", valor: versionRow });
+        return { data: { agent: agentRow, version: versionRow }, error: null };
+      }
+
       if (fn !== "fn_elus_ai_version_patch_guarded") {
         return { data: null, error: { message: "unexpected_rpc" } };
       }
@@ -258,8 +275,8 @@ describe("createMcpAgentAction (tela /ai/agents/new)", () => {
     const r = await createMcpAgentAction(corpo(CANAL_MEU));
     expect(r.ok).toBe(true);
     expect(escritas.map((e) => `${e.tabela}:${e.op}`)).toEqual([
-      "ai_agents:insert",
-      "ai_agent_versions:insert",
+      "ai_agents:rpc",
+      "ai_agent_versions:rpc",
     ]);
   });
 });
