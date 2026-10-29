@@ -591,3 +591,93 @@ revoke all on function public.fn_elus_ai_default_write_guarded(
   uuid,text,text,jsonb,boolean) from public,anon,authenticated;
 grant execute on function public.fn_elus_ai_default_write_guarded(
   uuid,text,text,jsonb,boolean) to service_role;
+
+
+-- Proteção transacional compartilhada para cadastro/rotação/exclusão de chaves.
+-- Payload cifrado pelo código AES-GCM existente; jamais plaintext no banco.
+create or replace function public.fn_elus_ai_credential_write_guarded(
+  p_org uuid, p_op text, p_id uuid, p_patch jsonb,
+  p_platform_bypass boolean default false
+) returns jsonb language plpgsql security invoker
+set search_path = pg_catalog, public, pg_temp
+as $elus_credential_write$
+declare
+  v_grants jsonb;
+  v_previous public.ai_provider_credentials%rowtype;
+  v_next public.ai_provider_credentials%rowtype;
+  v_key text;
+  v_result jsonb;
+begin
+  if current_user <> 'service_role' or auth.role() is distinct from 'service_role' then
+    raise exception 'elus_ai_credential_restricted' using errcode='42501';
+  end if;
+  if p_org is null or p_op is null or p_op not in ('insert','update','delete')
+     or jsonb_typeof(p_patch) is distinct from 'object' then
+    raise exception 'elus_ai_credential_invalid' using errcode='22023';
+  end if;
+  for v_key in select jsonb_object_keys(p_patch) loop
+    if (p_op='insert' and v_key <> all(array[
+      'provider','label','api_key_encrypted','api_key_iv','api_key_tag',
+      'api_key_last4','base_url','validated_at','is_active','created_by'
+    ]::text[]))
+    or (p_op='update' and v_key <> all(array[
+      'label','api_key_encrypted','api_key_iv','api_key_tag',
+      'api_key_last4','validated_at','validation_error','models_available'
+    ]::text[]))
+    or p_op='delete' then
+      raise exception 'elus_ai_credential_column_restricted' using errcode='42501';
+    end if;
+  end loop;
+  select ai_autonomy into v_grants from public.organizations where id=p_org for update;
+  if not found then return jsonb_build_object('error','organization_not_found'); end if;
+  if not coalesce(p_platform_bypass,false)
+     and (v_grants->'credentials') is distinct from 'true'::jsonb then
+    return jsonb_build_object('error','forbidden_platform_ai');
+  end if;
+  if p_op='insert' then
+    if p_id is not null then raise exception 'elus_ai_credential_invalid_id' using errcode='22023'; end if;
+    select * into v_next from jsonb_populate_record(null::public.ai_provider_credentials,p_patch);
+    if v_next.provider is null or v_next.label is null
+      or v_next.api_key_encrypted is null or v_next.api_key_iv is null
+      or v_next.api_key_tag is null or v_next.api_key_last4 is null
+      or v_next.created_by is null then
+      raise exception 'elus_ai_credential_invalid_payload' using errcode='22023';
+    end if;
+    insert into public.ai_provider_credentials (
+      organization_id,provider,label,api_key_encrypted,api_key_iv,api_key_tag,
+      api_key_last4,base_url,validated_at,is_active,created_by)
+    values(p_org,v_next.provider,v_next.label,v_next.api_key_encrypted,
+      v_next.api_key_iv,v_next.api_key_tag,v_next.api_key_last4,
+      v_next.base_url,v_next.validated_at,true,v_next.created_by)
+    returning jsonb_build_object('id',id) into v_result;
+  else
+    if p_id is null then raise exception 'elus_ai_credential_invalid_id' using errcode='22023'; end if;
+    select * into v_previous from public.ai_provider_credentials
+      where id=p_id and organization_id=p_org for update;
+    if not found then return jsonb_build_object('error','not_found'); end if;
+    if p_op='delete' then
+      delete from public.ai_provider_credentials
+        where id=p_id and organization_id=p_org;
+      return jsonb_build_object('id',p_id,'deleted',true);
+    end if;
+    select * into v_next from jsonb_populate_record(v_previous,p_patch);
+    update public.ai_provider_credentials set
+      label=v_next.label,
+      api_key_encrypted=v_next.api_key_encrypted,
+      api_key_iv=v_next.api_key_iv,
+      api_key_tag=v_next.api_key_tag,
+      api_key_last4=v_next.api_key_last4,
+      validated_at=v_next.validated_at,
+      validation_error=v_next.validation_error,
+      models_available=v_next.models_available,
+      updated_at=now()
+    where id=p_id and organization_id=p_org
+    returning jsonb_build_object('id',id) into v_result;
+  end if;
+  return v_result;
+end
+$elus_credential_write$;
+revoke all on function public.fn_elus_ai_credential_write_guarded(
+  uuid,text,uuid,jsonb,boolean) from public,anon,authenticated;
+grant execute on function public.fn_elus_ai_credential_write_guarded(
+  uuid,text,uuid,jsonb,boolean) to service_role;
