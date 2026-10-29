@@ -60,6 +60,30 @@ describe("fronteira unificada de governança de versões", () => {
     expect(await podeAlterarTecnicaDeVersao(input("token"))).toBe(false);
     expect(m.auth).not.toHaveBeenCalled();
   });
+  it("exige grants independentes para provider, model, credentials e operator_model", async () => {
+    const changes = {
+      provider: "anthropic",
+      model: "new",
+      credential_id: "55555555-5555-4555-8555-555555555555",
+      operator_model: "operator-new",
+    };
+    const request = { ...input(), propostaValidada: changes };
+    m.grants.mockResolvedValue({ provider: true, model: true, credentials: true, operator_model: false });
+    expect(await podeAlterarTecnicaDeVersao(request)).toBe(false);
+    m.grants.mockResolvedValue({ provider: true, model: true, credentials: true, operator_model: true });
+    expect(await podeAlterarTecnicaDeVersao(request)).toBe(true);
+  });
+  it("valores truthy não representam grants técnicos", async () => {
+    m.grants.mockResolvedValue({ model: "true" });
+    expect(await podeAlterarTecnicaDeVersao(input())).toBe(false);
+  });
+  it("nunca concede bypass de Superadmin ao API Token, mas respeita grants explícitos", async () => {
+    m.auth.mockResolvedValue({ id: authUserId, is_platform_admin: true, platform_admin_scope: "full", support: null });
+    m.grants.mockResolvedValue({ model: true });
+    expect(await podeAlterarTecnicaDeVersao(input("token"))).toBe(true);
+    expect(m.auth).not.toHaveBeenCalled();
+    expect(m.grants).toHaveBeenCalledWith(organizationId);
+  });
   it("recusa coluna indisponível e falha de banco", async () => {
     m.grants.mockResolvedValue(null);
     expect(await podeAlterarTecnicaDeVersao(input())).toBe(false);
