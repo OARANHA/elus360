@@ -70,3 +70,28 @@ test("banco descartável testa rollback após erro de cadastro e sucesso conjunt
   assert.match(sql, /FAIL_atomic_metadata_success/);
   assert.match(sql, /EXCEPTION WHEN check_violation/);
 });
+
+test("portas de configuração técnica mantêm preflight de autorização por tenant", () => {
+  const routes = [
+    ["app/api/v1/ai/providers/route.ts", "decidirEscritaTecnicaIa(", "recusaConfiguracaoDeIa("],
+    ["app/api/v1/ai/credentials/route.ts", "recusaConfiguracaoDeIa("],
+    ["app/api/v1/ai/credentials/[id]/route.ts", "recusaConfiguracaoDeIa("],
+    ["app/api/v1/ai/knowledge/provedor/route.ts", "recusaConfiguracaoDeIa("],
+  ];
+  for (const [path, ...guards] of routes) {
+    const source = readFileSync(path, "utf8");
+    for (const guard of guards) {
+      assert.ok(source.includes(guard), `${path}: ausência da verificação ${guard}`);
+    }
+    assert.match(source, /organization|orgId|\.orgId|\.organization_id/i,
+      `${path}: não foi possível identificar escopo de tenant`);
+  }
+});
+
+test("corrida SQL exercita ambas as ordens sem usar produção", () => {
+  const source = readFileSync(
+    "tests/operational/elus360-ai-autonomy-concurrency.sh", "utf8");
+  assert.match(source, /FAIL_concurrent_RPC_revocation/);
+  assert.match(source, /FAIL_concurrent_write_before_revoke/);
+  assert.match(source, /FAIL_revocation_after_write_not_applied/);
+});
