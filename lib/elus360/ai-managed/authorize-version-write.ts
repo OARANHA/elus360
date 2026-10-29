@@ -12,7 +12,7 @@ import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "./server";
  * Uma aprovação nesta etapa não substitui o gate transacional contra revogação.
  */
 export async function podeAlterarTecnicaDeVersao(input: {
-  via: "session" | "api_token";
+  via: "session" | "token";
   authUserId: string | null;
   organizationId: string;
   anteriorDoServidor: CamposTecnicosIa;
