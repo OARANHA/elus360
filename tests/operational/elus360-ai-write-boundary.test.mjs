@@ -16,7 +16,7 @@ for (const route of routes) {
       ? source.indexOf('admin.rpc("fn_elus_ai_version_patch_guarded"', guard)
       : route.includes("/versions/")
         ? source.indexOf('admin.rpc("fn_elus_ai_version_create_guarded"', guard)
-        : source.indexOf(".insert({ ...records.agent", guard);
+        : source.indexOf('admin.rpc("fn_elus_ai_agent_create_guarded"', guard);
     assert.ok(guard >= 0, "rota sem fronteira de autorização técnica");
     assert.ok(mutation > guard, "escrita anterior à verificação técnica");
     assert.match(source, /forbidden_platform_ai/);
