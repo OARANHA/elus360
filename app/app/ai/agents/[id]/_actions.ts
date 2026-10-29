@@ -34,6 +34,8 @@ import {
 import { publishAgentVersion } from "@/lib/ai/agents/publish";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
 import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
+import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { requirePlatformAdminEscrita } from "@/lib/auth/requirePlatformAdmin";
 import { toolIdAceito } from "@/lib/mcp/servidor-externo/ids";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools";
 
@@ -140,6 +142,18 @@ export async function saveAgentDraftAction(
   if (!agent) return { ok: false, error: "not_found" };
   if (agent.archived_at) return { ok: false, error: "agent_archived" };
   const cadastroPatch = montarPatchCadastro(agent, cadastroParsed?.success ? cadastroParsed.data : undefined);
+  // Mesmo bypass da API REST: somente sessão do próprio Superadmin full,
+  // com MFA validado neste request. Suporte/impersonação nunca herdam bypass.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    try {
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return { ok: false, error: "forbidden_platform_ai" };
+    }
+  }
+
 
   // O escopo aponta para coisas que EXISTEM nesta organização. Marcar um
   // material apagado (ou de outra organização) produz uma configuração muda: a
@@ -241,7 +255,7 @@ export async function saveAgentDraftAction(
         ...(update.system_prompt !== undefined ? { system_prompt: previous.system_prompt } : {}),
         ...(update.followup !== undefined ? { followup: previous.followup } : {}),
       },
-      p_platform_bypass: false,
+      p_platform_bypass: platformBypass,
     });
     if (error || !updated || typeof updated !== "object" || Array.isArray(updated)) {
       return { ok: false, error: "internal_error" };
@@ -308,7 +322,7 @@ export async function saveAgentDraftAction(
       p_expected: {},
       p_agent_patch: cadastroPatch,
       p_version_payload: { ...v, created_by: authUser.id },
-      p_platform_bypass: false,
+      p_platform_bypass: platformBypass,
     },
   );
   if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
