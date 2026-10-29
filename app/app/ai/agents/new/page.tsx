@@ -62,7 +62,7 @@ export default async function NewAgentPage() {
 
   const credentials = (credentialsRes.data ?? []) as CredentialRow[];
   const llmDaOrg = (
-    orgRes.data?.settings as { llm?: { provider?: string } } | null
+    orgRes.data?.settings as { llm?: { provider?: string; default_model?: string | null; credential_id?: string | null } } | null
   )?.llm;
 
   return (
@@ -74,6 +74,8 @@ export default async function NewAgentPage() {
         provedoresDaInstalacao={provedoresDaInstalacao()}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
         provedorPadrao={llmDaOrg?.provider}
+        modeloPadrao={llmDaOrg?.default_model ?? undefined}
+        credencialPadrao={llmDaOrg?.credential_id ?? null}
         channelSessions={channelSessions}
         organizationTimezone={fusoUtilizavel(activeOrg.timezone)}
       />
