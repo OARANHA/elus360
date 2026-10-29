@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { AgentRow } from "@/hooks/ai/useAgent";
 import { AgentsList } from "./_components/AgentsList";
 import { logger } from "@/lib/logger";
+import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,8 @@ export default async function AgentsListPage() {
   const agents = (data ?? []) as unknown as AgentRow[];
   const canWrite = ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin;
   const idioma = user.idioma;
+  const mostrarModelo = podeGerenciarIaDaPlataforma(user) ||
+    ((await lerAutonomiaIa(activeOrg.orgId))?.model === true);
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
@@ -64,7 +67,7 @@ export default async function AgentsListPage() {
           </p>
         </div>
       </header>
-      <AgentsList initialData={agents} canWrite={canWrite} />
+      <AgentsList initialData={agents} canWrite={canWrite} mostrarModelo={mostrarModelo} />
     </div>
   );
 }
