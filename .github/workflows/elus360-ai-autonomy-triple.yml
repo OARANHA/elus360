@@ -12,6 +12,7 @@ on:
       - ".github/workflows/elus360-ai-autonomy-triple.yml"
       - "lib/elus360/ai-managed/**"
       - "app/api/v1/ai/**"
+      - "app/app/ai/agents/[id]/_actions.ts"
       - "app/api/v1/admin/tenants/**/ai-permissions/**"
       - "tests/unit/elus360-*.test.ts"
       - "tests/unit/versao-do-agente-referencias-da-org.test.ts"
