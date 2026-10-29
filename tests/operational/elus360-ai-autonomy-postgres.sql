@@ -16,8 +16,14 @@ CREATE TABLE public.ai_agent_versions (
   handoff_keywords text[], handoff_tool_enabled boolean, handoff_legal_enabled boolean,
   proposal_ai_draft_enabled boolean, cases_enabled boolean, split_messages boolean,
   split_max_chars integer, inbound_debounce_ms integer,
-  pipeline_ids uuid[], knowledge_source_ids uuid[], followup jsonb
+  pipeline_ids uuid[], knowledge_source_ids uuid[], followup jsonb,
+  operator_enabled boolean, operator_tool_ids text[]
 );
+CREATE TABLE public.ai_agents (
+  id uuid PRIMARY KEY, organization_id uuid NOT NULL,
+  archived_at timestamptz
+);
+GRANT SELECT, UPDATE ON public.ai_agents TO service_role;
 GRANT SELECT, UPDATE ON public.ai_agent_versions TO service_role;
 GRANT USAGE ON SCHEMA public TO authenticated, service_role;
 GRANT SELECT, UPDATE, INSERT ON public.organizations TO authenticated, service_role;
@@ -180,5 +186,36 @@ BEGIN
     RAISE EXCEPTION 'FAIL_atomic_rpc_revoked_%',res;
   END IF;
 END $rpc$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
+
+-- Criação de versão protegida: a referência anterior vem do banco e
+-- a numeração/tenant são definidos na transação, nunca pelo corpo.
+INSERT INTO public.ai_agents(id,organization_id)
+VALUES('33333333-3333-4333-8333-333333333333',
+ '11111111-1111-4111-8111-111111111111');
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $create$
+DECLARE r jsonb;
+BEGIN
+  r := public.fn_elus_ai_version_create_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '33333333-3333-4333-8333-333333333333',
+    '{"system_prompt":"nova instrucao","provider":"openai","model":"sem_grant","credential_id":null,"operator_model":null}'::jsonb,
+    false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_create_without_grant_%',r;
+  END IF;
+  UPDATE public.organizations SET ai_autonomy='{"model":true}'::jsonb;
+  r := public.fn_elus_ai_version_create_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '33333333-3333-4333-8333-333333333333',
+    '{"system_prompt":"nova instrucao","provider":"openai","model":"nova","credential_id":null,"operator_model":null}'::jsonb,
+    false);
+  IF r->>'model' IS DISTINCT FROM 'nova' OR (r->>'version_number')::int <> 1 THEN
+    RAISE EXCEPTION 'FAIL_create_with_grant_%',r;
+  END IF;
+END $create$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);
