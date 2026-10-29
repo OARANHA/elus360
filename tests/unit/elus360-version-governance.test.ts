@@ -30,6 +30,38 @@ let writes: number;
 
 function db() {
   return {
+    rpc: async (_name: string, args: Record<string, unknown>) => {
+      if (_name !== "fn_elus_ai_version_patch_guarded") return { data: null, error: { message: "unexpected_rpc" } };
+      if (concurrent) { concurrent(); concurrent = undefined; }
+      if (row.id !== args.p_version || row.agent_id !== args.p_agent || row.organization_id !== args.p_org) {
+        return { data: { error: "version_not_found" }, error: null };
+      }
+      if (row.status !== "draft") return { data: { error: "version_immutable" }, error: null };
+      const expected = args.p_expected as Record<string, unknown>;
+      const patch = args.p_patch as Record<string, unknown>;
+      for (const key of ["provider", "model", "credential_id", "operator_model"]) {
+        if (row[key] !== expected[key]) return { data: { error: "version_conflict" }, error: null };
+      }
+      if ("system_prompt" in patch && row.system_prompt !== expected.system_prompt) {
+        return { data: { error: "version_conflict" }, error: null };
+      }
+      if ("followup" in patch && JSON.stringify(row.followup) !== JSON.stringify(expected.followup)) {
+        return { data: { error: "version_conflict" }, error: null };
+      }
+      if (!args.p_platform_bypass) {
+        const required: Record<string, string> = {
+          provider: "provider", model: "model", credential_id: "credentials", operator_model: "operator_model",
+        };
+        for (const [key, grant] of Object.entries(required)) {
+          if (key in patch && patch[key] !== row[key] && grants[grant] !== true) {
+            return { data: { error: "forbidden_platform_ai" }, error: null };
+          }
+        }
+      }
+      writes++;
+      Object.assign(row, patch);
+      return { data: { ...row }, error: null };
+    },
     from(table: string) {
       const filters: Array<[string, unknown]> = [];
       let update: Record<string, unknown> | undefined;
