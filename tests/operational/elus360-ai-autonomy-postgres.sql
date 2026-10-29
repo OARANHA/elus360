@@ -7,7 +7,7 @@ CREATE ROLE anon NOLOGIN;
 CREATE TABLE public.organizations (id uuid PRIMARY KEY, settings jsonb NOT NULL DEFAULT '{}'::jsonb);
 -- Schema mínimo para compilar e exercitar o RPC transacional no CI descartável.
 CREATE TABLE public.ai_agent_versions (
-  id uuid PRIMARY KEY, organization_id uuid NOT NULL, agent_id uuid NOT NULL,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL, agent_id uuid NOT NULL,
   version_number integer NOT NULL DEFAULT 1,
   status text NOT NULL DEFAULT 'draft',
   system_prompt text, provider text, model text, credential_id uuid, operator_model text,
