@@ -56,3 +56,13 @@ Referências:
 - [Política pura](../../lib/elus360/ai-managed/policy.ts)
 - [Contrato de extensões](../elus360/extension-contract.md)
 - [Governança antiga](https://github.com/OARANHA/elus/blob/main/lib/ai/governanca-da-ia.ts)
+
+## Continuidade da portabilidade — credenciais (29/10/2026)
+
+Aceite funcional da governança no repositório legado `OARANHA/elus` foi confirmado pelo proprietário e não é um gate a repetir. A validação desta PR é exclusivamente a compatibilidade com a versão atual do DeskcommCRM.
+
+- `lib/elus360/ai-managed/server.ts` porta o resolvedor do legado com concessões por `organizations.ai_autonomy`, tenant proveniente do contexto autenticado, recusa em erro de banco e bloqueio de suporte; `server.test.ts` adiciona casos de regressão (ainda sem execução Vitest comprovada).
+- `app/api/v1/ai/credentials/route.ts`: GET e POST agora chamam `recusaConfiguracaoDeIa(authz.user, authz.org.orgId, "credentials", requestId)` após `requireRole` e antes do acesso sensível.
+- `app/api/v1/ai/credentials/[id]/route.ts`: PATCH e DELETE usam o mesmo gate antes de qualquer alteração de credencial. Nenhum acesso por organização fornecida no payload foi introduzido.
+- Conferidos os quatro pontos de chamada diretamente no GitHub, commit `4f1f2267b0071bbf6f4c94fe0207582480fd594c`. **Não houve execução de Vitest, TypeScript, teste DB ou CI desse HEAD.**
+- **Dependência de ativação:** a migration da coluna `ai_autonomy` ainda não foi aplicada e, até isso acontecer, esses handlers falham fechados para tenants. A PR continua Draft; **não integrar nem publicar isoladamente**. Continuam pendentes todas as demais superfícies do inventário, CAS no PostgREST, RLS, colisões de migration, testes e coordenação schema↔código.
