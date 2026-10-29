@@ -15,9 +15,10 @@ import { deriveAgentStatus } from "./AgentStatusBadge";
 interface Props {
   initialData: AgentRow[];
   canWrite: boolean;
+  mostrarModelo?: boolean;
 }
 
-export function AgentsList({ initialData, canWrite }: Props) {
+export function AgentsList({ initialData, canWrite, mostrarModelo = false }: Props) {
   const t = useT();
   const { data, isLoading } = useAgentsList({ initialData });
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -86,7 +87,7 @@ export function AgentsList({ initialData, canWrite }: Props) {
         <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((agent) => (
             <li key={agent.id}>
-              <AgentCard agent={agent} canWrite={canWrite} />
+              <AgentCard agent={agent} canWrite={canWrite} mostrarModelo={mostrarModelo} />
             </li>
           ))}
         </ul>
