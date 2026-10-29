@@ -191,6 +191,23 @@ describe("governança da versão do agente", () => {
     } as never);
     expect((await patch({ model: "new" })).status).toBe(403);
   });
+  it("nega escrita se o grant for revogado após a autorização preliminar", async () => {
+    grants.model = true;
+    concurrent = () => { grants.model = false; };
+    expect((await patch({ model: "new" })).status).toBe(403);
+    expect(row.model).toBe("old");
+    expect(writes).toBe(0);
+  });
+  it("não permite bypass de Superadmin se a verificação MFA falhar", async () => {
+    const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+    const { vi: vitestVi } = await import("vitest");
+    vitestVi.mocked(requirePlatformAdminEscrita).mockRejectedValueOnce(new Error("mfa_required"));
+    vi.mocked(loadAuthUser).mockResolvedValue({
+      id: user, is_platform_admin: true, platform_admin_scope: "full", support: null,
+    } as never);
+    expect((await patch({ model: "new" })).status).toBe(403);
+    expect(writes).toBe(0);
+  });
   it("recusa sobrescrever configuração técnica alterada após a leitura", async () => {
     grants.model = true;
     concurrent = () => {
