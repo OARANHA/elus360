@@ -198,39 +198,39 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     update.followup = { ...existingFollowup, ...patch.followup };
   }
 
-  let query = admin
-    .from("ai_agent_versions")
-    .update(update)
-    .eq("id", vid)
-    .eq("organization_id", organizationId)
-    .eq("agent_id", id)
-    .eq("status", "draft")
-    .eq("provider", existing.provider)
-    .eq("model", existing.model);
-  query =
-    existing.credential_id === null
-      ? query.is("credential_id", null)
-      : query.eq("credential_id", existing.credential_id);
-  query =
-    existing.operator_model === null
-      ? query.is("operator_model", null)
-      : query.eq("operator_model", existing.operator_model);
-  if (patch.system_prompt !== undefined) query = query.eq("system_prompt", existing.system_prompt);
-  if (patch.followup !== undefined) {
-    query =
-      existing.followup === null
-        ? query.is("followup", null)
-        : query.eq("followup", JSON.stringify(existing.followup));
+  // RPC service-only: lock da organização e do draft na MESMA transação
+  // da escrita, evitando TOCTOU entre leitura de grant e UPDATE.
+  const { data, error } = await admin.rpc("fn_elus_ai_version_patch_guarded", {
+    p_org: organizationId,
+    p_agent: id,
+    p_version: vid,
+    p_patch: update,
+    p_expected: {
+      provider: existing.provider,
+      model: existing.model,
+      credential_id: existing.credential_id,
+      operator_model: existing.operator_model,
+      ...(patch.system_prompt !== undefined ? { system_prompt: existing.system_prompt } : {}),
+      ...(patch.followup !== undefined ? { followup: existing.followup } : {}),
+    },
+    p_platform_bypass: authz.via === "session" && (await (async () => {
+      const { loadAuthUser } = await import("@/lib/auth/server");
+      const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+      const usuario = await loadAuthUser();
+      return !!usuario && usuario.id === authUserId && podeGerenciarIaDaPlataforma(usuario);
+    })()),
+  });
+  if (error) return fail("internal_error", "Erro na escrita atômica da versão.", 500, { requestId });
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return fail("internal_error", "Resposta inválida da escrita atômica.", 500, { requestId });
   }
-  const { data, error } = await query.select(VERSION_COLUMNS).maybeSingle();
-
-  if (error) {
-    return fail("internal_error", "Erro ao atualizar version.", 500, { requestId });
+  if ("error" in data) {
+    if (data.error === "forbidden_platform_ai") {
+      return fail("forbidden_platform_ai", "Permissão técnica revogada ou indisponível.", 403, { requestId });
+    }
+    if (data.error === "version_not_found") return fail("not_found", "Version não encontrada.", 404, { requestId });
+    return fail("version_conflict", "A versão foi alterada. Recarregue e tente novamente.", 409, { requestId });
   }
-  if (!data)
-    return fail("version_conflict", "A versão foi alterada. Recarregue e tente novamente.", 409, {
-      requestId,
-    });
 
   void audit({
     action: "ai_agent.version_updated",
