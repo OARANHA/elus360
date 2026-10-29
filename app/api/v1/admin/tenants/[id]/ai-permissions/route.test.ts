@@ -137,11 +137,11 @@ describe("Superadmin — autonomia técnica (Gate 2B.2, schema pendente)", () =>
     expect(h.writes).toEqual([{ ai_autonomy: grants }]);
     expect(h.where).toContainEqual(["id", TENANT]);
     expect(h.audit).toHaveBeenCalledOnce();
-    expect(h.audit.mock.calls[0][0]).toMatchObject({
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({
       action: "platform_admin.ai_autonomy_updated",
       organizationId: TENANT,
       bypassedRls: true,
-    });
+    }));
   });
 
   it("GET exige autenticação de Superadmin e isola organização", async () => {
