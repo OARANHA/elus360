@@ -468,3 +468,66 @@ BEGIN
 END $default_gate$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);
+
+
+-- Credenciais: cifragem permanece na camada compartilhada e o banco só grava
+-- bytea; sem grant, nenhuma chave pode ser criada/rotacionada/excluída.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $credential_gate$
+DECLARE r jsonb; credential_id uuid;
+BEGIN
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','insert',null,
+    '{"provider":"openai","label":"teste","api_key_encrypted":"\\x1234",
+      "api_key_iv":"\\x1234","api_key_tag":"\\x1234",
+      "api_key_last4":"1234","created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_credential_denial_%',r;
+  END IF;
+  IF EXISTS(SELECT 1 FROM public.ai_provider_credentials
+      WHERE organization_id='11111111-1111-4111-8111-111111111111') THEN
+    RAISE EXCEPTION 'FAIL_credential_insert_on_denial';
+  END IF;
+  UPDATE public.organizations SET ai_autonomy='{"credentials":true}'::jsonb;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','insert',null,
+    '{"provider":"openai","label":"teste","api_key_encrypted":"\\x1234",
+      "api_key_iv":"\\x1234","api_key_tag":"\\x1234",
+      "api_key_last4":"1234","created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    false);
+  credential_id := (r->>'id')::uuid;
+  IF credential_id IS NULL THEN RAISE EXCEPTION 'FAIL_credential_create_%',r; END IF;
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','update',
+    credential_id,'{"label":"revogada"}'::jsonb,false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_credential_rotate_revoked_%',r;
+  END IF;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','delete',
+    credential_id,'{}'::jsonb,false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_credential_delete_revoked_%',r;
+  END IF;
+  IF (SELECT label FROM public.ai_provider_credentials WHERE id=credential_id)
+       IS DISTINCT FROM 'teste' THEN RAISE EXCEPTION 'FAIL_credential_revocation_wrote'; END IF;
+  UPDATE public.organizations SET ai_autonomy='{"credentials":true}'::jsonb;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','update',
+    credential_id,'{"label":"permitida"}'::jsonb,false);
+  IF r->>'id' IS DISTINCT FROM credential_id::text THEN
+    RAISE EXCEPTION 'FAIL_credential_rotate_granted_%',r;
+  END IF;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','delete',
+    credential_id,'{}'::jsonb,false);
+  IF r->>'deleted' IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'FAIL_credential_delete_granted_%',r;
+  END IF;
+END $credential_gate$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
