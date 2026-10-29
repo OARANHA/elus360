@@ -37,6 +37,7 @@ import Link from "next/link";
 
 import { TETO_TOOLS_POR_AGENTE } from "@/lib/mcp/tools/selecao-por-pacote";
 import { PROVEDOR_POR_ASSINATURA, PROVEDORES } from "@/lib/ai/pontos/provedores";
+import { AUTONOMIA_IA_PADRAO, type AutonomiaIa } from "@/lib/elus360/ai-managed/policy";
 
 import { ModelPicker, useModelMeta } from "./ModelPicker";
 import { CHAVE_DA_INSTALACAO, CredentialPicker, STATUS_LABEL, findCredential } from "./CredentialPicker";
@@ -125,6 +126,7 @@ interface BaseProps {
   channelSessions: ChannelSessionLite[];
   routerMembership?: { routerId: string; routerName: string; channelSessionId: string; channelStatus: string | null } | null;
   readOnly?: boolean;
+  autonomiaTecnica?: Readonly<AutonomiaIa>;
   organizationTimezone?: string;
 }
 
@@ -393,6 +395,8 @@ export function AgentForm(props: Props) {
   const router = useRouter();
   const isEdit = props.mode === "edit";
   const readOnly = props.readOnly ?? false;
+  const autonomia = props.autonomiaTecnica ?? AUTONOMIA_IA_PADRAO;
+  const podeVerConfiguracaoTecnica = autonomia.provider || autonomia.model || autonomia.credentials;
 
   const baseline = React.useMemo(() => {
     if (isEdit) {
@@ -815,6 +819,7 @@ export function AgentForm(props: Props) {
           modeloDoConversador={form.model}
           agentId={props.mode === "edit" ? props.agent.id : null}
           disabled={disabled}
+          permitirModeloTecnico={autonomia.operator_model}
         />
       ) : null}
 
@@ -887,10 +892,10 @@ export function AgentForm(props: Props) {
             </div>
           </Card>
 
-          {/* Provider + credential + model */}
-          <Card className="space-y-3 p-4">
+          {/* Controles concedidos pelo Superadmin; segurança real permanece no backend. */}
+          {podeVerConfiguracaoTecnica ? <Card className="space-y-3 p-4">
             <h3 className="text-sm font-medium">{t("A inteligência que ele usa")}</h3>
-            <div className="space-y-1">
+            {autonomia.provider ? <div className="space-y-1">
               <Label htmlFor="provider">{t("Empresa de inteligência artificial")}</Label>
               <Select
                 value={form.provider}
@@ -925,20 +930,20 @@ export function AgentForm(props: Props) {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </div> : null}
 
-            <ModelPicker
+            {autonomia.model ? <ModelPicker
               provider={form.provider}
               value={form.model}
               onChange={(modelId) => patch({ model: modelId })}
               disabled={disabled}
               id="model"
-            />
+            /> : null}
             {validation.model ? (
               <p className="text-xs text-destructive">{validation.model}</p>
             ) : null}
 
-            <CredentialPicker
+            {autonomia.credentials ? <CredentialPicker
               provider={form.provider}
               credentials={props.credentials}
               value={form.credential_id}
@@ -946,7 +951,7 @@ export function AgentForm(props: Props) {
               disabled={disabled}
               id="credential_id"
               instalacaoTemChave={(props.provedoresDaInstalacao ?? []).includes(form.provider)}
-            />
+            /> : null}
             {validation.credential_id ? (
               <p className="text-xs text-destructive">{validation.credential_id}</p>
             ) : null}
@@ -956,9 +961,12 @@ export function AgentForm(props: Props) {
                 {t(". Publish bloqueado até validar.")}
               </p>
             ) : null}
-          </Card>
+          </Card> : <Card className="p-4" data-testid="elus-ia-gerenciada">
+            <h3 className="text-sm font-medium">{t("Inteligência artificial ELUS360")}</h3>
+            <p className="text-xs text-muted-foreground">{t("Configurada e gerenciada pela plataforma.")}</p>
+          </Card>}
 
-          {/* WhatsApp session */}
+          {/* WhatsApp session */
           <Card className="space-y-3 p-4">
             <h3 className="text-sm font-medium">{t("Por qual número ele atende")}</h3>
             {props.routerMembership && (
