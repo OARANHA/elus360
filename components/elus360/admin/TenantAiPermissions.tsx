@@ -61,7 +61,7 @@ export function TenantAiPermissions({ organizationId }: { organizationId: string
     return () => {
       alive = false;
     };
-  }, [endpoint]);
+  }, [endpoint, t]);
 
   async function save() {
     if (!values) return;
