@@ -15,10 +15,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { versionPatchSchema } from "@/lib/ai/agents/validation";
 import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { traduzir } from "@/lib/i18n/dicionario";
-import { loadAuthUser } from "@/lib/auth/server";
-import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
-import { mudancasTecnicas } from "@/lib/elus360/ai-managed/policy";
-import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
+
+
+
+
 
 export const dynamic = "force-dynamic";
 
@@ -140,30 +141,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     credential_id: existing.credential_id,
     operator_model: existing.operator_model,
   };
-  if (mudancasTecnicas(anterior, patch).length > 0) {
-    const usuario = authz.via === "session" ? await loadAuthUser() : null;
-    if (authz.via === "session" && (!usuario || usuario.id !== authUserId || usuario.support)) {
-      return fail(
-        "forbidden_platform_ai",
-        "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.",
-        403,
-        { requestId },
-      );
-    }
-    if (!usuario || !podeGerenciarIaDaPlataforma(usuario)) {
-      const decisao = await decidirEscritaTecnicaIa(
-        { orgIdConfiavel: organizationId, anteriorDoServidor: anterior, propostaValidada: patch },
-        { lerAutonomiaPorOrganizacao: lerAutonomiaIa },
-      );
-      if (!decisao.permitido) {
-        return fail(
-          "forbidden_platform_ai",
-          "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.",
-          403,
-          { requestId },
-        );
-      }
-    }
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: authz.via,
+    authUserId,
+    organizationId,
+    anteriorDoServidor: anterior,
+    propostaValidada: patch,
+  }))) {
+    return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
   }
 
   const update: Record<string, unknown> = {};
