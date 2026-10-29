@@ -117,6 +117,8 @@ interface BaseProps {
    * página server component, do mesmo jeito que as credenciais.
    */
   provedorPadrao?: string;
+  modeloPadrao?: string;
+  credencialPadrao?: string | null;
   /**
    * Os provedores que ESTA instalação oferece — o servidor filtra por
    * `idsDosProvedoresOferecidos` (a assinatura do ChatGPT só com o módulo
@@ -274,18 +276,20 @@ export function buildState(args: {
    * continua sendo o último degrau, para instalação que ainda não escolheu nada.
    */
   provedorPadrao?: string;
+  modeloPadrao?: string;
+  credencialPadrao?: string | null;
   provedoresOferecidos?: readonly string[];
 }): FormState {
-  const { agent, version, t, provedorPadrao, provedoresOferecidos } = args;
+  const { agent, version, t, provedorPadrao, modeloPadrao, credencialPadrao, provedoresOferecidos } = args;
   return {
     name: agent?.name ?? "",
     description: agent?.description ?? "",
     priority: agent?.priority ?? 0,
     provider: (version?.provider as Provider) ?? provedorInicial(provedorPadrao, provedoresOferecidos),
-    model: version?.model ?? "",
+    model: version?.model ?? modeloPadrao ?? "",
     // `null` gravado = a versão usa a chave da instalação. Sem esta tradução,
     // reabrir o agente mostraria o campo em branco e pediria para escolher de novo.
-    credential_id: version ? (version.credential_id ?? CHAVE_DA_INSTALACAO) : "",
+    credential_id: version ? (version.credential_id ?? CHAVE_DA_INSTALACAO) : (credencialPadrao ?? CHAVE_DA_INSTALACAO),
     channel_session_id: version?.channel_session_id ?? "",
     // O DEFAULT vira o prompt real do agente se ninguém editar — por isso é
     // traduzido de verdade (não só a interface): em espanhol ele instrui a IA
@@ -410,6 +414,8 @@ export function AgentForm(props: Props) {
       version: null,
       t,
       provedorPadrao: props.provedorPadrao,
+      modeloPadrao: props.modeloPadrao,
+      credencialPadrao: props.credencialPadrao,
       provedoresOferecidos: props.provedoresOferecidos,
     });
   }, [isEdit, props, t]);
