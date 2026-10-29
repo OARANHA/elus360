@@ -24,7 +24,7 @@ import { traduzir } from "@/lib/i18n/dicionario";
 import { loadAuthUser } from "@/lib/auth/server";
 import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
 import { mudancasTecnicas } from "@/lib/elus360/ai-managed/policy";
-import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
 
 export const dynamic = "force-dynamic";
 
@@ -149,16 +149,7 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
     if (!usuario || !podeGerenciarIaDaPlataforma(usuario)) {
       const decisao = await decidirEscritaTecnicaIa(
         { orgIdConfiavel: organizationId, anteriorDoServidor: referencia, propostaValidada: propostaTecnica },
-        {
-          lerAutonomiaPorOrganizacao: async (orgId) => {
-            const { data, error } = await admin.from("organizations")
-              .select("ai_autonomy")
-              .eq("id", orgId)
-              .maybeSingle();
-            if (error || !data) return null;
-            return data.ai_autonomy;
-          },
-        },
+        { lerAutonomiaPorOrganizacao: lerAutonomiaIa },
       );
       if (!decisao.permitido)
         return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
