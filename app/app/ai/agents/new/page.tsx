@@ -10,6 +10,8 @@ import type { CredentialRow } from "@/hooks/ai/useCredentials";
 
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
+import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { AUTONOMIA_IA_PADRAO } from "@/lib/elus360/ai-managed/policy";
 
 import { AgentForm } from "../[id]/_components/AgentForm";
 
@@ -41,6 +43,10 @@ export default async function NewAgentPage() {
     redirect("/403");
   }
 
+  const autonomiaTecnica = podeGerenciarIaDaPlataforma(user)
+    ? { provider: true, model: true, credentials: true, operator_model: true }
+    : (await lerAutonomiaIa(activeOrg.orgId)) ?? AUTONOMIA_IA_PADRAO;
+
   const supabase = await createClient();
   const [orgRes, credentialsRes, channelSessions] = await Promise.all([
     // O provedor que a organização JÁ usa: sem ele, o agente novo nascia
@@ -63,6 +69,7 @@ export default async function NewAgentPage() {
     <div className="flex h-full flex-col gap-6 p-6">
       <AgentForm
         mode="create"
+        autonomiaTecnica={autonomiaTecnica}
         credentials={credentials}
         provedoresDaInstalacao={provedoresDaInstalacao()}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
