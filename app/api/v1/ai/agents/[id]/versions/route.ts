@@ -21,6 +21,10 @@ import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/a
 import { versionCreateSchema } from "@/lib/ai/agents/validation";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { loadAuthUser } from "@/lib/auth/server";
+import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
+import { mudancasTecnicas } from "@/lib/elus360/ai-managed/policy";
+import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +120,50 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
   }
 
   const admin = createAdminClient();
+
+  // A nova versão deve herdar a referência técnica da versão mais recente
+  // deste agente, lida do servidor. Nunca confiar em estado anterior do body.
+  // Sem versão de referência não é possível autorizar uma seleção técnica.
+  const { data: referencia, error: erroReferencia } = await admin
+    .from("ai_agent_versions")
+    .select("provider, model, credential_id, operator_model")
+    .eq("organization_id", organizationId)
+    .eq("agent_id", id)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (erroReferencia || !referencia)
+    return fail("configuracao_ia_indisponivel", "Versão de referência de IA indisponível.", 503, { requestId });
+
+  const propostaTecnica = {
+    provider: v.provider,
+    model: v.model,
+    credential_id: v.credential_id,
+    operator_model: v.operator_model,
+  };
+  if (mudancasTecnicas(referencia, propostaTecnica).length > 0) {
+    const usuario = authz.via === "session" ? await loadAuthUser() : null;
+    if (authz.via === "session" && (!usuario || usuario.id !== authUserId || usuario.support))
+      return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
+
+    if (!usuario || !podeGerenciarIaDaPlataforma(usuario)) {
+      const decisao = await decidirEscritaTecnicaIa(
+        { orgIdConfiavel: organizationId, anteriorDoServidor: referencia, propostaValidada: propostaTecnica },
+        {
+          lerAutonomiaPorOrganizacao: async (orgId) => {
+            const { data, error } = await admin.from("organizations")
+              .select("ai_autonomy")
+              .eq("id", orgId)
+              .maybeSingle();
+            if (error || !data) return null;
+            return data.ai_autonomy;
+          },
+        },
+      );
+      if (!decisao.permitido)
+        return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
+    }
+  }
 
   // Ordering: insert with retry on 23505 (race com unique(agent_id,version_number)).
   for (let attempt = 0; attempt < 3; attempt++) {
