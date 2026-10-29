@@ -90,6 +90,34 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
     ],
   };
   return {
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn !== "fn_elus_ai_version_patch_guarded") {
+        return { data: null, error: { message: "unexpected_rpc" } };
+      }
+      const versao = tabelas.ai_agent_versions.find(l =>
+        l.id === args.p_version && l.agent_id === args.p_agent && l.organization_id === args.p_org,
+      );
+      if (!versao) return { data: { error: "version_not_found" }, error: null };
+      const expected = args.p_expected as Linha;
+      for (const campo of ["provider", "model", "credential_id", "operator_model"]) {
+        if ((versao[campo] ?? null) !== (expected[campo] ?? null)) {
+          return { data: { error: "version_conflict" }, error: null };
+        }
+      }
+      const patch = args.p_patch as Linha;
+      const grants = tabelas.organizations.find(l => l.id === args.p_org)?.ai_autonomy as Linha | undefined;
+      const powers = { provider: "provider", model: "model", credential_id: "credentials", operator_model: "operator_model" };
+      if (!args.p_platform_bypass) {
+        for (const [campo, poder] of Object.entries(powers)) {
+          if (campo in patch && (versao[campo] ?? null) !== (patch[campo] ?? null) && grants?.[poder] !== true) {
+            return { data: { error: "forbidden_platform_ai" }, error: null };
+          }
+        }
+      }
+      escritas.push({ tabela: "ai_agent_versions", op: "rpc", valor: patch });
+      Object.assign(versao, patch);
+      return { data: { ...versao }, error: null };
+    },
     from(tabela: string) {
       const filtros: Array<(l: Linha) => boolean> = [];
       let carga: Linha | null = null;
@@ -182,7 +210,7 @@ describe("PATCH /ai/agents/:id/versions/:vid", () => {
     expect(escritas).toEqual([
       {
         tabela: "ai_agent_versions",
-        op: "update",
+        op: "rpc",
         valor: { credential_id: CRED_MINHA, channel_session_id: CANAL_MEU },
       },
     ]);
