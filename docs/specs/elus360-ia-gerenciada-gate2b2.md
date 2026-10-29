@@ -35,6 +35,12 @@ O teste `app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts` cobre supor
 4. Integrar todos os caminhos relevantes do [inventário inicial](../elus360/ai-governance-write-surfaces.json), atualizando-o à medida que a enumeração se tornar exaustiva. Cobrir a `PATCH` de provider padrão, os métodos de credenciais, edição/publicação/duplicação de agentes, versão, onboarding e alterações do provedor da base; testar URL direta, API Tokens e concorrência.
 5. Ativar apenas após coordenação schema↔código, CI green, imagens GHCR por SHA, deploy Portainer seguro, health/version e canário. Sem force/reset, sem builds pesados na VPS, sem canário antecipado.
 
+## Reconciliação da cadeia de migrations — 28/10/2026
+
+A consulta direta às listagens GitHub encontrou 577 entradas no diretório `supabase/migrations/` da `OARANHA/elus360/main` (575 arquivos com nome canônico de migration), enquanto o upstream `melgarafael/DeskcommCRM/main` apresenta 579 (577 canônicos). Entre os arquivos apenas do upstream nesta comparação de diretórios estão `20261025020932_9024_system_runtime_confirmation.sql` e `20261027142804_9025_system_update_force_requested.sql`. Isso **não** significa que os números 9024/9025 sejam a sequência apropriada de migrations ELUS: existem diferentes faixas e PRs em voo.
+
+A API do GitHub devolveu **conteúdo vazio para leitura do arquivo grande `supabase/baseline.sql`**, com SHA de blob `b8beb8af8321409f2b2cbf89d9b44f2451d63cce`; isso **não comprova que o arquivo esteja vazio**. Por falta de leitura integral do conteúdo atual, **não modificar o baseline por reconstrução manual**. Antes de produzir a migration é obrigatório inspecionar um checkout íntegro e limpo, comparar os blobs, reconciliar todas as PRs de schema abertas e executar o gate `pnpm checar:colisao-de-migration`. Preparar `-- manifest:`, migration e apêndice no baseline juntos, conferindo reexecução fresh/update e a cláusula SQL final que será efetivamente aplicada. Manter produção inalterada até isso ser demonstrado.
+
 ## Testes e limitações
 
 `tests/unit/elus360-ia-gerenciada-guard.test.ts` cobre falha fechada, organização inválida e isolamento lógico de grants. São testes de função com leitor mockado, **não** testes de RLS em Postgres, de autorização das APIs ou de deploy. O objetivo é fixar a semântica do adaptador para não reabrir acesso ao faltar `ai_autonomy`.
