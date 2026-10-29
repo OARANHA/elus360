@@ -1,0 +1,300 @@
+import { randomUUID } from "node:crypto";
+import type { NextRequest } from "next/server";
+import { z } from "zod";
+
+import { audit } from "@/lib/audit";
+import { fail, ok } from "@/lib/api/wrappers";
+import {
+  falhaDaEscritaDePlatformAdmin,
+  requirePlatformAdmin,
+  requirePlatformAdminEscrita,
+} from "@/lib/auth/requirePlatformAdmin";
+import { requireSupportWrite } from "@/lib/impersonate/support";
+import { ehProvedorSuportado, PROVEDORES } from "@/lib/ai/pontos/provedores";
+import { lerAmbiente } from "@/lib/instalacao/ambiente";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  lerPadraoLlmDaOrganizacao,
+  mesclarPadraoLlmDaOrganizacao,
+} from "@/lib/elus360/ai-managed/organization-default";
+
+export const dynamic = "force-dynamic";
+
+const paramsSchema = z.object({ id: z.string().uuid() });
+const bodySchema = z
+  .object({
+    provider: z.string().min(1).max(80).refine(ehProvedorSuportado),
+    default_model: z.string().trim().min(1).max(120),
+    credential_id: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function GET(_req: NextRequest, ctx: Ctx): Promise<Response> {
+  const requestId = randomUUID();
+  let adminCtx: Awaited<ReturnType<typeof requirePlatformAdmin>>;
+  try {
+    adminCtx = await requirePlatformAdmin();
+  } catch {
+    return fail("forbidden", "Platform admin required", 403, { requestId });
+  }
+  const parsed = paramsSchema.safeParse(await ctx.params);
+  if (!parsed.success) return fail("validation_failed", "Organização inválida", 400, { requestId });
+  const orgId = parsed.data.id;
+  const db = createAdminClient();
+  const [orgResult, modelsResult, credentialsResult, agentsResult, bindingsResult] =
+    await Promise.all([
+      db.from("organizations").select("id, display_name, settings").eq("id", orgId).maybeSingle(),
+      db
+        .from("ai_models")
+        .select("provider, model_id, display_name")
+        .is("deprecated_at", null)
+        .order("provider")
+        .order("display_name")
+        .limit(1000),
+      db
+        .from("ai_provider_credentials_safe")
+        .select(
+          "id, organization_id, provider, label, base_url, api_key_last4, is_active, validated_at, models_available",
+        )
+        .eq("organization_id", orgId)
+        .limit(100),
+      db
+        .from("ai_agents")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .not("published_version_id", "is", null)
+        .is("archived_at", null),
+      db
+        .from("ai_purpose_bindings")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .eq("is_enabled", true),
+    ]);
+  if (
+    orgResult.error ||
+    modelsResult.error ||
+    credentialsResult.error ||
+    agentsResult.error ||
+    bindingsResult.error
+  ) {
+    return fail("internal_error", "Não foi possível consultar a configuração de IA", 500, {
+      requestId,
+    });
+  }
+  if (!orgResult.data) return fail("not_found", "Organização não encontrada", 404, { requestId });
+  const current = lerPadraoLlmDaOrganizacao(orgResult.data.settings);
+  const environment = lerAmbiente();
+  const supported = PROVEDORES.map((p) => p.id);
+  const status = supported.map((provider) => ({
+    provider,
+    chave_instalacao: environment.chavesDeProvedor[provider] === true,
+    gateway_instalacao: environment.gateway,
+    credencial_organizacao_validada: (credentialsResult.data ?? []).some(
+      (c) => c.provider === provider && c.is_active === true && c.validated_at != null,
+    ),
+  }));
+  return ok(
+    {
+      organization_id: orgId,
+      organization_name: orgResult.data.display_name,
+      padrao: {
+        provider: current.provider,
+        default_model: current.default_model,
+        credential_id: current.credential_id,
+        configured: current.configured,
+      },
+      provedores: supported,
+      credenciais: (credentialsResult.data ?? []).map((c) => ({
+        id: c.id,
+        provider: c.provider,
+        label: c.label,
+        base_url: c.base_url,
+        api_key_last4: c.api_key_last4,
+        is_active: c.is_active,
+        validated_at: c.validated_at,
+        models_available: c.models_available ?? [],
+      })),
+      modelos: (modelsResult.data ?? []).map((x) => ({
+        provider: x.provider,
+        model_id: x.model_id,
+        display_name: x.display_name,
+      })),
+      disponibilidade: status,
+      agentes_publicados: agentsResult.count ?? 0,
+      pontos_com_configuracao_propria: bindingsResult.count ?? 0,
+      pode_editar:
+        adminCtx.platformAdmin.scope === "full" && (await requireSupportWrite(orgId)) === null,
+    },
+    { requestId },
+  );
+}
+
+export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
+  const requestId = randomUUID();
+  const parsed = paramsSchema.safeParse(await ctx.params);
+  if (!parsed.success) return fail("validation_failed", "Organização inválida", 400, { requestId });
+  const orgId = parsed.data.id;
+  const supportDenied = await requireSupportWrite(orgId);
+  if (supportDenied) return supportDenied;
+  let adminCtx: Awaited<ReturnType<typeof requirePlatformAdminEscrita>>;
+  try {
+    adminCtx = await requirePlatformAdminEscrita();
+  } catch (e) {
+    return falhaDaEscritaDePlatformAdmin(e, requestId);
+  }
+  const body = bodySchema.safeParse(await req.json().catch(() => null));
+  if (!body.success)
+    return fail("validation_failed", "Provedor ou modelo inválido", 422, { requestId });
+  const db = createAdminClient();
+  const { data: org, error: loadError } = await db
+    .from("organizations")
+    .select("id, settings")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (loadError)
+    return fail("internal_error", "Falha ao consultar organização", 500, { requestId });
+  if (!org) return fail("not_found", "Organização não encontrada", 404, { requestId });
+
+  const { data: knownModel, error: lookupError } = await db
+    .from("ai_models")
+    .select("model_id, input_price_per_million_cents, output_price_per_million_cents")
+    .eq("provider", body.data.provider)
+    .eq("model_id", body.data.default_model)
+    .is("deprecated_at", null)
+    .maybeSingle();
+  if (lookupError)
+    return fail("internal_error", "Catálogo de modelos indisponível", 500, { requestId });
+  // Chutes só pode ser padrão quando o próprio provedor tem tarifa comprovada.
+  // Não herdar preço de outro gateway e não aceitar ausência de catálogo.
+  if (
+    body.data.provider === "chutes" &&
+    (!knownModel ||
+      knownModel.input_price_per_million_cents == null ||
+      knownModel.output_price_per_million_cents == null ||
+      !Number.isFinite(Number(knownModel.input_price_per_million_cents)) ||
+      !Number.isFinite(Number(knownModel.output_price_per_million_cents)) ||
+      Number(knownModel.input_price_per_million_cents) < 0 ||
+      Number(knownModel.output_price_per_million_cents) < 0)
+  ) {
+    return fail(
+      "chutes_model_without_verified_pricing",
+      "O modelo Chutes precisa de preço comprovado no catálogo antes de ser ativado.",
+      422,
+      { requestId },
+    );
+  }
+  let catalogoIncompleto = false;
+  if (!knownModel) {
+    const { error: anyError } = await db
+      .from("ai_models")
+      .select("model_id")
+      .eq("provider", body.data.provider)
+      .is("deprecated_at", null)
+      .limit(1)
+      .maybeSingle();
+    if (anyError)
+      return fail("internal_error", "Catálogo de modelos indisponível", 500, { requestId });
+    // Sem modelo comprovado no catálogo, provedores gerenciados falham fechado.
+    // Somente custom permite catálogo global vazio: validação pela credencial.
+    if (body.data.provider !== "custom") {
+      return fail("modelo_desconhecido", "Modelo não encontrado no catálogo do provedor", 422, {
+        requestId,
+      });
+    }
+    catalogoIncompleto = true;
+  }
+  const previous = lerPadraoLlmDaOrganizacao(org.settings);
+  const credentialId =
+    body.data.credential_id !== undefined
+      ? body.data.credential_id
+      : body.data.provider === previous.provider
+        ? previous.credential_id
+        : null;
+
+  // Custom não tem chave de instalação. Exigir credencial correta e validada.
+  if (body.data.provider === "custom" && !credentialId)
+    return fail("credential_required", "Escolha uma credencial personalizada validada.", 422, {
+      requestId,
+    });
+  if (credentialId) {
+    const { data: cred, error: credError } = await db
+      .from("ai_provider_credentials_safe")
+      .select("id, provider, is_active, validated_at, models_available")
+      .eq("organization_id", orgId)
+      .eq("id", credentialId)
+      .maybeSingle();
+    if (credError)
+      return fail("internal_error", "Falha ao consultar credencial.", 500, { requestId });
+    if (!cred || cred.provider !== body.data.provider || !cred.is_active || !cred.validated_at)
+      return fail(
+        "credential_unavailable",
+        "A credencial escolhida não está validada para esta empresa e provedor.",
+        422,
+        { requestId },
+      );
+    const available = Array.isArray(cred.models_available) ? cred.models_available : [];
+    if (
+      (body.data.provider === "custom" && available.length === 0) ||
+      (available.length > 0 && !available.includes(body.data.default_model))
+    )
+      return fail(
+        "model_unavailable",
+        "O modelo não consta entre os modelos confirmados pela credencial.",
+        422,
+        { requestId },
+      );
+  }
+  if (
+    previous.configured &&
+    previous.provider === body.data.provider &&
+    previous.default_model === body.data.default_model &&
+    previous.credential_id === credentialId
+  )
+    return ok({ organization_id: orgId, padrao: body.data, changed: false }, { requestId });
+
+  // CAS no JSONB: não substituir branding/security nem sobrescrever settings alteradas
+  // desde a leitura. Em conflito o operador recarrega; nunca simular sucesso.
+  const updatedSettings = mesclarPadraoLlmDaOrganizacao(org.settings, {
+    ...body.data,
+    credential_id: credentialId,
+  });
+  const { data: updated, error } = await db
+    .from("organizations")
+    .update({ settings: updatedSettings })
+    .eq("id", orgId)
+    .eq("settings", JSON.stringify(org.settings ?? {}))
+    .select("id")
+    .maybeSingle();
+  if (error) return fail("internal_error", "Falha ao salvar padrão de IA", 500, { requestId });
+  if (!updated)
+    return fail("conflict", "Configuração alterada em paralelo; recarregue a página", 409, {
+      requestId,
+    });
+  void audit({
+    action: "platform_admin.ai_default_updated",
+    actorUserId: adminCtx.user.id,
+    actingAsPlatformAdmin: true,
+    bypassedRls: true,
+    organizationId: orgId,
+    resourceType: "organization",
+    resourceId: orgId,
+    requestId,
+    metadata: {
+      previous: { provider: previous.provider, default_model: previous.default_model },
+      next: body.data,
+      catalogo_incompleto: catalogoIncompleto,
+    },
+  });
+  return ok(
+    {
+      organization_id: orgId,
+      padrao: body.data,
+      changed: true,
+      avisos: catalogoIncompleto
+        ? ["Catálogo indisponível para validar esse modelo; teste antes de usar."]
+        : [],
+    },
+    { requestId },
+  );
+}

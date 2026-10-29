@@ -41,6 +41,8 @@ interface Props {
   agentId: string;
   versions: AgentVersionRow[];
   readOnly?: boolean;
+  mostrarProvedor?: boolean;
+  mostrarModelo?: boolean;
 }
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -77,7 +79,7 @@ function pickCounterpart(
   return null;
 }
 
-export function VersionHistory({ agentId, versions, readOnly }: Props) {
+export function VersionHistory({ agentId, versions, readOnly, mostrarProvedor = false, mostrarModelo = false }: Props) {
   const t = useT();
   const router = useRouter();
   const [diffOpen, setDiffOpen] = React.useState(false);
@@ -152,7 +154,9 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
                 {new Date(v.created_at).toLocaleString()}
               </span>
               <span className="font-mono text-xs text-muted-foreground">
-                {v.provider}/{v.model}
+                {mostrarProvedor || mostrarModelo ?
+                  [mostrarProvedor ? v.provider : null, mostrarModelo ? v.model : null].filter(Boolean).join("/")
+                  : t("IA ELUS360 gerenciada")}
               </span>
               {v.published_at ? (
                 <span className="text-xs text-muted-foreground">
@@ -187,7 +191,7 @@ export function VersionHistory({ agentId, versions, readOnly }: Props) {
                 : t("Diff")}
             </DialogTitle>
           </DialogHeader>
-          {diffPair ? <VersionDiff versionA={diffPair.a} versionB={diffPair.b} /> : null}
+          {diffPair ? <VersionDiff versionA={diffPair.a} versionB={diffPair.b} mostrarProvedor={mostrarProvedor} mostrarModelo={mostrarModelo} /> : null}
         </DialogContent>
       </Dialog>
 

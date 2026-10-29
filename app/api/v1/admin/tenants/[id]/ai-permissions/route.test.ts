@@ -39,6 +39,7 @@ vi.mock("@/lib/supabase/admin", () => ({
     from: (table: string) => {
       if (table !== "organizations") throw new Error("tabela inesperada");
       let updating = false;
+      let matchesTenant = true;
       const chain: Record<string, unknown> = {};
       chain.select = () => chain;
       chain.update = (values: unknown) => {
@@ -48,11 +49,12 @@ vi.mock("@/lib/supabase/admin", () => ({
       };
       chain.eq = (column: string, value: unknown) => {
         h.where.push([column, value]);
+        if (column === "id" && h.row?.id !== value) matchesTenant = false;
         return chain;
       };
       chain.maybeSingle = async () => updating
-        ? { data: h.updated ? { id: h.row?.id } : null, error: h.updateError }
-        : { data: h.row, error: h.loadError };
+        ? { data: h.updated && matchesTenant ? { id: h.row?.id } : null, error: h.updateError }
+        : { data: matchesTenant ? h.row : null, error: h.loadError };
       return chain;
     },
   }),
@@ -142,6 +144,17 @@ describe("Superadmin — autonomia técnica (Gate 2B.2, schema pendente)", () =>
       organizationId: TENANT,
       bypassedRls: true,
     }));
+  });
+
+  it("não lê nem grava grants de outra organização quando o ID da rota diverge", async () => {
+    h.row = { id: "33333333-3333-4333-8333-333333333333", ai_autonomy: { provider: true } };
+    const read = await GET(get(), ctx);
+    expect(read.status).toBe(404);
+    const write = await PATCH(request(grants), ctx);
+    expect(write.status).toBe(404);
+    expect(h.writes).toEqual([]);
+    expect(h.audit).not.toHaveBeenCalled();
+    expect(h.where).toContainEqual(["id", TENANT]);
   });
 
   it("GET exige autenticação de Superadmin e isola organização", async () => {

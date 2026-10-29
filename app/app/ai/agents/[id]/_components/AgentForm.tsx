@@ -37,6 +37,7 @@ import Link from "next/link";
 
 import { TETO_TOOLS_POR_AGENTE } from "@/lib/mcp/tools/selecao-por-pacote";
 import { PROVEDOR_POR_ASSINATURA, PROVEDORES } from "@/lib/ai/pontos/provedores";
+import { AUTONOMIA_IA_PADRAO, type AutonomiaIa } from "@/lib/elus360/ai-managed/policy";
 
 import { ModelPicker, useModelMeta } from "./ModelPicker";
 import { CHAVE_DA_INSTALACAO, CredentialPicker, STATUS_LABEL, findCredential } from "./CredentialPicker";
@@ -116,6 +117,8 @@ interface BaseProps {
    * página server component, do mesmo jeito que as credenciais.
    */
   provedorPadrao?: string;
+  modeloPadrao?: string;
+  credencialPadrao?: string | null;
   /**
    * Os provedores que ESTA instalação oferece — o servidor filtra por
    * `idsDosProvedoresOferecidos` (a assinatura do ChatGPT só com o módulo
@@ -125,6 +128,7 @@ interface BaseProps {
   channelSessions: ChannelSessionLite[];
   routerMembership?: { routerId: string; routerName: string; channelSessionId: string; channelStatus: string | null } | null;
   readOnly?: boolean;
+  autonomiaTecnica?: Readonly<AutonomiaIa>;
   organizationTimezone?: string;
 }
 
@@ -272,18 +276,20 @@ export function buildState(args: {
    * continua sendo o último degrau, para instalação que ainda não escolheu nada.
    */
   provedorPadrao?: string;
+  modeloPadrao?: string;
+  credencialPadrao?: string | null;
   provedoresOferecidos?: readonly string[];
 }): FormState {
-  const { agent, version, t, provedorPadrao, provedoresOferecidos } = args;
+  const { agent, version, t, provedorPadrao, modeloPadrao, credencialPadrao, provedoresOferecidos } = args;
   return {
     name: agent?.name ?? "",
     description: agent?.description ?? "",
     priority: agent?.priority ?? 0,
     provider: (version?.provider as Provider) ?? provedorInicial(provedorPadrao, provedoresOferecidos),
-    model: version?.model ?? "",
+    model: version?.model ?? modeloPadrao ?? "",
     // `null` gravado = a versão usa a chave da instalação. Sem esta tradução,
     // reabrir o agente mostraria o campo em branco e pediria para escolher de novo.
-    credential_id: version ? (version.credential_id ?? CHAVE_DA_INSTALACAO) : "",
+    credential_id: version ? (version.credential_id ?? CHAVE_DA_INSTALACAO) : (credencialPadrao ?? CHAVE_DA_INSTALACAO),
     channel_session_id: version?.channel_session_id ?? "",
     // O DEFAULT vira o prompt real do agente se ninguém editar — por isso é
     // traduzido de verdade (não só a interface): em espanhol ele instrui a IA
@@ -393,6 +399,8 @@ export function AgentForm(props: Props) {
   const router = useRouter();
   const isEdit = props.mode === "edit";
   const readOnly = props.readOnly ?? false;
+  const autonomia = props.autonomiaTecnica ?? AUTONOMIA_IA_PADRAO;
+  const podeVerConfiguracaoTecnica = autonomia.provider || autonomia.model || autonomia.credentials;
 
   const baseline = React.useMemo(() => {
     if (isEdit) {
@@ -406,6 +414,8 @@ export function AgentForm(props: Props) {
       version: null,
       t,
       provedorPadrao: props.provedorPadrao,
+      modeloPadrao: props.modeloPadrao,
+      credencialPadrao: props.credencialPadrao,
       provedoresOferecidos: props.provedoresOferecidos,
     });
   }, [isEdit, props, t]);
@@ -475,9 +485,13 @@ export function AgentForm(props: Props) {
       errors.system_prompt =
         `${t("As instruções têm")} ${tamanhoDoPrompt.toLocaleString("pt-BR")} ${t("caracteres, e o máximo é 20.000. Corte")} ` +
         `${(tamanhoDoPrompt - 20000).toLocaleString("pt-BR")} ${t("para conseguir salvar.")}`;
-    if (!form.model) errors.model = t("Escolha o modelo de inteligência artificial.");
+    if (!form.model) errors.model = autonomia.model
+      ? t("Escolha o modelo de inteligência artificial.")
+      : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
     if (!form.credential_id)
-      errors.credential_id = t("Escolha a chave de acesso da empresa de inteligência artificial.");
+      errors.credential_id = autonomia.credentials
+        ? t("Escolha a chave de acesso da empresa de inteligência artificial.")
+        : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
     // Escolher "a chave desta instalação" para um provedor que a instalação NÃO
     // tem seria publicar um agente que morre em toda mensagem. A mesma recusa
     // existe no servidor (rota de versões); aqui ela chega antes do clique.
@@ -485,7 +499,9 @@ export function AgentForm(props: Props) {
       form.credential_id === CHAVE_DA_INSTALACAO &&
       !(props.provedoresDaInstalacao ?? []).includes(form.provider)
     )
-      errors.credential_id = `${t("Esta instalação não tem chave de")} ${form.provider}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`;
+      errors.credential_id = autonomia.credentials && autonomia.provider
+        ? `${t("Esta instalação não tem chave de")} ${form.provider}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`
+        : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
     // ⚠️ O NÚMERO NÃO ENTRA AQUI — de propósito, e não por esquecimento.
     //
     // Esta lista é o que impede de SALVAR. Exigir o número aqui travava o
@@ -552,11 +568,17 @@ export function AgentForm(props: Props) {
       case "alteracoes_nao_salvas":
         return t("Salve o rascunho antes de publicar.");
       case "instalacao_sem_chave_do_provedor":
-        return `${t("Esta instalação não tem chave de")} ${motivo.provedor}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`;
+        return !podeVerConfiguracaoTecnica
+          ? t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.")
+          : `${t("Esta instalação não tem chave de")} ${motivo.provedor}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`;
       case "sem_chave":
-        return t("Escolha a chave de acesso da empresa de inteligência artificial.");
+        return autonomia.credentials
+          ? t("Escolha a chave de acesso da empresa de inteligência artificial.")
+          : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
       case "chave_nao_utilizavel":
-        return `${t("Credencial")} ${motivo.provedor} ${motivo.estado === "invalid" ? t("inválida") : t("ainda não validada")}.`;
+        return !podeVerConfiguracaoTecnica
+          ? t("A IA ELUS360 desta empresa precisa ser validada pelo administrador da plataforma.")
+          : `${t("Credencial")} ${motivo.provedor} ${motivo.estado === "invalid" ? t("inválida") : t("ainda não validada")}.`;
       case "sem_numero":
         return t(
           "Escolha por qual número de WhatsApp ele atende. O rascunho está salvo; conecte um número em Conexões e volte aqui para publicar.",
@@ -815,6 +837,7 @@ export function AgentForm(props: Props) {
           modeloDoConversador={form.model}
           agentId={props.mode === "edit" ? props.agent.id : null}
           disabled={disabled}
+          permitirModeloTecnico={autonomia.operator_model}
         />
       ) : null}
 
@@ -887,10 +910,10 @@ export function AgentForm(props: Props) {
             </div>
           </Card>
 
-          {/* Provider + credential + model */}
-          <Card className="space-y-3 p-4">
+          {/* Controles concedidos pelo Superadmin; segurança real permanece no backend. */}
+          {podeVerConfiguracaoTecnica ? <Card className="space-y-3 p-4">
             <h3 className="text-sm font-medium">{t("A inteligência que ele usa")}</h3>
-            <div className="space-y-1">
+            {autonomia.provider ? <div className="space-y-1">
               <Label htmlFor="provider">{t("Empresa de inteligência artificial")}</Label>
               <Select
                 value={form.provider}
@@ -925,20 +948,20 @@ export function AgentForm(props: Props) {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </div> : null}
 
-            <ModelPicker
+            {autonomia.model ? <ModelPicker
               provider={form.provider}
               value={form.model}
               onChange={(modelId) => patch({ model: modelId })}
               disabled={disabled}
               id="model"
-            />
-            {validation.model ? (
+            /> : null}
+            {autonomia.model && validation.model ? (
               <p className="text-xs text-destructive">{validation.model}</p>
             ) : null}
 
-            <CredentialPicker
+            {autonomia.credentials ? <CredentialPicker
               provider={form.provider}
               credentials={props.credentials}
               value={form.credential_id}
@@ -946,17 +969,20 @@ export function AgentForm(props: Props) {
               disabled={disabled}
               id="credential_id"
               instalacaoTemChave={(props.provedoresDaInstalacao ?? []).includes(form.provider)}
-            />
-            {validation.credential_id ? (
+            /> : null}
+            {autonomia.credentials && validation.credential_id ? (
               <p className="text-xs text-destructive">{validation.credential_id}</p>
             ) : null}
-            {cred && credSt && credSt !== "validated" ? (
+            {autonomia.credentials && cred && credSt && credSt !== "validated" ? (
               <p className="text-xs text-amber-600 dark:text-amber-400">
                 {t("Credencial selecionada está com status")} {t(STATUS_LABEL[credSt])}
                 {t(". Publish bloqueado até validar.")}
               </p>
             ) : null}
-          </Card>
+          </Card> : <Card className="p-4" data-testid="elus-ia-gerenciada">
+            <h3 className="text-sm font-medium">{t("Inteligência artificial ELUS360")}</h3>
+            <p className="text-xs text-muted-foreground">{t("Configurada e gerenciada pela plataforma.")}</p>
+          </Card>}
 
           {/* WhatsApp session */}
           <Card className="space-y-3 p-4">

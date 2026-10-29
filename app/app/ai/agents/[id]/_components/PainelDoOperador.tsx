@@ -41,6 +41,7 @@ interface Props {
   /** O agente desta página. A medida do papel é DELE — ver `ComoOPapelEstaIndo`. */
   agentId: string | null;
   disabled?: boolean;
+  permitirModeloTecnico?: boolean;
 }
 
 /**
@@ -167,7 +168,7 @@ export function PainelDoOperador(props: Props) {
 
       {props.enabled ? (
         <>
-          <Card className="space-y-2 p-4">
+          {props.permitirModeloTecnico === true ? <Card className="space-y-2 p-4">
             <h3 className="text-sm font-medium">{t("A inteligência que ele usa para organizar")}</h3>
             <p className="text-xs text-muted-foreground">
               {t(
@@ -204,7 +205,7 @@ export function PainelDoOperador(props: Props) {
                 {t("Usar a mesma que conversa")}
               </button>
             ) : null}
-          </Card>
+          </Card> : null}
 
           <Card className="space-y-2 p-4">
             <h3 className="text-sm font-medium">{t("O que ele pode mexer no sistema")}</h3>

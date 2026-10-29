@@ -18,6 +18,8 @@ import { callbacksHabilitados } from "@/lib/followup/callback-policy";
 interface Props {
   versionA: AgentVersionRow; // mais antiga / base
   versionB: AgentVersionRow; // mais nova / candidata
+  mostrarProvedor?: boolean;
+  mostrarModelo?: boolean;
 }
 
 type DiffLine = { kind: "ctx" | "add" | "del"; text: string };
@@ -77,7 +79,7 @@ interface FieldChange {
   b: unknown;
 }
 
-function buildFieldChanges(a: AgentVersionRow, b: AgentVersionRow): FieldChange[] {
+function buildFieldChanges(a: AgentVersionRow, b: AgentVersionRow, mostrarProvedor: boolean, mostrarModelo: boolean): FieldChange[] {
   const fields: Array<[keyof AgentVersionRow, string]> = [
     ["provider", "Provider"],
     ["model", "Model"],
@@ -95,11 +97,12 @@ function buildFieldChanges(a: AgentVersionRow, b: AgentVersionRow): FieldChange[
     ["inbound_debounce_ms", "inbound_debounce_ms"],
   ];
   return fields
+    .filter(([k]) => (k !== "provider" || mostrarProvedor) && (k !== "model" || mostrarModelo))
     .filter(([k]) => a[k] !== b[k])
     .map(([k, label]) => ({ key: k as string, label, a: a[k], b: b[k] }));
 }
 
-export function VersionDiff({ versionA, versionB }: Props) {
+export function VersionDiff({ versionA, versionB, mostrarProvedor = false, mostrarModelo = false }: Props) {
   const t = useT();
   const tools = diffArr(versionA.tool_ids ?? [], versionB.tool_ids ?? []);
   const handoffKw = diffArr(versionA.handoff_keywords ?? [], versionB.handoff_keywords ?? []);
@@ -112,7 +115,7 @@ export function VersionDiff({ versionA, versionB }: Props) {
   const callbackEnabledA = callbacksHabilitados(versionA.followup);
   const callbackEnabledB = callbacksHabilitados(versionB.followup);
   const callbackEnabledChanged = callbackEnabledA !== callbackEnabledB;
-  const fields = buildFieldChanges(versionA, versionB);
+  const fields = buildFieldChanges(versionA, versionB, mostrarProvedor, mostrarModelo);
   const lines = diffLines(versionA.system_prompt ?? "", versionB.system_prompt ?? "");
 
   return (

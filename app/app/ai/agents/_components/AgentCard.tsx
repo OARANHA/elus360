@@ -12,6 +12,7 @@ import { AgentRowMenu } from "./AgentRowMenu";
 interface Props {
   agent: AgentRow;
   canWrite: boolean;
+  mostrarModelo?: boolean;
 }
 
 /**
@@ -52,7 +53,7 @@ export function modeloEmVigor(agent: AgentRow): string {
   return `${provedor} · ${resto.join("/")}`;
 }
 
-export function AgentCard({ agent, canWrite }: Props) {
+export function AgentCard({ agent, canWrite, mostrarModelo = false }: Props) {
   const t = useT();
   const status = deriveAgentStatus(agent);
 
@@ -65,13 +66,13 @@ export function AgentCard({ agent, canWrite }: Props) {
           </h3>
           <p
             className="truncate text-xs text-muted-foreground"
-            title={
+            title={mostrarModelo ? (
               origemDoModelo(agent) === "versao_publicada"
                 ? t("Modelo da versão publicada — é o que atende o cliente.")
                 : t("Modelo do cadastro; nenhuma versão publicada ainda.")
-            }
+            ) : undefined}
           >
-            {modeloEmVigor(agent)}
+            {mostrarModelo ? modeloEmVigor(agent) : t("IA ELUS360 gerenciada")}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">

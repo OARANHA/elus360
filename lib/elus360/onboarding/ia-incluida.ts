@@ -41,10 +41,10 @@ export function textoChutesIncluido(
 ): string {
   if (idioma === "es") {
     return estado === "modelo_disponivel"
-      ? "IA incluida en ELUS 360: Chutes.ai — disponible para activar al continuar"
-      : "IA incluida en ELUS 360: Chutes.ai — clave configurada; catálogo de modelos pendiente";
+      ? "IA ELUS360 incluida — disponible para activar al continuar"
+      : "IA ELUS360 incluida — configuración de la plataforma pendiente";
   }
   return estado === "modelo_disponivel"
-    ? "IA incluída no ELUS 360: Chutes.ai — disponível para ativar ao continuar"
-    : "IA incluída no ELUS 360: Chutes.ai — chave configurada; catálogo de modelos pendente";
+    ? "IA ELUS360 incluída — disponível para ativar ao continuar"
+    : "IA ELUS360 incluída — configuração da plataforma pendente";
 }
