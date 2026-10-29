@@ -41,6 +41,10 @@ import {
 } from "@/lib/ai/par-provedor-modelo";
 import { logger } from "@/lib/logger";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { loadAuthUser } from "@/lib/auth/server";
+import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
+import { mudancasTecnicas } from "@/lib/elus360/ai-managed/policy";
+import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
 
 export const dynamic = "force-dynamic";
 
@@ -265,6 +269,59 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
   const input = parsed.data;
+
+  // Criação inicial: a referência técnica é o padrão da organização lido do
+  // servidor, nunca os campos enviados pelo cliente. Ausência/erro falha fechado.
+  const { data: orgAtual, error: erroOrg } = await admin
+    .from("organizations")
+    .select("settings")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (erroOrg || !orgAtual)
+    return fail("configuracao_ia_indisponivel", "Padrão de IA da organização indisponível.", 503, { requestId });
+  const configuracoes = orgAtual.settings;
+  const llmBruto =
+    configuracoes && typeof configuracoes === "object" && !Array.isArray(configuracoes)
+      ? (configuracoes as Record<string, unknown>).llm
+      : null;
+  const llm =
+    llmBruto && typeof llmBruto === "object" && !Array.isArray(llmBruto)
+      ? llmBruto as Record<string, unknown>
+      : {};
+  const referenciaTecnica = {
+    provider: typeof llm.provider === "string" && llm.provider ? llm.provider : "anthropic",
+    model: typeof llm.default_model === "string" && llm.default_model ? llm.default_model : null,
+    credential_id: null,
+    operator_model: null,
+  };
+  const propostaTecnica = {
+    provider: input.version.provider,
+    model: input.version.model,
+    credential_id: input.version.credential_id,
+    operator_model: input.version.operator_model,
+  };
+  if (mudancasTecnicas(referenciaTecnica, propostaTecnica).length > 0) {
+    const usuario = authz.via === "session" ? await loadAuthUser() : null;
+    if (authz.via === "session" && (!usuario || usuario.id !== authUserId || usuario.support))
+      return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
+    if (!usuario || !podeGerenciarIaDaPlataforma(usuario)) {
+      const decisao = await decidirEscritaTecnicaIa(
+        { orgIdConfiavel: organizationId, anteriorDoServidor: referenciaTecnica, propostaValidada: propostaTecnica },
+        {
+          lerAutonomiaPorOrganizacao: async (orgId) => {
+            const { data, error } = await admin.from("organizations")
+              .select("ai_autonomy")
+              .eq("id", orgId)
+              .maybeSingle();
+            if (error || !data) return null;
+            return data.ai_autonomy;
+          },
+        },
+      );
+      if (!decisao.permitido)
+        return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
+    }
+  }
 
   // Validate scope before the first write; a rejected form leaves no orphan.
   const escopo = await validarEscopoDaVersao(admin, organizationId, input.version);
