@@ -33,6 +33,7 @@ import {
 } from "@/lib/ai/agents/validation";
 import { publishAgentVersion } from "@/lib/ai/agents/publish";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
 import { toolIdAceito } from "@/lib/mcp/servidor-externo/ids";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools";
 
@@ -229,17 +230,46 @@ export async function saveAgentDraftAction(
     if (!patchValidated.success) {
       return { ok: false, error: "validation_failed", details: patchValidated.error.flatten() };
     }
-    const update: Record<string, unknown> = { ...patchValidated.data };
-    const { data: updated, error } = await admin
+    const { data: previous, error: readError } = await admin
       .from("ai_agent_versions")
-      .update(update)
+      .select("id, status, provider, model, credential_id, operator_model, system_prompt, followup")
       .eq("id", existingDraft.id)
+      .eq("agent_id", agentId)
       .eq("organization_id", activeOrg.orgId)
-      .select(VERSION_COLUMNS)
-      .single();
+      .maybeSingle();
+    if (readError || !previous) return { ok: false, error: "version_conflict" };
+    if (previous.status !== "draft") return { ok: false, error: "version_immutable" };
 
-    if (error || !updated) {
-      return { ok: false, error: "internal_error", message: error?.message };
+    const update: Record<string, unknown> = { ...patchValidated.data };
+    const allowed = await podeAlterarTecnicaDeVersao({
+      via: "session",
+      authUserId: authUser.id,
+      organizationId: activeOrg.orgId,
+      anteriorDoServidor: previous,
+      propostaValidada: update,
+    });
+    if (!allowed) return { ok: false, error: "forbidden_platform_ai" };
+
+    const { data: updated, error } = await admin.rpc("fn_elus_ai_version_patch_guarded", {
+      p_org: activeOrg.orgId,
+      p_agent: agentId,
+      p_version: existingDraft.id,
+      p_patch: update,
+      p_expected: {
+        provider: previous.provider,
+        model: previous.model,
+        credential_id: previous.credential_id,
+        operator_model: previous.operator_model,
+        ...(update.system_prompt !== undefined ? { system_prompt: previous.system_prompt } : {}),
+        ...(update.followup !== undefined ? { followup: previous.followup } : {}),
+      },
+      p_platform_bypass: false,
+    });
+    if (error || !updated || typeof updated !== "object" || Array.isArray(updated)) {
+      return { ok: false, error: "internal_error" };
+    }
+    if ("error" in updated) {
+      return { ok: false, error: updated.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "version_conflict" };
     }
 
     void audit({
