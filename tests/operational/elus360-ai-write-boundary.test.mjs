@@ -15,7 +15,7 @@ for (const route of routes) {
     const mutation = route.includes("[vid]")
       ? source.indexOf('admin.rpc("fn_elus_ai_version_patch_guarded"', guard)
       : route.includes("/versions/")
-        ? source.indexOf(".insert({", guard)
+        ? source.indexOf('admin.rpc("fn_elus_ai_version_create_guarded"', guard)
         : source.indexOf(".insert({ ...records.agent", guard);
     assert.ok(guard >= 0, "rota sem fronteira de autorização técnica");
     assert.ok(mutation > guard, "escrita anterior à verificação técnica");
