@@ -531,3 +531,47 @@ BEGIN
 END $credential_gate$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);
+
+
+-- Refresh legítimo do login por assinatura não é troca manual da credencial.
+-- Só token cifrado + metadados da renovação; identidade/rótulo são imutáveis.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $refresh_gate$
+DECLARE r jsonb; credential_id uuid;
+BEGIN
+  UPDATE public.organizations SET ai_autonomy='{"credentials":true}'::jsonb;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','insert',null,
+    '{"provider":"openai-assinatura","label":"Assinatura do ChatGPT",
+      "api_key_encrypted":"\\x1234","api_key_iv":"\\x1234",
+      "api_key_tag":"\\x1234","api_key_last4":"1234",
+      "created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,false);
+  credential_id := (r->>'id')::uuid;
+  IF credential_id IS NULL THEN RAISE EXCEPTION 'FAIL_refresh_setup_%',r; END IF;
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_credential_write_guarded(
+    '11111111-1111-4111-8111-111111111111','refresh_login',credential_id,
+    '{"label":"Assinatura do ChatGPT",
+      "api_key_encrypted":"\\x5678","api_key_iv":"\\x5678",
+      "api_key_tag":"\\x5678","api_key_last4":"5678",
+      "validated_at":"2026-10-29T00:00:00Z",
+      "validation_error":null,"models_available":null}'::jsonb,false);
+  IF r->>'id' IS DISTINCT FROM credential_id::text THEN
+    RAISE EXCEPTION 'FAIL_refresh_without_new_grant_%',r;
+  END IF;
+  IF (SELECT api_key_last4 FROM public.ai_provider_credentials WHERE id=credential_id)
+       IS DISTINCT FROM '5678' THEN RAISE EXCEPTION 'FAIL_refresh_not_saved'; END IF;
+  BEGIN
+    PERFORM public.fn_elus_ai_credential_write_guarded(
+      '11111111-1111-4111-8111-111111111111','refresh_login',credential_id,
+      '{"label":"Outro nome","api_key_encrypted":"\\x1234",
+        "api_key_iv":"\\x1234","api_key_tag":"\\x1234",
+        "api_key_last4":"1234","validated_at":"2026-10-29T00:00:00Z"}'::jsonb,false);
+    RAISE EXCEPTION 'FAIL_refresh_changed_label_without_grant';
+  EXCEPTION WHEN insufficient_privilege THEN
+    IF SQLERRM <> 'elus_ai_credential_refresh_restricted' THEN RAISE; END IF;
+  END;
+END $refresh_gate$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
