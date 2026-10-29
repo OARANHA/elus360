@@ -27,6 +27,15 @@ CREATE TABLE public.ai_agents (
   priority integer DEFAULT 0, updated_at timestamptz, is_active boolean, is_default boolean,
   created_by uuid
 );
+CREATE TABLE public.ai_purpose_bindings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL, purpose text NOT NULL,
+  provider text NOT NULL, model_id text NOT NULL, credential_id uuid,
+  base_url text, is_enabled boolean NOT NULL DEFAULT true,
+  created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+  UNIQUE(organization_id,purpose)
+);
+GRANT SELECT, UPDATE, INSERT ON public.ai_purpose_bindings TO service_role;
 GRANT SELECT, UPDATE, INSERT ON public.ai_agents TO service_role;
 GRANT SELECT, UPDATE, INSERT ON public.ai_agent_versions TO service_role;
 GRANT USAGE ON SCHEMA public TO authenticated, service_role;
@@ -349,5 +358,61 @@ BEGIN
     RAISE EXCEPTION 'FAIL_atomic_metadata_success';
   END IF;
 END $editor_atomic$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
+
+
+-- Novo RPC de pontos: sem grant não cria binding e não devolve falso sucesso;
+-- com grants cria, permite reenvio idêntico e recusa CAS desatualizado.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $binding_gate$
+DECLARE r jsonb;
+BEGIN
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_purpose_binding_write_guarded(
+    '11111111-1111-4111-8111-111111111111','stage_classifier',
+    '{"provider":"openai","model_id":"modelo-1","credential_id":null,
+       "base_url":null,"is_enabled":true}'::jsonb,'{}'::jsonb,false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_binding_no_grant_%',r;
+  END IF;
+  IF EXISTS(SELECT 1 FROM public.ai_purpose_bindings
+      WHERE organization_id='11111111-1111-4111-8111-111111111111') THEN
+    RAISE EXCEPTION 'FAIL_binding_unauthorized_insert';
+  END IF;
+  UPDATE public.organizations
+    SET ai_autonomy='{"provider":true,"model":true}'::jsonb;
+  r := public.fn_elus_ai_purpose_binding_write_guarded(
+    '11111111-1111-4111-8111-111111111111','stage_classifier',
+    '{"provider":"openai","model_id":"modelo-1","credential_id":null,
+       "base_url":null,"is_enabled":true}'::jsonb,'{}'::jsonb,false);
+  IF r->>'provider' IS DISTINCT FROM 'openai' OR r->>'model_id' IS DISTINCT FROM 'modelo-1' THEN
+    RAISE EXCEPTION 'FAIL_binding_granted_create_%',r;
+  END IF;
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_purpose_binding_write_guarded(
+    '11111111-1111-4111-8111-111111111111','stage_classifier',
+    '{"provider":"openai","model_id":"modelo-1","credential_id":null,
+       "base_url":null,"is_enabled":true}'::jsonb,
+    '{"provider":"openai","model_id":"modelo-1","credential_id":null,
+       "base_url":null,"is_enabled":true}'::jsonb,false);
+  IF r->>'provider' IS DISTINCT FROM 'openai' THEN
+    RAISE EXCEPTION 'FAIL_binding_idempotent_%',r;
+  END IF;
+  r := public.fn_elus_ai_purpose_binding_write_guarded(
+    '11111111-1111-4111-8111-111111111111','stage_classifier',
+    '{"provider":"openai","model_id":"modelo-2","credential_id":null,
+       "base_url":null,"is_enabled":true}'::jsonb,
+    '{"provider":"openai","model_id":"modelo-1","credential_id":null,
+       "base_url":null,"is_enabled":true}'::jsonb,false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_binding_revocation_%',r;
+  END IF;
+  IF EXISTS(SELECT 1 FROM public.ai_purpose_bindings
+    WHERE purpose='stage_classifier' AND model_id='modelo-2') THEN
+    RAISE EXCEPTION 'FAIL_binding_revoked_mutated';
+  END IF;
+END $binding_gate$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);
