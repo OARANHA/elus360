@@ -178,3 +178,28 @@ de critérios deste documento.
 **Próximo gate:** concluir testes bidirecionais de concorrência, matriz das
 portas de escrita e regra Superadmin; executar CI no novo HEAD; revisar impacto
 upstream novamente. Não realizar merge, migration real ou deploy antes do aceite.
+
+
+### Continuidade de implementação — 29/10/2026 (após revisão)
+
+- **IMPLEMENTADO NA PR (não validado ainda pelo novo CI):** o editor usa
+  `p_platform_bypass` somente quando `podeGerenciarIaDaPlataforma(authUser)`
+  identifica sessão Superadmin `full` fora de suporte e
+  `requirePlatformAdminEscrita()` confirma MFA; falha recusa o salvamento.
+  O comportamento foi alinhado à rota REST de PATCH de versão.
+- **IMPLEMENTADO NA PR (CI pendente):** o script PostgreSQL descartável
+  exercita também a ordem inversa: escrita protegida/commit, revogação que
+  aguarda o lock e revogação efetiva após a escrita. Incluídas asserções de
+  regressão para ambas as ordens.
+- **INVENTARIADO COM TESTES ESTÁTICOS:** foram incluídos no contrato de
+  regressão os handlers de providers PUT/PATCH, credentials POST/PATCH/DELETE
+  e conhecimento do provedor, além de agents/versions. Os preflights
+  existentes não equivalem a proteção transacional.
+- **BLOQUEIO DE ACEITE QUE PERMANECE:** `ai_purpose_bindings` (PUT), padrão
+  `organizations.settings.llm` (PATCH), credenciais e outros escritores
+  técnicos que não usam o lock de grant no mesmo comando SQL podem sofrer
+  corrida entre autorização e persistência. Exigir desenho do gate SQL
+  compartilhado/reutilizável, preservar RLS e os handlers existentes,
+  adicionar testes de revogação e de negativas reais, sem introduzir
+  `SECURITY DEFINER` ou bypass implícito. Não marcar Ready apenas com o
+  GREEN dos testes estáticos.
