@@ -15,6 +15,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { versionPatchSchema } from "@/lib/ai/agents/validation";
 import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { loadAuthUser } from "@/lib/auth/server";
+import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
+import { mudancasTecnicas } from "@/lib/elus360/ai-managed/policy";
+import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
 
 export const dynamic = "force-dynamic";
 
@@ -100,14 +104,17 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   }
 
   const admin = createAdminClient();
-  const { data: existing } = await admin
+  const { data: existing, error: existingError } = await admin
     .from("ai_agent_versions")
-    .select("id, status, agent_id, organization_id, followup")
+    .select(
+      "id, status, agent_id, organization_id, followup, system_prompt, provider, model, credential_id, operator_model",
+    )
     .eq("id", vid)
     .eq("organization_id", organizationId)
     .eq("agent_id", id)
     .maybeSingle();
 
+  if (existingError) return fail("internal_error", "Erro ao buscar version.", 500, { requestId });
   if (!existing) return fail("not_found", t("Version não encontrada."), 404, { requestId });
   if (existing.status !== "draft") {
     return fail("version_immutable", t("Apenas versões 'draft' podem ser editadas."), 409, {
@@ -127,11 +134,54 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     return fail(codigoDoEscopo(escopo), mensagemDoEscopo(escopo), 422, { requestId });
   }
 
+  const anterior = {
+    provider: existing.provider,
+    model: existing.model,
+    credential_id: existing.credential_id,
+    operator_model: existing.operator_model,
+  };
+  if (mudancasTecnicas(anterior, patch).length > 0) {
+    const usuario = authz.via === "session" ? await loadAuthUser() : null;
+    if (authz.via === "session" && (!usuario || usuario.id !== authUserId || usuario.support)) {
+      return fail(
+        "forbidden_platform_ai",
+        "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.",
+        403,
+        { requestId },
+      );
+    }
+    if (!usuario || !podeGerenciarIaDaPlataforma(usuario)) {
+      const decisao = await decidirEscritaTecnicaIa(
+        { orgIdConfiavel: organizationId, anteriorDoServidor: anterior, propostaValidada: patch },
+        {
+          lerAutonomiaPorOrganizacao: async (orgId) => {
+            const { data, error } = await admin
+              .from("organizations")
+              .select("ai_autonomy")
+              .eq("id", orgId)
+              .maybeSingle();
+            if (error || !data) return null;
+            return data.ai_autonomy;
+          },
+        },
+      );
+      if (!decisao.permitido) {
+        return fail(
+          "forbidden_platform_ai",
+          "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.",
+          403,
+          { requestId },
+        );
+      }
+    }
+  }
+
   const update: Record<string, unknown> = {};
   if (patch.system_prompt !== undefined) update.system_prompt = patch.system_prompt;
   if (patch.provider !== undefined) update.provider = patch.provider;
   if (patch.model !== undefined) update.model = patch.model;
   if (patch.credential_id !== undefined) update.credential_id = patch.credential_id;
+  if (patch.operator_model !== undefined) update.operator_model = patch.operator_model;
   if (patch.tool_ids !== undefined) update.tool_ids = patch.tool_ids;
   if (patch.trigger_config !== undefined) update.trigger_config = patch.trigger_config;
   if (patch.channel_session_id !== undefined) update.channel_session_id = patch.channel_session_id;
@@ -152,7 +202,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (patch.cases_enabled !== undefined) update.cases_enabled = patch.cases_enabled;
   if (patch.split_messages !== undefined) update.split_messages = patch.split_messages;
   if (patch.split_max_chars !== undefined) update.split_max_chars = patch.split_max_chars;
-  if (patch.inbound_debounce_ms !== undefined) update.inbound_debounce_ms = patch.inbound_debounce_ms;
+  if (patch.inbound_debounce_ms !== undefined)
+    update.inbound_debounce_ms = patch.inbound_debounce_ms;
   // Os dois escopos da versão entravam só no schema, não neste objeto: o PATCH
   // respondia 200 com a lista antiga e o agente seguia sem o funil ou sem o
   // material. Integrações por token chegam aqui; a tela usa
@@ -172,17 +223,39 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     update.followup = { ...existingFollowup, ...patch.followup };
   }
 
-  const { data, error } = await admin
+  let query = admin
     .from("ai_agent_versions")
     .update(update)
     .eq("id", vid)
     .eq("organization_id", organizationId)
-    .select(VERSION_COLUMNS)
-    .single();
+    .eq("agent_id", id)
+    .eq("status", "draft")
+    .eq("provider", existing.provider)
+    .eq("model", existing.model);
+  query =
+    existing.credential_id === null
+      ? query.is("credential_id", null)
+      : query.eq("credential_id", existing.credential_id);
+  query =
+    existing.operator_model === null
+      ? query.is("operator_model", null)
+      : query.eq("operator_model", existing.operator_model);
+  if (patch.system_prompt !== undefined) query = query.eq("system_prompt", existing.system_prompt);
+  if (patch.followup !== undefined) {
+    query =
+      existing.followup === null
+        ? query.is("followup", null)
+        : query.eq("followup", JSON.stringify(existing.followup));
+  }
+  const { data, error } = await query.select(VERSION_COLUMNS).maybeSingle();
 
-  if (error || !data) {
+  if (error) {
     return fail("internal_error", "Erro ao atualizar version.", 500, { requestId });
   }
+  if (!data)
+    return fail("version_conflict", "A versão foi alterada. Recarregue e tente novamente.", 409, {
+      requestId,
+    });
 
   void audit({
     action: "ai_agent.version_updated",

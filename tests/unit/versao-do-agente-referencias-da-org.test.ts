@@ -56,6 +56,7 @@ type Linha = Record<string, unknown>;
 /** Banco de mentira: filtra por `eq`/`in` de verdade, como o PostgREST faria. */
 function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }>) {
   const tabelas: Record<string, Linha[]> = {
+    organizations: [{ id: ORG, ai_autonomy: { credentials: true } }],
     ai_provider_credentials: [
       { id: CRED_MINHA, organization_id: ORG },
       { id: CRED_ALHEIA, organization_id: OUTRA_ORG },
@@ -75,7 +76,17 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
       },
     ],
     ai_agent_versions: [
-      { id: VERSAO, organization_id: ORG, agent_id: AGENTE, status: "draft", followup: {} },
+      {
+        id: VERSAO,
+        organization_id: ORG,
+        agent_id: AGENTE,
+        status: "draft",
+        followup: {},
+        provider: "openai",
+        model: "modelo",
+        credential_id: null,
+        operator_model: null,
+      },
     ],
   };
   return {
@@ -86,9 +97,13 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
       const q = {
         select: () => q,
         eq: (c: string, v: unknown) => (filtros.push((l) => l[c] === v), q),
+        is: (c: string, v: unknown) => (filtros.push((l) => l[c] === v), q),
         in: (c: string, vs: unknown[]) => (filtros.push((l) => vs.includes(l[c])), q),
         limit: () => q,
-        maybeSingle: async () => ({ data: linhas()[0] ?? null, error: null }),
+        maybeSingle: async () => ({
+          data: linhas()[0] ? { ...linhas()[0], ...(carga ?? {}) } : null,
+          error: null,
+        }),
         single: async () =>
           carga && tabela === "ai_agents"
             ? { data: { id: AGENTE }, error: null }
