@@ -40,7 +40,7 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
   const load = React.useCallback(async (signal?: AbortSignal) => {
     const response = await fetch(endpoint, { cache: "no-store", signal });
     const body = await response.json() as Resposta;
-    if (!response.ok || !body.data) throw new Error(body.error?.message ?? "Falha ao consultar a IA da empresa.");
+    if (!response.ok || !body.data) throw new Error(body.error?.message ?? t("Falha ao consultar a IA da empresa."));
     setDados(body.data);
     setProvider(body.data.padrao.provider);
     setModel(body.data.padrao.default_model ?? "");
@@ -49,7 +49,7 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
   React.useEffect(() => {
     const ctrl = new AbortController();
     void load(ctrl.signal).catch((e: unknown) => {
-      if (!ctrl.signal.aborted) setError(e instanceof Error ? e.message : "Falha de conexão.");
+      if (!ctrl.signal.aborted) setError(e instanceof Error ? e.message : t("Falha de conexão."));
     }).finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
     return () => ctrl.abort();
   }, [load]);
@@ -71,10 +71,10 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
         body: JSON.stringify({ provider, default_model: model.trim(), credential_id: credentialId || null }),
       });
       const body = await response.json() as { error?: { message?: string } };
-      if (!response.ok) throw new Error(body.error?.message ?? "Não foi possível salvar.");
+      if (!response.ok) throw new Error(body.error?.message ?? t("Não foi possível salvar."));
       await load();
-      setNotice("Padrão salvo. Agentes publicados e configurações próprias foram preservados.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Falha de conexão."); }
+      setNotice(t("Padrão salvo. Agentes publicados e configurações próprias foram preservados."));
+    } catch (e) { setError(e instanceof Error ? e.message : t("Falha de conexão.")); }
     finally { setSaving(false); }
   }
   return (
@@ -109,7 +109,7 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
             <SelectTrigger id="elus-padrao-credencial"><SelectValue placeholder={t("Escolha a credencial")}/></SelectTrigger>
             <SelectContent>
               {provider !== "custom" ? <SelectItem value="__installation__">{t("Chave da instalação (se disponível)")}</SelectItem> : null}
-              {credentials.map((c) => <SelectItem key={c.id} value={c.id} disabled={!c.is_active || !c.validated_at}>{c.label} · final {c.api_key_last4}</SelectItem>)}
+              {credentials.map((c) => <SelectItem key={c.id} value={c.id} disabled={!c.is_active || !c.validated_at}>{c.label} · {t("final")} {c.api_key_last4}</SelectItem>)}
             </SelectContent>
           </Select>
           {provider === "custom" && credentials.length === 0 ? <p className="text-xs text-muted-foreground">{t("Nenhuma credencial personalizada validada para esta empresa. Cadastre-a no fluxo de credenciais autorizado antes de ativar.")}</p> : null}
