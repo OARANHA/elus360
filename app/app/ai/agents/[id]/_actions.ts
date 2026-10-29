@@ -313,93 +313,76 @@ export async function saveAgentDraftAction(
     };
   }
 
-  // Cria draft v(max+1) com retry em 23505.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const { data: maxRow } = await admin
-      .from("ai_agent_versions")
-      .select("version_number")
-      .eq("agent_id", agentId)
-      .eq("organization_id", activeOrg.orgId)
-      .order("version_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const nextNumber = (maxRow?.version_number ?? 0) + 1;
-
-    const { data: created, error } = await admin
-      .from("ai_agent_versions")
-      .insert({
-        organization_id: activeOrg.orgId,
-        agent_id: agentId,
-        version_number: nextNumber,
-        system_prompt: v.system_prompt,
-        provider: v.provider,
-        model: v.model,
-        credential_id: v.credential_id,
-        tool_ids: v.tool_ids,
-        trigger_config: v.trigger_config ?? undefined,
-        channel_session_id: v.channel_session_id,
-        max_steps: v.max_steps,
-        token_budget: v.token_budget,
-        cost_budget_cents: v.cost_budget_cents,
-        history_message_window: v.history_message_window,
-        history_token_window: v.history_token_window,
-        handoff_keywords: v.handoff_keywords,
-        handoff_tool_enabled: v.handoff_tool_enabled,
-        handoff_legal_enabled: v.handoff_legal_enabled,
-        proposal_ai_draft_enabled: v.proposal_ai_draft_enabled,
-        cases_enabled: v.cases_enabled,
-        operator_enabled: v.operator_enabled,
-        operator_model: v.operator_model,
-        operator_tool_ids: v.operator_tool_ids,
-        pipeline_ids: v.pipeline_ids,
-        knowledge_source_ids: v.knowledge_source_ids,
-        split_messages: v.split_messages,
-        split_max_chars: v.split_max_chars,
-        inbound_debounce_ms: v.inbound_debounce_ms ?? null,
-        followup: v.followup,
-        status: "draft",
-        created_by: authUser.id,
-      })
-      .select("id, version_number")
-      .single();
-
-    if (!error && created) {
-      void audit({
-        action: "ai_agent.version_created",
-        actorUserId: authUser.id,
-        organizationId: activeOrg.orgId,
-        resourceType: "ai_agent_version",
-        resourceId: created.id,
-        requestId,
-        metadata: { agent_id: agentId, version_number: created.version_number },
-      });
-      if (cadastroParsed?.success) {
-        const r = await gravarCadastroDoAgente(admin, {
-          agentId,
-          orgId: activeOrg.orgId,
-          actorUserId: authUser.id,
-          requestId,
-          atual: agent,
-          pedido: cadastroParsed.data,
-        });
-        if ("erro" in r) {
-          return {
-            ok: false,
-            error: "internal_error",
-            message: `O rascunho foi salvo, mas o cadastro do agente não: ${r.erro}`,
-          };
-        }
-        if (r.mudou.length > 0) revalidatePath("/app/ai/agents");
-      }
-
-      revalidatePath(`/app/ai/agents/${agentId}`);
-      return { ok: true, data: { version_id: created.id, version_number: created.version_number } };
-    }
-    if (error?.code !== "23505") {
-      return { ok: false, error: "internal_error", message: error?.message };
-    }
+  // A criação também passa pelo lock da organização e verificação de grants
+  // no PostgreSQL. Não calcular version_number fora da transação.
+  const { data: reference, error: referenceError } = await admin
+    .from("ai_agent_versions")
+    .select("provider, model, credential_id, operator_model")
+    .eq("organization_id", activeOrg.orgId)
+    .eq("agent_id", agentId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (referenceError || !reference) {
+    return { ok: false, error: "configuracao_ia_indisponivel" };
   }
-  return { ok: false, error: "internal_error", message: "Conflito de versionamento." };
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: "session",
+    authUserId: authUser.id,
+    organizationId: activeOrg.orgId,
+    anteriorDoServidor: reference,
+    propostaValidada: v,
+  }))) {
+    return { ok: false, error: "forbidden_platform_ai" };
+  }
+  const { data: created, error: createError } = await admin.rpc(
+    "fn_elus_ai_version_create_guarded",
+    {
+      p_org: activeOrg.orgId,
+      p_agent: agentId,
+      p_payload: { ...v, created_by: authUser.id },
+      p_platform_bypass: false,
+    },
+  );
+  if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
+    return { ok: false, error: "internal_error" };
+  }
+  if ("error" in created) {
+    return {
+      ok: false,
+      error: created.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "version_conflict",
+    };
+  }
+
+  void audit({
+    action: "ai_agent.version_created",
+    actorUserId: authUser.id,
+    organizationId: activeOrg.orgId,
+    resourceType: "ai_agent_version",
+    resourceId: created.id,
+    requestId,
+    metadata: { agent_id: agentId, version_number: created.version_number },
+  });
+  if (cadastroParsed?.success) {
+    const r = await gravarCadastroDoAgente(admin, {
+      agentId,
+      orgId: activeOrg.orgId,
+      actorUserId: authUser.id,
+      requestId,
+      atual: agent,
+      pedido: cadastroParsed.data,
+    });
+    if ("erro" in r) {
+      return {
+        ok: false,
+        error: "internal_error",
+        message: `O rascunho foi salvo, mas o cadastro do agente não: ${r.erro}`,
+      };
+    }
+    if (r.mudou.length > 0) revalidatePath("/app/ai/agents");
+  }
+  revalidatePath(`/app/ai/agents/${agentId}`);
+  return { ok: true, data: { version_id: created.id, version_number: created.version_number } };
 }
 
 // ---------------------------------------------------------------------------
