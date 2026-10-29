@@ -68,44 +68,19 @@ async function ensureAdmin() {
  * encheria `api_audit_log` de linha sem efeito. A comparação é contra a linha
  * lida no mesmo request.
  */
-async function gravarCadastroDoAgente(
-  admin: ReturnType<typeof createAdminClient>,
-  args: {
-    agentId: string;
-    orgId: string;
-    actorUserId: string;
-    requestId: string;
-    atual: { name?: unknown; description?: unknown; priority?: unknown };
-    pedido: { name?: string; description?: string | null; priority?: number };
-  },
-): Promise<{ erro: string } | { mudou: string[] }> {
+function montarPatchCadastro(
+  atual: { name?: unknown; description?: unknown; priority?: unknown },
+  pedido?: { name?: string; description?: string | null; priority?: number },
+): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
+  if (!pedido) return patch;
   for (const campo of ["name", "description", "priority"] as const) {
-    const novo = args.pedido[campo];
-    if (novo === undefined) continue;
-    if ((args.atual[campo] ?? null) === (novo ?? null)) continue;
-    patch[campo] = novo ?? null;
+    const novo = pedido[campo];
+    if (novo !== undefined && (atual[campo] ?? null) !== (novo ?? null)) {
+      patch[campo] = novo ?? null;
+    }
   }
-  if (Object.keys(patch).length === 0) return { mudou: [] };
-
-  // Service role bypassa RLS: o filtro de organização é manual e obrigatório.
-  const { error } = await admin
-    .from("ai_agents")
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("id", args.agentId)
-    .eq("organization_id", args.orgId);
-  if (error) return { erro: error.message };
-
-  void audit({
-    action: "ai_agent.updated",
-    actorUserId: args.actorUserId,
-    organizationId: args.orgId,
-    resourceType: "ai_agent",
-    resourceId: args.agentId,
-    requestId: args.requestId,
-    metadata: { fields: Object.keys(patch) },
-  });
-  return { mudou: Object.keys(patch) };
+  return patch;
 }
 
 export async function saveAgentDraftAction(
@@ -164,6 +139,7 @@ export async function saveAgentDraftAction(
     .maybeSingle();
   if (!agent) return { ok: false, error: "not_found" };
   if (agent.archived_at) return { ok: false, error: "agent_archived" };
+  const cadastroPatch = montarPatchCadastro(agent, cadastroParsed?.success ? cadastroParsed.data : undefined);
 
   // O escopo aponta para coisas que EXISTEM nesta organização. Marcar um
   // material apagado (ou de outra organização) produz uma configuração muda: a
@@ -250,11 +226,13 @@ export async function saveAgentDraftAction(
     });
     if (!allowed) return { ok: false, error: "forbidden_platform_ai" };
 
-    const { data: updated, error } = await admin.rpc("fn_elus_ai_version_patch_guarded", {
+    const { data: updated, error } = await admin.rpc("fn_elus_ai_draft_save_guarded", {
       p_org: activeOrg.orgId,
       p_agent: agentId,
       p_version: existingDraft.id,
-      p_patch: update,
+      p_mode: "patch",
+      p_version_payload: update,
+      p_agent_patch: cadastroPatch,
       p_expected: {
         provider: previous.provider,
         model: previous.model,
@@ -282,27 +260,12 @@ export async function saveAgentDraftAction(
       metadata: { agent_id: agentId, fields: Object.keys(update) },
     });
 
-    if (cadastroParsed?.success) {
-      const r = await gravarCadastroDoAgente(admin, {
-        agentId,
-        orgId: activeOrg.orgId,
-        actorUserId: authUser.id,
-        requestId,
-        atual: agent,
-        pedido: cadastroParsed.data,
-      });
-      // As duas escritas não são atômicas. O desfecho tem de dizer o que
-      // gravou: um toast verde genérico aqui reproduz o defeito com outra cara.
-      if ("erro" in r) {
-        return {
-          ok: false,
-          error: "internal_error",
-          message: `O rascunho foi salvo, mas o cadastro do agente não: ${r.erro}`,
-        };
-      }
-      if (r.mudou.length > 0) revalidatePath("/app/ai/agents");
+    if (Object.keys(cadastroPatch).length) {
+      void audit({ action: "ai_agent.updated", actorUserId: authUser.id,
+        organizationId: activeOrg.orgId, resourceType: "ai_agent",
+        resourceId: agentId, requestId, metadata: { fields: Object.keys(cadastroPatch) } });
+      revalidatePath("/app/ai/agents");
     }
-
     revalidatePath(`/app/ai/agents/${agentId}`);
     return {
       ok: true,
@@ -336,11 +299,15 @@ export async function saveAgentDraftAction(
     return { ok: false, error: "forbidden_platform_ai" };
   }
   const { data: created, error: createError } = await admin.rpc(
-    "fn_elus_ai_version_create_guarded",
+    "fn_elus_ai_draft_save_guarded",
     {
       p_org: activeOrg.orgId,
       p_agent: agentId,
-      p_payload: { ...v, created_by: authUser.id },
+      p_mode: "create",
+      p_version: null,
+      p_expected: {},
+      p_agent_patch: cadastroPatch,
+      p_version_payload: { ...v, created_by: authUser.id },
       p_platform_bypass: false,
     },
   );
@@ -363,23 +330,11 @@ export async function saveAgentDraftAction(
     requestId,
     metadata: { agent_id: agentId, version_number: created.version_number },
   });
-  if (cadastroParsed?.success) {
-    const r = await gravarCadastroDoAgente(admin, {
-      agentId,
-      orgId: activeOrg.orgId,
-      actorUserId: authUser.id,
-      requestId,
-      atual: agent,
-      pedido: cadastroParsed.data,
-    });
-    if ("erro" in r) {
-      return {
-        ok: false,
-        error: "internal_error",
-        message: `O rascunho foi salvo, mas o cadastro do agente não: ${r.erro}`,
-      };
-    }
-    if (r.mudou.length > 0) revalidatePath("/app/ai/agents");
+  if (Object.keys(cadastroPatch).length) {
+    void audit({ action: "ai_agent.updated", actorUserId: authUser.id,
+      organizationId: activeOrg.orgId, resourceType: "ai_agent",
+      resourceId: agentId, requestId, metadata: { fields: Object.keys(cadastroPatch) } });
+    revalidatePath("/app/ai/agents");
   }
   revalidatePath(`/app/ai/agents/${agentId}`);
   return { ok: true, data: { version_id: created.id, version_number: created.version_number } };
