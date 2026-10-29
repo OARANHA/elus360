@@ -186,7 +186,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   }
   let catalogoIncompleto = false;
   if (!knownModel) {
-    const { data: anyModel, error: anyError } = await db
+    const { error: anyError } = await db
       .from("ai_models")
       .select("model_id")
       .eq("provider", body.data.provider)
@@ -195,9 +195,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
       .maybeSingle();
     if (anyError)
       return fail("internal_error", "Catálogo de modelos indisponível", 500, { requestId });
-    // O catálogo custom é por credencial; o global pode ser de outro gateway.
-    // A validação verdadeira de modelos customizados ocorre via models_available.
-    if (anyModel && body.data.provider !== "custom") {
+    // Sem modelo comprovado no catálogo, provedores gerenciados falham fechado.
+    // Somente custom permite catálogo global vazio: validação pela credencial.
+    if (body.data.provider !== "custom") {
       return fail("modelo_desconhecido", "Modelo não encontrado no catálogo do provedor", 422, {
         requestId,
       });
