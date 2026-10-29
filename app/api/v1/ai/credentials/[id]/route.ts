@@ -220,6 +220,9 @@ export async function PATCH(
   });
 
   if (!resultado.ok) {
+    if (resultado.motivo === "forbidden_platform_ai") {
+      return fail("forbidden_platform_ai", "Permissão para gerenciar credenciais foi revogada.", 403, { requestId });
+    }
     if (resultado.motivo === "label_em_uso") {
       return fail(
         "label_already_used",
