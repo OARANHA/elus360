@@ -139,3 +139,42 @@ Commits `230db0787325d0ef11b55dfd4d8ca0b91c753bdd`, `ccad7a270c3b5cf02be04f77abe
 5. Inventariar e fechar as rotas que ainda escrevem `provider`, `model`, `credential_id`, `operator_model`, `base_url` e `is_enabled`, incluindo ações server-side e providers/credentials; testar bypasses e cobertura de todas as portas, não apenas as três rotas de versão.
 
 **Critério de aceite:** GREEN em TypeScript, testes das rotas, banco com corrida real e contrato upstream; após isso, revalidar a migration 9037, preparar rollback e digests, e seguir sequencialmente merge → schema → imagens → deploy → health/version → canário. CI verde dos testes existentes não satisfaz este critério sozinho.
+
+
+## Gate de aceite — revisão de 29/10/2026 (PR #15)
+
+**Estado: revisão executada; NÃO LIBERADO PARA MERGE.** Evidência:
+HEAD `61776bf5ac67820425396c755547020bc336dbd5`, baseado em
+`main@7eef3f3fc801a22d0b6aa31adacab62365572620`,
+`behind=0`, `mergeable=true`, CI
+`ELUS 360 - AI Autonomy Migration Triple` SUCCESS.
+Isso valida os três jobs executados, não produção nem o conjunto completo
+de critérios deste documento.
+
+- **Comprovado no HEAD:** o editor usa RPC transacional para salvar rascunho e
+  cadastro, com teste de rollback/sucesso em PostgreSQL descartável; paridade da
+  migration `9037` e do apêndice do baseline validada pelo CI. O gatilho do
+  workflow contempla `app/app/ai/agents/[id]/_actions.ts`.
+- **Concorrência ainda parcial:** `tests/operational/elus360-ai-autonomy-concurrency.sh`
+  mede a ordem *revogação segura primeiro, tentativa de escrita depois*.
+  A especificação exige também a ordem inversa com duas conexões controladas;
+  não declarar corrida bidirecional integralmente comprovada.
+- **Portas técnicas ainda em revisão de cobertura:** versões, agents, providers,
+  credentials, pontos e ações server-side possuem caminhos distintos. GREEN
+  não comprova sozinho que `provider`, `model`, `credential_id`,
+  `operator_model`, `base_url` e `is_enabled` estão todos protegidos
+  contra revogação concorrente ou bypass. Fechar a matriz por rota e testar
+  negativas antes de marcar Ready.
+- **Superadmin:** a rota REST PATCH calcula `p_platform_bypass` em sessão;
+  o editor `saveAgentDraftAction` envia `false` em ambos os RPCs.
+  Confirmar o contrato de Superadmin full/MFA no editor para não produzir
+  comportamento inconsistente entre as duas superfícies.
+- **Upstream Sync:** PR #12 introduziu contrato e preflight somente leitura,
+  não atualização automática. Preservados `docs/elus360/extension-contract.md`
+  e `docs/elus360/upstream-sync.md`; nenhum merge com o upstream executado
+  nesta revisão. Compatibilidade com uma próxima release depende de preflight
+  específico sobre refs e diferenças efetivas.
+
+**Próximo gate:** concluir testes bidirecionais de concorrência, matriz das
+portas de escrita e regra Superadmin; executar CI no novo HEAD; revisar impacto
+upstream novamente. Não realizar merge, migration real ou deploy antes do aceite.
