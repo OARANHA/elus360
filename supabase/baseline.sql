@@ -66212,7 +66212,7 @@ begin
   if current_user <> 'service_role' or auth.role() is distinct from 'service_role' then
     raise exception 'elus_ai_credential_restricted' using errcode='42501';
   end if;
-  if p_org is null or p_op is null or p_op not in ('insert','update','delete')
+  if p_org is null or p_op is null or p_op not in ('insert','update','delete','refresh_login')
      or jsonb_typeof(p_patch) is distinct from 'object' then
     raise exception 'elus_ai_credential_invalid' using errcode='22023';
   end if;
@@ -66221,7 +66221,7 @@ begin
       'provider','label','api_key_encrypted','api_key_iv','api_key_tag',
       'api_key_last4','base_url','validated_at','is_active','created_by'
     ]::text[]))
-    or (p_op='update' and v_key <> all(array[
+    or (p_op in ('update','refresh_login') and v_key <> all(array[
       'label','api_key_encrypted','api_key_iv','api_key_tag',
       'api_key_last4','validated_at','validation_error','models_available'
     ]::text[]))
@@ -66231,7 +66231,7 @@ begin
   end loop;
   select ai_autonomy into v_grants from public.organizations where id=p_org for update;
   if not found then return jsonb_build_object('error','organization_not_found'); end if;
-  if not coalesce(p_platform_bypass,false)
+  if p_op <> 'refresh_login' and not coalesce(p_platform_bypass,false)
      and (v_grants->'credentials') is distinct from 'true'::jsonb then
     return jsonb_build_object('error','forbidden_platform_ai');
   end if;
@@ -66256,6 +66256,16 @@ begin
     select * into v_previous from public.ai_provider_credentials
       where id=p_id and organization_id=p_org for update;
     if not found then return jsonb_build_object('error','not_found'); end if;
+    if p_op='refresh_login' then
+      -- Renovação automática: não permite trocar identidade, rótulo, endpoint
+      -- ou desativação da credencial já autorizada.
+      if v_previous.provider <> 'openai-assinatura'
+         or p_patch->>'label' is distinct from v_previous.label
+         or not (p_patch ?& array['api_key_encrypted','api_key_iv','api_key_tag',
+                                 'api_key_last4','validated_at']) then
+        raise exception 'elus_ai_credential_refresh_restricted' using errcode='42501';
+      end if;
+    end if;
     if p_op='delete' then
       delete from public.ai_provider_credentials
         where id=p_id and organization_id=p_org;
