@@ -976,7 +976,7 @@ export function AgentForm(props: Props) {
             <p className="text-xs text-muted-foreground">{t("Configurada e gerenciada pela plataforma.")}</p>
           </Card>}
 
-          {/* WhatsApp session */
+          {/* WhatsApp session */}
           <Card className="space-y-3 p-4">
             <h3 className="text-sm font-medium">{t("Por qual número ele atende")}</h3>
             {props.routerMembership && (
