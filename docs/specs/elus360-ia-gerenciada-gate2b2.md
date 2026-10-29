@@ -84,3 +84,11 @@ A rota lê a configuração técnica da versão por organização e agente auten
 - Commit `ba36b68c5f79171bf8fdcfe89e2a66bed07aae79`: renomeada a variável de leitura `settings` para `settingsLidos` dentro do `PATCH app/api/v1/ai/providers/route.ts`, removendo a redeclaração com a variável `settings` usada no update.
 - Ainda **não foi executado `tsc` global do HEAD** após a correção. Dois erros reportados na rota `app/api/v1/admin/tenants/[id]/ai-permissions/route.ts` ainda requerem diagnóstico concreto de linha/código TS antes de alterações, para evitar casts que escondam erro de PostgREST ou alteração indevida da política de CAS.
 - O relato de 61 testes passing/0 erros lint se refere ao HEAD `d754f520` anterior à correção. CI green anterior não cobre o novo commit. A migration e os testes reais de banco permanecem pendentes. Não promover nem deployar a PR Draft.
+
+## Inspeção da rota Superadmin — revisão posterior ao HEAD 11a27b9e
+
+No commit `fb14f822ff0c15189153a70c4f346aeb9557aa3e`, a comparação no PATCH de `ai-permissions` passou a enumerar explicitamente as quatro chaves do contrato (`provider`, `model`, `credentials`, `operator_model`). É uma refatoração pontual que evita indexação dinâmica do resultado Zod, sem alterar a semântica de permissões.
+
+O teste existente `app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts` valida por mocks ausência de escrita em erro, restrição a Superadmin e resposta 409 quando o update simulado não casa linha. **Ele não comprova que o filtro JSONB `.eq("ai_autonomy", JSON.stringify(...))` funciona no PostgREST real, nem a atomicidade de revogações durante outra escrita.** Não substituir esse gate por sucesso de unitários.
+
+**Estado desta revisão:** edição commitada no GitHub; nenhuma execução TypeScript/Vitest/Postgres nesta sessão, pois não existe checkout do repositório acessível no ambiente e a tentativa de conexão Git remota falhou por DNS. Os erros exatos de TypeScript reportados no PR anterior ainda precisam ser capturados no ambiente de CI/checkout antes de afirmar correção global. Migration continua pendente; PR Draft, sem merge/deploy.
