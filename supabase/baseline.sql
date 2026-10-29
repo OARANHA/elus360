@@ -65982,3 +65982,67 @@ revoke all on function public.fn_elus_ai_agent_create_guarded(
 grant execute on function public.fn_elus_ai_agent_create_guarded(
   uuid,jsonb,jsonb,boolean
 ) to service_role;
+
+-- Salva cadastro e versão no mesmo comando PostgreSQL. Falha de qualquer
+-- etapa aborta a transação inteira, sem gravar dados parciais.
+create or replace function public.fn_elus_ai_draft_save_guarded(
+  p_org uuid, p_agent uuid, p_mode text, p_version uuid,
+  p_version_payload jsonb, p_expected jsonb, p_agent_patch jsonb,
+  p_platform_bypass boolean default false
+) returns jsonb language plpgsql security invoker
+set search_path = pg_catalog, public, pg_temp
+as $elus_draft_save$
+declare
+  v_key text;
+  v_result jsonb;
+  v_agent public.ai_agents%rowtype;
+  v_next public.ai_agents%rowtype;
+begin
+  if current_user <> 'service_role' or auth.role() is distinct from 'service_role' then
+    raise exception 'elus_ai_draft_save_restricted' using errcode='42501';
+  end if;
+  if p_mode is null or p_mode not in ('patch','create')
+     or jsonb_typeof(p_agent_patch) is distinct from 'object'
+     or jsonb_typeof(p_version_payload) is distinct from 'object' then
+    raise exception 'elus_ai_draft_save_invalid' using errcode='22023';
+  end if;
+  for v_key in select jsonb_object_keys(p_agent_patch) loop
+    if v_key <> all(array['name','description','priority']::text[]) then
+      raise exception 'elus_ai_draft_save_column_restricted' using errcode='42501';
+    end if;
+  end loop;
+  -- Mesma ordem de locks: organização, agente, versão.
+  perform 1 from public.organizations where id=p_org for update;
+  if not found then return jsonb_build_object('error','organization_not_found'); end if;
+  select * into v_agent from public.ai_agents
+    where id=p_agent and organization_id=p_org and archived_at is null for update;
+  if not found then return jsonb_build_object('error','agent_not_found'); end if;
+  if p_mode = 'patch' then
+    if p_version is null then return jsonb_build_object('error','version_not_found'); end if;
+    v_result := public.fn_elus_ai_version_patch_guarded(
+      p_org,p_agent,p_version,p_version_payload,p_expected,p_platform_bypass);
+  else
+    v_result := public.fn_elus_ai_version_create_guarded(
+      p_org,p_agent,p_version_payload,p_platform_bypass);
+  end if;
+  if v_result is null or v_result ? 'error' then
+    return coalesce(v_result,jsonb_build_object('error','version_conflict'));
+  end if;
+  if p_agent_patch <> '{}'::jsonb then
+    select * into v_next from jsonb_populate_record(v_agent,p_agent_patch);
+    update public.ai_agents set
+      name=v_next.name, description=v_next.description,
+      priority=v_next.priority, updated_at=now()
+      where id=p_agent and organization_id=p_org;
+    if not found then raise exception 'elus_ai_draft_save_agent_conflict' using errcode='40001'; end if;
+  end if;
+  return v_result;
+end
+$elus_draft_save$;
+
+revoke all on function public.fn_elus_ai_draft_save_guarded(
+  uuid,uuid,text,uuid,jsonb,jsonb,jsonb,boolean
+) from public,anon,authenticated;
+grant execute on function public.fn_elus_ai_draft_save_guarded(
+  uuid,uuid,text,uuid,jsonb,jsonb,jsonb,boolean
+) to service_role;
