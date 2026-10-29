@@ -416,3 +416,42 @@ BEGIN
 END $binding_gate$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);
+
+
+-- Modelo padrão: revogação protegida no mesmo lock da alteração de settings.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $default_gate$
+DECLARE r jsonb;
+BEGIN
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_default_write_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    'openai','modelo-proibido',
+    '{"provider":"anthropic","model":null}'::jsonb,false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_default_no_grant_%',r;
+  END IF;
+  UPDATE public.organizations SET ai_autonomy='{"provider":true,"model":true}'::jsonb;
+  r := public.fn_elus_ai_default_write_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    'openai','modelo-permitido',
+    '{"provider":"anthropic","model":null}'::jsonb,false);
+  IF r->>'provider' IS DISTINCT FROM 'openai' THEN
+    RAISE EXCEPTION 'FAIL_default_granted_%',r;
+  END IF;
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_default_write_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    'openai','modelo-revogado',
+    '{"provider":"openai","model":"modelo-permitido"}'::jsonb,false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_default_revocation_%',r;
+  END IF;
+  IF (SELECT settings #>> '{llm,default_model}' FROM public.organizations
+     WHERE id='11111111-1111-4111-8111-111111111111') IS DISTINCT FROM 'modelo-permitido' THEN
+    RAISE EXCEPTION 'FAIL_default_mutated_after_revocation';
+  END IF;
+END $default_gate$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
