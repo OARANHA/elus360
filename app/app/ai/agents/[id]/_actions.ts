@@ -246,7 +246,7 @@ export async function saveAgentDraftAction(
       authUserId: authUser.id,
       organizationId: activeOrg.orgId,
       anteriorDoServidor: previous,
-      propostaValidada: update,
+      propostaValidada: patchValidated.data,
     });
     if (!allowed) return { ok: false, error: "forbidden_platform_ai" };
 
