@@ -36,6 +36,7 @@ import { z } from "zod";
 import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
+import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
 import type { ProvedorComChave } from "@/lib/ai/pontos/provedores";
 import { rotacionarCredencial } from "@/lib/ai/credenciais/guardar";
 import { PROVEDOR_POR_ASSINATURA } from "@/lib/ai/pontos/provedores";
@@ -140,6 +141,8 @@ export async function PATCH(
 
   const authz = await requireRole("admin", { requestId, resource: "ai_credentials" });
   if (!authz.ok) return authz.response;
+  const platformDenied = await recusaConfiguracaoDeIa(authz.user, authz.org.orgId, "credentials", requestId);
+  if (platformDenied) return platformDenied;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
@@ -239,6 +242,8 @@ export async function DELETE(
 
   const authz = await requireRole("admin", { requestId, resource: "ai_credentials" });
   if (!authz.ok) return authz.response;
+  const platformDenied = await recusaConfiguracaoDeIa(authz.user, authz.org.orgId, "credentials", requestId);
+  if (platformDenied) return platformDenied;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
