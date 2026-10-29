@@ -17,6 +17,7 @@ import { ProposalsPanel } from "./ProposalsPanel";
 import type { AgentRow } from "@/hooks/ai/useAgent";
 import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 import type { CredentialRow } from "@/hooks/ai/useCredentials";
+import type { AutonomiaIa } from "@/lib/elus360/ai-managed/policy";
 
 interface Props {
   /** Funis da org, para a marcação de escopo do agente (spec 17 passo 3). */
@@ -40,6 +41,7 @@ interface Props {
   channelSessions: ChannelSessionLite[];
   routerMembership?: { routerId: string; routerName: string; channelSessionId: string; channelStatus: string | null } | null;
   readOnly?: boolean;
+  autonomiaTecnica?: Readonly<AutonomiaIa>;
   organizationTimezone?: string;
 }
 
@@ -84,6 +86,7 @@ export function AgentTabs(props: Props) {
           materiais={props.materiais}
           routerMembership={props.routerMembership}
           readOnly={props.readOnly}
+          autonomiaTecnica={props.autonomiaTecnica}
           organizationTimezone={props.organizationTimezone}
         />
       </TabsContent>
