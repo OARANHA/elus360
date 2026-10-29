@@ -45,7 +45,7 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
     setProvider(body.data.padrao.provider);
     setModel(body.data.padrao.default_model ?? "");
     setCredentialId(body.data.padrao.credential_id ?? "");
-  }, [endpoint]);
+  }, [endpoint, t]);
   React.useEffect(() => {
     const ctrl = new AbortController();
     void load(ctrl.signal).catch((e: unknown) => {
