@@ -485,9 +485,13 @@ export function AgentForm(props: Props) {
       errors.system_prompt =
         `${t("As instruções têm")} ${tamanhoDoPrompt.toLocaleString("pt-BR")} ${t("caracteres, e o máximo é 20.000. Corte")} ` +
         `${(tamanhoDoPrompt - 20000).toLocaleString("pt-BR")} ${t("para conseguir salvar.")}`;
-    if (!form.model) errors.model = t("Escolha o modelo de inteligência artificial.");
+    if (!form.model) errors.model = autonomia.model
+      ? t("Escolha o modelo de inteligência artificial.")
+      : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
     if (!form.credential_id)
-      errors.credential_id = t("Escolha a chave de acesso da empresa de inteligência artificial.");
+      errors.credential_id = autonomia.credentials
+        ? t("Escolha a chave de acesso da empresa de inteligência artificial.")
+        : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
     // Escolher "a chave desta instalação" para um provedor que a instalação NÃO
     // tem seria publicar um agente que morre em toda mensagem. A mesma recusa
     // existe no servidor (rota de versões); aqui ela chega antes do clique.
@@ -495,7 +499,9 @@ export function AgentForm(props: Props) {
       form.credential_id === CHAVE_DA_INSTALACAO &&
       !(props.provedoresDaInstalacao ?? []).includes(form.provider)
     )
-      errors.credential_id = `${t("Esta instalação não tem chave de")} ${form.provider}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`;
+      errors.credential_id = autonomia.credentials && autonomia.provider
+        ? `${t("Esta instalação não tem chave de")} ${form.provider}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`
+        : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
     // ⚠️ O NÚMERO NÃO ENTRA AQUI — de propósito, e não por esquecimento.
     //
     // Esta lista é o que impede de SALVAR. Exigir o número aqui travava o
@@ -566,7 +572,9 @@ export function AgentForm(props: Props) {
           ? t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.")
           : `${t("Esta instalação não tem chave de")} ${motivo.provedor}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`;
       case "sem_chave":
-        return t("Escolha a chave de acesso da empresa de inteligência artificial.");
+        return autonomia.credentials
+          ? t("Escolha a chave de acesso da empresa de inteligência artificial.")
+          : t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.");
       case "chave_nao_utilizavel":
         return !podeVerConfiguracaoTecnica
           ? t("A IA ELUS360 desta empresa precisa ser validada pelo administrador da plataforma.")
@@ -949,7 +957,7 @@ export function AgentForm(props: Props) {
               disabled={disabled}
               id="model"
             /> : null}
-            {validation.model ? (
+            {autonomia.model && validation.model ? (
               <p className="text-xs text-destructive">{validation.model}</p>
             ) : null}
 
@@ -962,10 +970,10 @@ export function AgentForm(props: Props) {
               id="credential_id"
               instalacaoTemChave={(props.provedoresDaInstalacao ?? []).includes(form.provider)}
             /> : null}
-            {validation.credential_id ? (
+            {autonomia.credentials && validation.credential_id ? (
               <p className="text-xs text-destructive">{validation.credential_id}</p>
             ) : null}
-            {cred && credSt && credSt !== "validated" ? (
+            {autonomia.credentials && cred && credSt && credSt !== "validated" ? (
               <p className="text-xs text-amber-600 dark:text-amber-400">
                 {t("Credencial selecionada está com status")} {t(STATUS_LABEL[credSt])}
                 {t(". Publish bloqueado até validar.")}
