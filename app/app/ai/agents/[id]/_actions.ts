@@ -726,74 +726,32 @@ export async function createMcpAgentAction(
     return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
   }
 
-  // Cria agent kind='mcp_agent' + v1 draft. Compensa rollback se versão falhar.
-  const { data: agentRow, error: agentErr } = await admin
-    .from("ai_agents")
-    .insert({
-      organization_id: activeOrg.orgId,
-      name: parsed.data.name,
-      description: parsed.data.description ?? null,
-      model: parsed.data.version.model,
-      system_prompt: parsed.data.version.system_prompt,
-      kind: "mcp_agent",
-      priority: parsed.data.priority,
-      is_active: false,
-      is_default: false,
-      created_by: authUser.id,
-    })
-    .select("id")
-    .single();
-
-  if (agentErr || !agentRow) {
-    return { ok: false, error: "internal_error", message: agentErr?.message };
+  // O mesmo RPC protegido da API REST cria agente e versão atomicamente.
+  // A permissão técnica é reavaliada no banco sob lock de organizations.
+  const { mcpAgentDraftRecords } = await import("@/lib/ai/agents/create-draft");
+  const records = mcpAgentDraftRecords(
+    { orgId: activeOrg.orgId, userId: authUser.id }, parsed.data,
+  );
+  const { data: created, error: createError } = await admin.rpc(
+    "fn_elus_ai_agent_create_guarded",
+    {
+      p_org: activeOrg.orgId,
+      p_agent: { ...records.agent, is_active: false, created_by: authUser.id },
+      p_version: { ...records.version, created_by: authUser.id },
+      p_platform_bypass: false,
+    },
+  );
+  if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
+    return { ok: false, error: "internal_error" };
   }
-
-  const v = parsed.data.version;
-  const { error: versionErr } = await admin.from("ai_agent_versions").insert({
-    organization_id: activeOrg.orgId,
-    agent_id: agentRow.id,
-    version_number: 1,
-    system_prompt: v.system_prompt,
-    provider: v.provider,
-    model: v.model,
-    credential_id: v.credential_id,
-    tool_ids: v.tool_ids,
-    trigger_config: v.trigger_config ?? undefined,
-    channel_session_id: v.channel_session_id,
-    max_steps: v.max_steps,
-    token_budget: v.token_budget,
-    cost_budget_cents: v.cost_budget_cents,
-    history_message_window: v.history_message_window,
-    history_token_window: v.history_token_window,
-    handoff_keywords: v.handoff_keywords,
-    handoff_tool_enabled: v.handoff_tool_enabled,
-    handoff_legal_enabled: v.handoff_legal_enabled,
-    proposal_ai_draft_enabled: v.proposal_ai_draft_enabled,
-    cases_enabled: v.cases_enabled,
-    split_messages: v.split_messages,
-    split_max_chars: v.split_max_chars,
-    inbound_debounce_ms: v.inbound_debounce_ms ?? null,
-    followup: v.followup,
-    // O corpo ACEITAVA estes cinco e o INSERT os descartava: criar o assistente
-    // pela tela com papel Operador, escopo de funil ou material marcado produzia
-    // uma versão com tudo no default do banco — desligado e vazio.
-    operator_enabled: v.operator_enabled,
-    operator_model: v.operator_model,
-    operator_tool_ids: v.operator_tool_ids,
-    pipeline_ids: v.pipeline_ids,
-    knowledge_source_ids: v.knowledge_source_ids,
-    status: "draft",
-    created_by: authUser.id,
-  });
-
-  if (versionErr) {
-    // Compensação — archiva o agent recém criado para evitar lixo.
-    await admin
-      .from("ai_agents")
-      .update({ archived_at: new Date().toISOString() })
-      .eq("id", agentRow.id)
-      .eq("organization_id", activeOrg.orgId);
-    return { ok: false, error: "internal_error", message: versionErr.message };
+  if ("error" in created) {
+    return { ok: false, error:
+      created.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_indisponivel",
+    };
+  }
+  const agentRow = created.agent;
+  if (!agentRow || typeof agentRow !== "object" || !("id" in agentRow)) {
+    return { ok: false, error: "internal_error" };
   }
 
   void audit({
