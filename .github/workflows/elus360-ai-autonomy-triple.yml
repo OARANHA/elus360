@@ -6,6 +6,7 @@ on:
       - "supabase/baseline.sql"
       - "supabase/migrations/*_elus_ai_autonomy_guarded.sql"
       - "tests/operational/elus360-ai-autonomy-triple.test.mjs"
+      - "tests/operational/elus360-ai-autonomy-postgres.sql"
       - ".github/workflows/elus360-ai-autonomy-triple.yml"
       - "lib/elus360/ai-managed/**"
       - "app/api/v1/ai/**"
@@ -59,3 +60,32 @@ jobs:
           tests/unit/versao-do-agente-referencias-da-org.test.ts
       - name: Integridade e colisão de migrations
         run: pnpm checar:colisao-de-migration
+
+  autonomy-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_disposable_only
+          POSTGRES_DB: elus_ai_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d elus_ai_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Migration, idempotência e papéis em banco descartável
+        env:
+          PGPASSWORD: ci_disposable_only
+        run: >-
+          psql -h 127.0.0.1 -p 5432 -U postgres
+          -d elus_ai_ci -v ON_ERROR_STOP=1
+          -f tests/operational/elus360-ai-autonomy-postgres.sql
