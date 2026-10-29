@@ -41,10 +41,11 @@ import {
 } from "@/lib/ai/par-provedor-modelo";
 import { logger } from "@/lib/logger";
 import { traduzir } from "@/lib/i18n/dicionario";
-import { loadAuthUser } from "@/lib/auth/server";
-import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
-import { mudancasTecnicas } from "@/lib/elus360/ai-managed/policy";
-import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
+
+
+
+
 
 export const dynamic = "force-dynamic";
 
@@ -300,18 +301,14 @@ export async function POST(req: NextRequest): Promise<Response> {
     credential_id: input.version.credential_id,
     operator_model: input.version.operator_model,
   };
-  if (mudancasTecnicas(referenciaTecnica, propostaTecnica).length > 0) {
-    const usuario = authz.via === "session" ? await loadAuthUser() : null;
-    if (authz.via === "session" && (!usuario || usuario.id !== authUserId || usuario.support))
-      return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
-    if (!usuario || !podeGerenciarIaDaPlataforma(usuario)) {
-      const decisao = await decidirEscritaTecnicaIa(
-        { orgIdConfiavel: organizationId, anteriorDoServidor: referenciaTecnica, propostaValidada: propostaTecnica },
-        { lerAutonomiaPorOrganizacao: lerAutonomiaIa },
-      );
-      if (!decisao.permitido)
-        return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
-    }
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: authz.via,
+    authUserId,
+    organizationId,
+    anteriorDoServidor: referenciaTecnica,
+    propostaValidada: propostaTecnica,
+  }))) {
+    return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
   }
 
   // Validate scope before the first write; a rejected form leaves no orphan.
