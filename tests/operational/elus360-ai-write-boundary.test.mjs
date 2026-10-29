@@ -56,3 +56,15 @@ test("editor de rascunhos usa gates e RPCs transacionais em ambos os caminhos", 
   assert.match(action, /p_agent_patch: cadastroPatch/);
   assert.doesNotMatch(action, /gravarCadastroDoAgente/);
 });
+
+test("workflow de governança monitora alterações no editor", () => {
+  const workflow = readFileSync(".github/workflows/elus360-ai-autonomy-triple.yml", "utf8");
+  assert.match(workflow, /app\/app\/ai\/agents\/\[id\]\/_actions\.ts/);
+});
+
+test("banco descartável testa rollback após erro de cadastro e sucesso conjunto", () => {
+  const sql = readFileSync("tests/operational/elus360-ai-autonomy-postgres.sql", "utf8");
+  assert.match(sql, /FAIL_version_survived_metadata_failure/);
+  assert.match(sql, /FAIL_atomic_metadata_success/);
+  assert.match(sql, /EXCEPTION WHEN check_violation/);
+});
