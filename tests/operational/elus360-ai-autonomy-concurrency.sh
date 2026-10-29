@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# CI disposable PostgreSQL only. Demonstrates row-lock serialization required by
-# a future technical-write transaction; does NOT imply the API currently uses it.
+# CI disposable PostgreSQL only. Exercita as duas ordens de serialização
+# entre a RPC de versão protegida e a revogação de grant da organização.
+# Não cobre, por si só, os writers de bindings/credentials fora dessas RPCs.
 : "${PGHOST:?PGHOST required}"
 : "${PGDATABASE:?PGDATABASE required}"
 : "${PGUSER:?PGUSER required}"
