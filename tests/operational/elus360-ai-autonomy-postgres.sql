@@ -8,6 +8,7 @@ CREATE TABLE public.organizations (id uuid PRIMARY KEY, settings jsonb NOT NULL 
 -- Schema mínimo para compilar e exercitar o RPC transacional no CI descartável.
 CREATE TABLE public.ai_agent_versions (
   id uuid PRIMARY KEY, organization_id uuid NOT NULL, agent_id uuid NOT NULL,
+  version_number integer NOT NULL DEFAULT 1,
   status text NOT NULL DEFAULT 'draft',
   system_prompt text, provider text, model text, credential_id uuid, operator_model text,
   tool_ids text[], trigger_config jsonb, channel_session_id uuid,
@@ -213,7 +214,7 @@ BEGIN
     '33333333-3333-4333-8333-333333333333',
     '{"system_prompt":"nova instrucao","provider":"openai","model":"nova","credential_id":null,"operator_model":null}'::jsonb,
     false);
-  IF r->>'model' IS DISTINCT FROM 'nova' OR (r->>'version_number')::int <> 1 THEN
+  IF r->>'model' IS DISTINCT FROM 'nova' OR (r->>'version_number')::int <> 2 THEN
     RAISE EXCEPTION 'FAIL_create_with_grant_%',r;
   END IF;
 END $create$;
