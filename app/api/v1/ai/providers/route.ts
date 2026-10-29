@@ -24,7 +24,7 @@ import { z } from "zod";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
-import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
+import { podeGerenciarIaDaPlataforma, recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
 import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
 import { lerAutonomiaIa } from "@/lib/elus360/ai-managed/server";
 import { roleAtLeast } from "@/lib/auth/types";
@@ -413,7 +413,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
     },
     { lerAutonomiaPorOrganizacao: lerAutonomiaIa },
   );
-  if (!decisao.permitido)
+  if (!podeGerenciarIaDaPlataforma(user) && !decisao.permitido)
     return fail(decisao.motivo === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_indisponivel",
       "Esta configuração técnica de IA não está autorizada.", decisao.motivo === "forbidden_platform_ai" ? 403 : 503);
 
