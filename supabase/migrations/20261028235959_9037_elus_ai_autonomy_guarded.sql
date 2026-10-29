@@ -82,7 +82,7 @@ begin
     raise exception 'elus_ai_version_patch_invalid' using errcode = '22023';
   end if;
   for v_key in select jsonb_object_keys(p_patch) loop
-    if v_key <> all(array['system_prompt', 'provider', 'model', 'credential_id', 'operator_model', 'tool_ids', 'trigger_config', 'channel_session_id', 'max_steps', 'token_budget', 'cost_budget_cents', 'history_message_window', 'history_token_window', 'handoff_keywords', 'handoff_tool_enabled', 'handoff_legal_enabled', 'proposal_ai_draft_enabled', 'cases_enabled', 'split_messages', 'split_max_chars', 'inbound_debounce_ms', 'pipeline_ids', 'knowledge_source_ids', 'followup']::text[]) then
+    if v_key <> all(array['system_prompt', 'provider', 'model', 'credential_id', 'operator_model', 'operator_enabled', 'operator_tool_ids', 'tool_ids', 'trigger_config', 'channel_session_id', 'max_steps', 'token_budget', 'cost_budget_cents', 'history_message_window', 'history_token_window', 'handoff_keywords', 'handoff_tool_enabled', 'handoff_legal_enabled', 'proposal_ai_draft_enabled', 'cases_enabled', 'split_messages', 'split_max_chars', 'inbound_debounce_ms', 'pipeline_ids', 'knowledge_source_ids', 'followup']::text[]) then
       raise exception 'elus_ai_version_patch_column_restricted' using errcode = '42501';
     end if;
   end loop;
@@ -125,6 +125,8 @@ begin
     model = v_new.model,
     credential_id = v_new.credential_id,
     operator_model = v_new.operator_model,
+    operator_enabled = v_new.operator_enabled,
+    operator_tool_ids = v_new.operator_tool_ids,
     tool_ids = v_new.tool_ids,
     trigger_config = v_new.trigger_config,
     channel_session_id = v_new.channel_session_id,
