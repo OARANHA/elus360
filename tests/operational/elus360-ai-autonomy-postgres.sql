@@ -446,12 +446,23 @@ BEGIN
     RAISE EXCEPTION 'FAIL_default_no_grant_%',r;
   END IF;
   UPDATE public.organizations SET ai_autonomy='{"provider":true,"model":true}'::jsonb;
+  -- Regressao: a troca tecnica nunca apaga outras chaves de settings.llm.
+  UPDATE public.organizations
+     SET settings = jsonb_set(settings, '{llm}',
+       '{"provider":"anthropic","default_model":null,"temperature":0.65,"runtime":{"budget":15}}'::jsonb)
+   WHERE id='11111111-1111-4111-8111-111111111111';
   r := public.fn_elus_ai_default_write_guarded(
     '11111111-1111-4111-8111-111111111111',
     'openai','modelo-permitido',
     '{"provider":"anthropic","model":null}'::jsonb,false);
   IF r->>'provider' IS DISTINCT FROM 'openai' THEN
     RAISE EXCEPTION 'FAIL_default_granted_%',r;
+  END IF;
+  IF (SELECT settings #> '{llm,temperature}' FROM public.organizations
+      WHERE id='11111111-1111-4111-8111-111111111111') IS DISTINCT FROM '0.65'::jsonb
+    OR (SELECT settings #> '{llm,runtime}' FROM public.organizations
+      WHERE id='11111111-1111-4111-8111-111111111111') IS DISTINCT FROM '{"budget":15}'::jsonb THEN
+    RAISE EXCEPTION 'FAIL_default_overwrote_llm_siblings';
   END IF;
   UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
   r := public.fn_elus_ai_default_write_guarded(

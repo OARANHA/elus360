@@ -66182,8 +66182,14 @@ begin
       return jsonb_build_object('error','forbidden_platform_ai');
     end if;
   end if;
+  -- Preservar chaves adicionais em settings.llm (ex.: parametros do runtime).
+  -- O bloqueio FOR UPDATE na organizacao serializa a mesclagem.
   v_new_settings := jsonb_set(coalesce(v_settings,'{}'::jsonb),
-    '{llm}',jsonb_build_object('provider',p_provider,'default_model',p_model),true);
+    '{llm}',
+    (case when jsonb_typeof(v_settings->'llm') = 'object'
+      then v_settings->'llm' else '{}'::jsonb end)
+      || jsonb_build_object('provider',p_provider,'default_model',p_model),
+    true);
   update public.organizations set settings=v_new_settings where id=p_org;
   return jsonb_build_object('provider',p_provider,'default_model',p_model);
 end
