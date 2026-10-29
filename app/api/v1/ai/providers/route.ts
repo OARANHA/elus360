@@ -495,48 +495,49 @@ export async function PUT(req: NextRequest): Promise<Response> {
     anterior.is_enabled === proposta.is_enabled)
     return ok({ binding: anterior, avisos: validacao.avisos });
 
-  const valores = {
-    organization_id: org.orgId,
-    purpose: corpo.purpose,
-    provider: proposta.provider,
-    model_id: proposta.model,
-    credential_id: proposta.credential_id,
-    base_url: proposta.base_url,
-    is_enabled: proposta.is_enabled,
-  };
-  // Compare-and-swap da configuração anterior. Nunca usar upsert para tomar
-  // posse de uma linha concorrente e reativar grants revogados.
-  let escrita;
-  if (anterior) {
-    let atualizacao = db.from("ai_purpose_bindings")
-      .update(valores)
-      .eq("id", anterior.id)
-      .eq("organization_id", org.orgId)
-      .eq("purpose", corpo.purpose)
-      .eq("provider", anterior.provider)
-      .eq("model_id", anterior.model_id)
-      .eq("is_enabled", anterior.is_enabled);
-    for (const campo of ["credential_id", "base_url"] as const) {
-      atualizacao = anterior[campo] === null
-        ? atualizacao.is(campo, null)
-        : atualizacao.eq(campo, anterior[campo]);
+  // A escrita e a consulta dos grants são atômicas sob lock da organização.
+  // O bypass requer a mesma MFA full usada nas rotas de versão.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(user)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin precisa de sessão full com MFA.", 403);
     }
-    escrita = atualizacao;
-  } else {
-    escrita = db.from("ai_purpose_bindings").insert(valores);
   }
-  const { data: gravado, error } = await escrita
-    .select("id, purpose, provider, model_id, credential_id, base_url, is_enabled")
-    .maybeSingle();
-
-  if (error?.code === "23505" || (!error && !gravado && anterior))
-    return fail("configuracao_ia_alterada", t("A configuração de IA mudou. Recarregue antes de salvar novamente."), 409);
-  if (error) return fail("save_failed", error.message, 500);
-  if (!gravado) {
-    // Upsert que casa zero linhas devolve sucesso no PostgREST — a tela diria
-    // "salvo" sem nada ter sido gravado.
-    return fail("save_failed", t("nada foi gravado — verifique as permissões da organização"), 500);
+  const { data: result, error } = await createAdminClient().rpc(
+    "fn_elus_ai_purpose_binding_write_guarded",
+    {
+      p_org: org.orgId,
+      p_purpose: corpo.purpose,
+      p_values: {
+        provider: proposta.provider,
+        model_id: proposta.model,
+        credential_id: proposta.credential_id,
+        base_url: proposta.base_url,
+        is_enabled: proposta.is_enabled,
+      },
+      p_expected: anterior ? {
+        provider: anterior.provider,
+        model_id: anterior.model_id,
+        credential_id: anterior.credential_id,
+        base_url: anterior.base_url,
+        is_enabled: anterior.is_enabled,
+      } : {},
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (error) return fail("save_failed", "Não foi possível gravar a configuração de IA.", 500);
+  if (!result || typeof result !== "object" || Array.isArray(result))
+    return fail("save_failed", "Nenhuma configuração foi gravada.", 500);
+  if ("error" in result) {
+    return fail(result.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_alterada",
+      "Permissão técnica revogada ou configuração alterada; recarregue antes de salvar.",
+      result.error === "forbidden_platform_ai" ? 403 : 409);
   }
+  const gravado = result;
 
   void audit({
     action: "ai.purpose_binding_updated",
