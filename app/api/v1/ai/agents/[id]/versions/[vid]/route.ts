@@ -217,7 +217,15 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
       const { loadAuthUser } = await import("@/lib/auth/server");
       const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
       const usuario = await loadAuthUser();
-      return !!usuario && usuario.id === authUserId && podeGerenciarIaDaPlataforma(usuario);
+      if (!usuario || usuario.id !== authUserId || !podeGerenciarIaDaPlataforma(usuario)) return false;
+      try {
+        // Bypass exclusivo de sessão Superadmin full com MFA validado agora.
+        const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+        await requirePlatformAdminEscrita();
+        return true;
+      } catch {
+        return false;
+      }
     })()),
   });
   if (error) return fail("internal_error", "Erro na escrita atômica da versão.", 500, { requestId });
