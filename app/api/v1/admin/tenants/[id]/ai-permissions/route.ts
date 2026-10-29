@@ -16,7 +16,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 /**
  * Gate 2B.2: endpoint de controle do Superadmin ELUS.
  *
- * Ainda sem painel e SEM ativar qualquer guarda em rotas do tenant.
+ * Ainda sem painel; há guardas preparatórias nas rotas do tenant, mas a ativação
+ * depende da migration, da cobertura integral das mutações e dos testes de banco.
  * A coluna organizations.ai_autonomy não existe antes da migration do gate;
  * nesse estado, a leitura/escrita retornam erro e nunca fazem fallback para
  * organizations.settings.
