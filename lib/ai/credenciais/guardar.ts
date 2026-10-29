@@ -224,6 +224,7 @@ export interface PedidoDeRotacionar {
   label?: string;
   requestId?: string;
   platformBypass?: boolean;
+  automatedRenewal?: boolean; // apenas renovação automática de tokens do login já existente
 }
 
 export async function rotacionarCredencial(
@@ -268,7 +269,7 @@ export async function rotacionarCredencial(
   const { data: updated, error } = await p.admin.rpc(
     "fn_elus_ai_credential_write_guarded", {
       p_org: p.orgId,
-      p_op: "update",
+      p_op: p.automatedRenewal === true ? "refresh_login" : "update",
       p_id: p.credentialId,
       p_patch: patch,
       p_platform_bypass: p.platformBypass === true,
