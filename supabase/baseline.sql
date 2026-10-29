@@ -66140,3 +66140,55 @@ revoke all on function public.fn_elus_ai_purpose_binding_write_guarded(
   uuid,text,jsonb,jsonb,boolean) from public,anon,authenticated;
 grant execute on function public.fn_elus_ai_purpose_binding_write_guarded(
   uuid,text,jsonb,jsonb,boolean) to service_role;
+
+
+-- Modelo padrão: lock de grants e atualização de settings no mesmo statement.
+create or replace function public.fn_elus_ai_default_write_guarded(
+  p_org uuid, p_provider text, p_model text, p_expected jsonb,
+  p_platform_bypass boolean default false
+) returns jsonb language plpgsql security invoker
+set search_path = pg_catalog, public, pg_temp
+as $elus_default_write$
+declare
+  v_grants jsonb;
+  v_settings jsonb;
+  v_old_provider text;
+  v_old_model text;
+  v_new_settings jsonb;
+begin
+  if current_user <> 'service_role' or auth.role() is distinct from 'service_role' then
+    raise exception 'elus_ai_default_restricted' using errcode='42501';
+  end if;
+  if p_org is null or nullif(p_provider,'') is null or nullif(p_model,'') is null
+     or jsonb_typeof(p_expected) is distinct from 'object' then
+    raise exception 'elus_ai_default_invalid' using errcode='22023';
+  end if;
+  select ai_autonomy,settings into v_grants,v_settings
+    from public.organizations where id=p_org for update;
+  if not found then return jsonb_build_object('error','organization_not_found'); end if;
+  v_old_provider := coalesce(nullif(v_settings #>> '{llm,provider}',''),'anthropic');
+  v_old_model := nullif(v_settings #>> '{llm,default_model}','');
+  if to_jsonb(v_old_provider) is distinct from p_expected->'provider'
+     or to_jsonb(v_old_model) is distinct from p_expected->'model' then
+    return jsonb_build_object('error','version_conflict');
+  end if;
+  if not coalesce(p_platform_bypass,false) then
+    if p_provider is distinct from v_old_provider
+       and (v_grants->'provider') is distinct from 'true'::jsonb then
+      return jsonb_build_object('error','forbidden_platform_ai');
+    end if;
+    if p_model is distinct from v_old_model
+       and (v_grants->'model') is distinct from 'true'::jsonb then
+      return jsonb_build_object('error','forbidden_platform_ai');
+    end if;
+  end if;
+  v_new_settings := jsonb_set(coalesce(v_settings,'{}'::jsonb),
+    '{llm}',jsonb_build_object('provider',p_provider,'default_model',p_model),true);
+  update public.organizations set settings=v_new_settings where id=p_org;
+  return jsonb_build_object('provider',p_provider,'default_model',p_model);
+end
+$elus_default_write$;
+revoke all on function public.fn_elus_ai_default_write_guarded(
+  uuid,text,text,jsonb,boolean) from public,anon,authenticated;
+grant execute on function public.fn_elus_ai_default_write_guarded(
+  uuid,text,text,jsonb,boolean) to service_role;
