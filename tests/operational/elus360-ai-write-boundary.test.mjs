@@ -52,7 +52,9 @@ test("editor de rascunhos usa gates e RPCs transacionais em ambos os caminhos", 
   assert.ok(create > patch, "criação deve reutilizar o RPC guardado");
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\s*\.update\(/);
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\s*\.insert\(/);
-  assert.match(action, /p_platform_bypass: false/);
+  assert.match(action, /p_platform_bypass: platformBypass/);
+  assert.match(action, /await requirePlatformAdminEscrita\(\)/);
+  assert.match(action, /podeGerenciarIaDaPlataforma\(authUser\)/);
   assert.match(action, /p_agent_patch: cadastroPatch/);
   assert.doesNotMatch(action, /gravarCadastroDoAgente/);
 });
