@@ -705,36 +705,30 @@ export async function PATCH(req: NextRequest): Promise<Response> {
   // service role passa por cima da RLS, então o filtro de tenant vira
   // responsabilidade deste arquivo. `org.orgId` vem do `requireRole` (cookie/
   // JWT), nunca do corpo.
-  const admin = createAdminClient();
-
-  // MERGE, nunca sobrescrita. `organizations.settings` é um jsonb compartilhado
-  // — `branding` (a marca da instalação) e `security` (a política de MFA) moram
-  // nele. Um `update({ settings: { llm } })` ingênuo apaga os dois em silêncio, e
-  // o sintoma aparece dias depois, longe daqui.
-  const { data: orgAtual } = await admin
-    .from("organizations")
-    .select("settings")
-    .eq("id", org.orgId)
-    .maybeSingle();
-
-  const settingsAtuais = ((orgAtual?.settings ?? {}) as Record<string, unknown>) || {};
-  const settings = {
-    ...settingsAtuais,
-    llm: { provider: corpo.provider, default_model: corpo.default_model },
-  };
-
-  const { data: gravado, error } = await admin
-    .from("organizations")
-    .update({ settings })
-    .eq("id", org.orgId)
-    .select("settings")
-    .maybeSingle();
-
-  if (error) return fail("save_failed", error.message, 500);
-  if (!gravado) {
-    // Mesma armadilha do PUT: no PostgREST, update que casa zero linhas volta
-    // como sucesso, e a tela diria "salvo" sem nada ter sido gravado.
-    return fail("save_failed", t("nada foi gravado — verifique as permissões da organização"), 500);
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(user)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin precisa de sessão full com MFA.", 403);
+    }
+  }
+  const { data: gravado, error } = await createAdminClient().rpc(
+    "fn_elus_ai_default_write_guarded", {
+      p_org: org.orgId,
+      p_provider: corpo.provider,
+      p_model: corpo.default_model,
+      p_expected: { provider: providerAnterior, model: modelAnterior },
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (error || !gravado) return fail("save_failed", "Erro na gravação segura do padrão de IA.", 500);
+  if (typeof gravado === "object" && !Array.isArray(gravado) && "error" in gravado) {
+    return fail(gravado.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_alterada",
+      "Grant revogado ou padrão alterado. Recarregue antes de salvar.",
+      gravado.error === "forbidden_platform_ai" ? 403 : 409);
   }
 
   void audit({
