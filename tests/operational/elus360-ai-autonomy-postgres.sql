@@ -290,3 +290,64 @@ BEGIN
     RAISE EXCEPTION 'FAIL_atomic_metadata_mutated_on_denial';
   END IF;
 END $atomic_verify$;
+
+-- Verifica sucesso conjunto e rollback REAL quando o cadastro falha depois
+-- de o RPC de versão executar sua escrita (subtransação PL/pgSQL).
+ALTER TABLE public.ai_agents ADD CONSTRAINT elus_ci_name_rejected
+  CHECK (name <> '__reject_for_rollback__');
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $editor_atomic$
+DECLARE
+  v_before jsonb;
+  v_after jsonb;
+  v_result jsonb;
+  v_name text;
+BEGIN
+  SELECT to_jsonb(v) INTO v_before FROM public.ai_agent_versions v
+   WHERE id='44444444-4444-4444-8444-444444444444';
+  SELECT name INTO v_name FROM public.ai_agents
+   WHERE id='33333333-3333-4333-8333-333333333333';
+  BEGIN
+    PERFORM public.fn_elus_ai_draft_save_guarded(
+      '11111111-1111-4111-8111-111111111111',
+      '33333333-3333-4333-8333-333333333333',
+      'patch','44444444-4444-4444-8444-444444444444',
+      '{"system_prompt":"nao_pode_persistir"}'::jsonb,
+      jsonb_build_object('provider',v_before->'provider','model',v_before->'model',
+        'credential_id',v_before->'credential_id','operator_model',v_before->'operator_model',
+        'system_prompt',v_before->'system_prompt'),
+      '{"name":"__reject_for_rollback__"}'::jsonb,false);
+    RAISE EXCEPTION 'FAIL_expected_metadata_constraint';
+  EXCEPTION WHEN check_violation THEN
+    NULL; -- A versão escrita antes da falha também deve ter sido desfeita.
+  END;
+  SELECT to_jsonb(v) INTO v_after FROM public.ai_agent_versions v
+   WHERE id='44444444-4444-4444-8444-444444444444';
+  IF v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'FAIL_version_survived_metadata_failure';
+  END IF;
+  IF (SELECT name FROM public.ai_agents
+      WHERE id='33333333-3333-4333-8333-333333333333') IS DISTINCT FROM v_name THEN
+    RAISE EXCEPTION 'FAIL_metadata_survived_failure';
+  END IF;
+
+  v_result := public.fn_elus_ai_draft_save_guarded(
+      '11111111-1111-4111-8111-111111111111',
+      '33333333-3333-4333-8333-333333333333',
+      'patch','44444444-4444-4444-8444-444444444444',
+      '{"system_prompt":"salvo_atomicamente"}'::jsonb,
+      jsonb_build_object('provider',v_before->'provider','model',v_before->'model',
+        'credential_id',v_before->'credential_id','operator_model',v_before->'operator_model',
+        'system_prompt',v_before->'system_prompt'),
+      '{"name":"salvo_atomicamente"}'::jsonb,false);
+  IF v_result->>'system_prompt' IS DISTINCT FROM 'salvo_atomicamente' THEN
+    RAISE EXCEPTION 'FAIL_atomic_version_success: %',v_result;
+  END IF;
+  IF (SELECT name FROM public.ai_agents
+      WHERE id='33333333-3333-4333-8333-333333333333') IS DISTINCT FROM 'salvo_atomicamente' THEN
+    RAISE EXCEPTION 'FAIL_atomic_metadata_success';
+  END IF;
+END $editor_atomic$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
