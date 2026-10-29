@@ -611,9 +611,9 @@ export async function PATCH(req: NextRequest): Promise<Response> {
   if (erroPadrao || !padraoAtual)
     return fail("configuracao_ia_indisponivel", "Não foi possível ler o padrão da organização.", 503);
   const settingsBruto = padraoAtual.settings;
-  const settings = settingsBruto && typeof settingsBruto === "object" && !Array.isArray(settingsBruto)
+  const settingsLidos = settingsBruto && typeof settingsBruto === "object" && !Array.isArray(settingsBruto)
     ? settingsBruto as Record<string, unknown> : {};
-  const llmBruto = settings.llm;
+  const llmBruto = settingsLidos.llm;
   const llm = llmBruto && typeof llmBruto === "object" && !Array.isArray(llmBruto)
     ? llmBruto as Record<string, unknown> : {};
   const providerAnterior = typeof llm.provider === "string" && llm.provider ? llm.provider : "anthropic";
