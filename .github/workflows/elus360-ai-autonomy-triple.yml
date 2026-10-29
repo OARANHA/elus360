@@ -45,6 +45,8 @@ jobs:
       - name: Dependências verificadas pelo lockfile
         run: pnpm install --frozen-lockfile
       - name: TypeScript global
+        env:
+          NODE_OPTIONS: "--max-old-space-size=6144"
         run: pnpm typecheck
       - name: Governança IA — testes unitários e de handlers
         run: >-
