@@ -121,6 +121,8 @@ export function AgentTabs(props: Props) {
           agentId={props.agent.id}
           versions={props.versions}
           readOnly={props.readOnly}
+          mostrarProvedor={props.autonomiaTecnica?.provider === true}
+          mostrarModelo={props.autonomiaTecnica?.model === true}
         />
       </TabsContent>
     </Tabs>
