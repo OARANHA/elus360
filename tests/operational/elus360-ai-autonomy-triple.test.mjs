@@ -23,7 +23,7 @@ test("baseline preserva migration integral e única no apêndice final", () => {
   const pos = baseline.lastIndexOf(marker);
   assert.ok(pos > 3_000_000, "baseline parece truncado ou substituído");
   assert.equal(baseline.slice(pos + marker.length), migration);
-  assert.match(baseline.slice(0, pos), /create table public\.organizations/i);
+  assert.match(baseline.slice(0, pos), /create table if not exists "public"\."organizations"/i);
 });
 
 test("trigger é invoker e somente serviço/admin banco pode mudar grants", () => {
