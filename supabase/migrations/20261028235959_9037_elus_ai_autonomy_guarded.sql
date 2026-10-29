@@ -34,8 +34,8 @@ begin
 
   if v_changed then
     v_privileged :=
-      current_user = 'service_role'
-      or (current_user = 'postgres' and auth.uid() is null);
+      (current_user = 'service_role' and auth.role() = 'service_role')
+      or (current_user = 'postgres' and auth.uid() is null and auth.role() is null);
     if not coalesce(v_privileged, false) then
       raise exception 'elus_ai_autonomy_restricted'
         using errcode = '42501';
