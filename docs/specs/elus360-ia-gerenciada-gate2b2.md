@@ -66,3 +66,9 @@ Aceite funcional da governança no repositório legado `OARANHA/elus` foi confir
 - `app/api/v1/ai/credentials/[id]/route.ts`: PATCH e DELETE usam o mesmo gate antes de qualquer alteração de credencial. Nenhum acesso por organização fornecida no payload foi introduzido.
 - Conferidos os quatro pontos de chamada diretamente no GitHub, commit `4f1f2267b0071bbf6f4c94fe0207582480fd594c`. **Não houve execução de Vitest, TypeScript, teste DB ou CI desse HEAD.**
 - **Dependência de ativação:** a migration da coluna `ai_autonomy` ainda não foi aplicada e, até isso acontecer, esses handlers falham fechados para tenants. A PR continua Draft; **não integrar nem publicar isoladamente**. Continuam pendentes todas as demais superfícies do inventário, CAS no PostgREST, RLS, colisões de migration, testes e coordenação schema↔código.
+
+## Continuidade — padrão de provider/model por organização
+
+Na PR #15, o commit `d91682cdeb43b9d68181eb6325360dad3a8768cc` restabeleceu a guarda de autonomia na rota `PATCH /api/v1/ai/providers`, tomando como referência a implementação funcional aceita pelo proprietário em `OARANHA/elus`. A rota carrega a configuração anterior de `organizations.settings` por `org.orgId` autenticado, falha fechada quando a consulta falha e exige `provider` e/ou `model` somente quando seus valores mudam, antes de gravar com `createAdminClient`.
+
+A nova consulta faz parte do código da PR, **não** representa homologação do runtime. A comparação não é CAS de `settings`: o comportamento de concorrência e o `PUT` de bindings continuam em análise de portabilidade, assim como testes de integração no banco. Ativação ainda bloqueada até sincronizar migration, guards de todas as portas e CI. O workflow GREEN informado pelo proprietário refere-se ao momento anterior a este commit; não extrapolar para o novo HEAD.
