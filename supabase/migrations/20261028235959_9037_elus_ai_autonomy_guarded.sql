@@ -447,3 +447,95 @@ revoke all on function public.fn_elus_ai_draft_save_guarded(
 grant execute on function public.fn_elus_ai_draft_save_guarded(
   uuid,uuid,text,uuid,jsonb,jsonb,jsonb,boolean
 ) to service_role;
+
+
+-- A escolha de IA por ponto deve serializar com a revogação dos grants.
+-- O handler verifica sessão/RBAC/MFA; a RPC aplica a permissão ATUAL sob lock.
+create or replace function public.fn_elus_ai_purpose_binding_write_guarded(
+  p_org uuid, p_purpose text, p_values jsonb, p_expected jsonb,
+  p_platform_bypass boolean default false
+) returns jsonb language plpgsql security invoker
+set search_path = pg_catalog, public, pg_temp
+as $elus_binding_write$
+declare
+  v_grants jsonb;
+  v_previous public.ai_purpose_bindings%rowtype;
+  v_value public.ai_purpose_bindings%rowtype;
+  v_result jsonb;
+  v_key text;
+begin
+  if current_user <> 'service_role' or auth.role() is distinct from 'service_role' then
+    raise exception 'elus_ai_binding_restricted' using errcode='42501';
+  end if;
+  if p_org is null or nullif(p_purpose,'') is null
+     or jsonb_typeof(p_values) is distinct from 'object'
+     or jsonb_typeof(p_expected) is distinct from 'object' then
+    raise exception 'elus_ai_binding_invalid' using errcode='22023';
+  end if;
+  for v_key in select jsonb_object_keys(p_values) loop
+    if v_key <> all(array['provider','model_id','credential_id','base_url','is_enabled']::text[]) then
+      raise exception 'elus_ai_binding_column_restricted' using errcode='42501';
+    end if;
+  end loop;
+  select ai_autonomy into v_grants from public.organizations where id=p_org for update;
+  if not found then return jsonb_build_object('error','organization_not_found'); end if;
+  select * into v_previous from public.ai_purpose_bindings
+    where organization_id=p_org and purpose=p_purpose for update;
+  if found then
+    if (to_jsonb(v_previous)->'provider') is distinct from (p_expected->'provider')
+       or (to_jsonb(v_previous)->'model_id') is distinct from (p_expected->'model_id')
+       or (to_jsonb(v_previous)->'credential_id') is distinct from (p_expected->'credential_id')
+       or (to_jsonb(v_previous)->'base_url') is distinct from (p_expected->'base_url')
+       or (to_jsonb(v_previous)->'is_enabled') is distinct from (p_expected->'is_enabled') then
+      return jsonb_build_object('error','version_conflict');
+    end if;
+  elsif p_expected <> '{}'::jsonb then
+    return jsonb_build_object('error','version_conflict');
+  end if;
+  select * into v_value from jsonb_populate_record(
+    case when v_previous.id is null then null::public.ai_purpose_bindings else v_previous end,
+    p_values);
+  if v_value.provider is null or v_value.model_id is null or v_value.is_enabled is null then
+    raise exception 'elus_ai_binding_invalid_payload' using errcode='22023';
+  end if;
+  if not coalesce(p_platform_bypass,false) then
+    if (v_value.provider is distinct from v_previous.provider or
+        v_value.base_url is distinct from v_previous.base_url or
+        v_value.is_enabled is distinct from v_previous.is_enabled) and
+       (v_grants->'provider') is distinct from 'true'::jsonb then
+      return jsonb_build_object('error','forbidden_platform_ai');
+    end if;
+    if v_value.model_id is distinct from v_previous.model_id and
+       (v_grants->'model') is distinct from 'true'::jsonb then
+      return jsonb_build_object('error','forbidden_platform_ai');
+    end if;
+    if v_value.credential_id is distinct from v_previous.credential_id and
+       (v_grants->'credentials') is distinct from 'true'::jsonb then
+      return jsonb_build_object('error','forbidden_platform_ai');
+    end if;
+  end if;
+  if v_previous.id is null then
+    insert into public.ai_purpose_bindings(
+      organization_id,purpose,provider,model_id,credential_id,base_url,is_enabled)
+    values(p_org,p_purpose,v_value.provider,v_value.model_id,
+      v_value.credential_id,v_value.base_url,v_value.is_enabled)
+    returning jsonb_build_object('id',id,'purpose',purpose,'provider',provider,
+      'model_id',model_id,'credential_id',credential_id,'base_url',base_url,
+      'is_enabled',is_enabled) into v_result;
+  else
+    update public.ai_purpose_bindings set
+      provider=v_value.provider,model_id=v_value.model_id,
+      credential_id=v_value.credential_id,base_url=v_value.base_url,
+      is_enabled=v_value.is_enabled,updated_at=now()
+      where id=v_previous.id and organization_id=p_org
+      returning jsonb_build_object('id',id,'purpose',purpose,'provider',provider,
+        'model_id',model_id,'credential_id',credential_id,'base_url',base_url,
+        'is_enabled',is_enabled) into v_result;
+  end if;
+  return v_result;
+end
+$elus_binding_write$;
+revoke all on function public.fn_elus_ai_purpose_binding_write_guarded(
+  uuid,text,jsonb,jsonb,boolean) from public,anon,authenticated;
+grant execute on function public.fn_elus_ai_purpose_binding_write_guarded(
+  uuid,text,jsonb,jsonb,boolean) to service_role;
