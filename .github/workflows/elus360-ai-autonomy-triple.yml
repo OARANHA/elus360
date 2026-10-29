@@ -8,6 +8,7 @@ on:
       - "tests/operational/elus360-ai-autonomy-triple.test.mjs"
       - "tests/operational/elus360-ai-autonomy-postgres.sql"
       - "tests/operational/elus360-ai-write-boundary.test.mjs"
+      - "tests/operational/elus360-ai-autonomy-concurrency.sh"
       - ".github/workflows/elus360-ai-autonomy-triple.yml"
       - "lib/elus360/ai-managed/**"
       - "app/api/v1/ai/**"
@@ -92,3 +93,11 @@ jobs:
           psql -h 127.0.0.1 -p 5432 -U postgres
           -d elus_ai_ci -v ON_ERROR_STOP=1
           -f tests/operational/elus360-ai-autonomy-postgres.sql
+      - name: Duas conexões — serialização por lock de organização
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: ci_disposable_only
+          PGDATABASE: elus_ai_ci
+        run: bash tests/operational/elus360-ai-autonomy-concurrency.sh
