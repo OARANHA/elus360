@@ -7,6 +7,7 @@ on:
       - "supabase/migrations/*_elus_ai_autonomy_guarded.sql"
       - "tests/operational/elus360-ai-autonomy-triple.test.mjs"
       - "tests/operational/elus360-ai-autonomy-postgres.sql"
+      - "tests/operational/elus360-ai-write-boundary.test.mjs"
       - ".github/workflows/elus360-ai-autonomy-triple.yml"
       - "lib/elus360/ai-managed/**"
       - "app/api/v1/ai/**"
@@ -30,6 +31,8 @@ jobs:
         run: node --check tests/operational/elus360-ai-autonomy-triple.test.mjs
       - name: Paridade e restricoes do schema
         run: node --test tests/operational/elus360-ai-autonomy-triple.test.mjs
+      - name: Integrações críticas antes das escritas
+        run: node --test tests/operational/elus360-ai-write-boundary.test.mjs
 
   governance-unit-and-types:
     runs-on: ubuntu-latest
