@@ -21,10 +21,11 @@ import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/a
 import { versionCreateSchema } from "@/lib/ai/agents/validation";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { traduzir } from "@/lib/i18n/dicionario";
-import { loadAuthUser } from "@/lib/auth/server";
-import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
-import { mudancasTecnicas } from "@/lib/elus360/ai-managed/policy";
-import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
+
+
+
+
 
 export const dynamic = "force-dynamic";
 
@@ -141,19 +142,14 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
     credential_id: v.credential_id,
     operator_model: v.operator_model,
   };
-  if (mudancasTecnicas(referencia, propostaTecnica).length > 0) {
-    const usuario = authz.via === "session" ? await loadAuthUser() : null;
-    if (authz.via === "session" && (!usuario || usuario.id !== authUserId || usuario.support))
-      return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
-
-    if (!usuario || !podeGerenciarIaDaPlataforma(usuario)) {
-      const decisao = await decidirEscritaTecnicaIa(
-        { orgIdConfiavel: organizationId, anteriorDoServidor: referencia, propostaValidada: propostaTecnica },
-        { lerAutonomiaPorOrganizacao: lerAutonomiaIa },
-      );
-      if (!decisao.permitido)
-        return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
-    }
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: authz.via,
+    authUserId,
+    organizationId,
+    anteriorDoServidor: referencia,
+    propostaValidada: propostaTecnica,
+  }))) {
+    return fail("forbidden_platform_ai", "Esta configuração técnica de IA é gerenciada pela plataforma ELUS.", 403, { requestId });
   }
 
   // Ordering: insert with retry on 23505 (race com unique(agent_id,version_number)).
