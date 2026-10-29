@@ -24,7 +24,7 @@ CREATE TABLE public.ai_agents (
   id uuid PRIMARY KEY, organization_id uuid NOT NULL,
   archived_at timestamptz, name text NOT NULL, description text,
   model text NOT NULL, system_prompt text NOT NULL, kind text NOT NULL,
-  priority integer DEFAULT 0, is_active boolean, is_default boolean,
+  priority integer DEFAULT 0, updated_at timestamptz, is_active boolean, is_default boolean,
   created_by uuid
 );
 GRANT SELECT, UPDATE, INSERT ON public.ai_agents TO service_role;
@@ -257,3 +257,36 @@ END
 $initial$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);
+
+
+-- O editor grava versão e cadastro na MESMA transação. Sem grants, nenhum dado muda.
+INSERT INTO public.ai_agents(id,organization_id,name,description,model,system_prompt,kind)
+VALUES ('33333333-3333-4333-8333-333333333333',
+        '11111111-1111-4111-8111-111111111111',
+        'Original','antes','old','original','mcp_agent')
+ON CONFLICT (id) DO NOTHING;
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $atomic$
+DECLARE v jsonb;
+BEGIN
+  v := public.fn_elus_ai_draft_save_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '33333333-3333-4333-8333-333333333333',
+    'patch','44444444-4444-4444-8444-444444444444',
+    '{"model":"novo-nao-autorizado"}'::jsonb,
+    '{"provider":"openai","model":"old","credential_id":null,"operator_model":null}'::jsonb,
+    '{"name":"Nao gravar"}'::jsonb,false);
+  IF v->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_atomic_grant_denial: %',v;
+  END IF;
+END $atomic$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
+DO $atomic_verify$
+BEGIN
+  IF (SELECT name FROM public.ai_agents
+        WHERE id='33333333-3333-4333-8333-333333333333') <> 'Original' THEN
+    RAISE EXCEPTION 'FAIL_atomic_metadata_mutated_on_denial';
+  END IF;
+END $atomic_verify$;
