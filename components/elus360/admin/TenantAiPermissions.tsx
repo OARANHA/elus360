@@ -50,10 +50,10 @@ export function TenantAiPermissions({ organizationId }: { organizationId: string
       .then(({ response, body }) => {
         if (!alive) return;
         if (response.ok && body.data) setValues(body.data.permissions);
-        else setMessage(body.error?.message ?? "Não foi possível consultar as permissões.");
+        else setMessage(body.error?.message ?? t("Não foi possível consultar as permissões."));
       })
       .catch(() => {
-        if (alive) setMessage("Falha de conexão ao consultar permissões.");
+        if (alive) setMessage(t("Falha de conexão ao consultar permissões."));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -75,13 +75,13 @@ export function TenantAiPermissions({ organizationId }: { organizationId: string
       });
       const body = (await response.json()) as ApiResult;
       if (!response.ok || !body.data) {
-        setMessage(body.error?.message ?? "Não foi possível atualizar as permissões.");
+        setMessage(body.error?.message ?? t("Não foi possível atualizar as permissões."));
         return;
       }
       setValues(body.data.permissions);
-      setMessage("Permissões salvas para esta empresa.");
+      setMessage(t("Permissões salvas para esta empresa."));
     } catch {
-      setMessage("Falha de conexão ao salvar.");
+      setMessage(t("Falha de conexão ao salvar."));
     } finally {
       setSaving(false);
     }
