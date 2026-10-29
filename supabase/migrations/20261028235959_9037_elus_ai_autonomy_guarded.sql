@@ -145,7 +145,7 @@ begin
     knowledge_source_ids = v_new.knowledge_source_ids,
     followup = v_new.followup
   where id=p_version and agent_id=p_agent and organization_id=p_org and status='draft'
-  returning to_jsonb(public.ai_agent_versions.*) into v_row;
+  returning to_jsonb(ai_agent_versions) into v_row;
   if v_row is null then return jsonb_build_object('error','version_conflict'); end if;
   return v_row;
 end
