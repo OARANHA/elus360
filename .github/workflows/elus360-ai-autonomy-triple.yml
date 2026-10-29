@@ -7,6 +7,11 @@ on:
       - "supabase/migrations/*_elus_ai_autonomy_guarded.sql"
       - "tests/operational/elus360-ai-autonomy-triple.test.mjs"
       - ".github/workflows/elus360-ai-autonomy-triple.yml"
+      - "lib/elus360/ai-managed/**"
+      - "app/api/v1/ai/**"
+      - "app/api/v1/admin/tenants/**/ai-permissions/**"
+      - "tests/unit/elus360-*.test.ts"
+      - "tests/unit/versao-do-agente-referencias-da-org.test.ts"
   workflow_dispatch:
 
 permissions:
@@ -24,3 +29,31 @@ jobs:
         run: node --check tests/operational/elus360-ai-autonomy-triple.test.mjs
       - name: Paridade e restricoes do schema
         run: node --test tests/operational/elus360-ai-autonomy-triple.test.mjs
+
+  governance-unit-and-types:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - name: Dependências verificadas pelo lockfile
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript global
+        run: pnpm typecheck
+      - name: Governança IA — testes unitários e de handlers
+        run: >-
+          pnpm exec vitest run
+          lib/elus360/ai-managed/authorize-version-write.test.ts
+          lib/elus360/ai-managed/server.test.ts
+          tests/unit/elus360-ia-gerenciada-guard.test.ts
+          tests/unit/elus360-version-governance.test.ts
+          app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts
+          tests/unit/versao-do-agente-referencias-da-org.test.ts
+      - name: Integridade e colisão de migrations
+        run: pnpm checar:colisao-de-migration
