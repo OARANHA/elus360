@@ -80,6 +80,19 @@ export async function POST(req: NextRequest): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
+  let platformBypass = false;
+  const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin requer sessão full com MFA.", 403, { requestId });
+    }
+  }
+
+
   let rawBody: unknown;
   try {
     rawBody = await req.json();
@@ -142,6 +155,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     apiKey: input.api_key,
     baseUrl: baseUrl === "" ? undefined : baseUrl,
     requestId,
+    platformBypass,
   });
 
   if (!guardado.ok) {
