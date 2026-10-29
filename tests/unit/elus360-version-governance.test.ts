@@ -200,8 +200,7 @@ describe("governança da versão do agente", () => {
   });
   it("não permite bypass de Superadmin se a verificação MFA falhar", async () => {
     const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
-    const { vi: vitestVi } = await import("vitest");
-    vitestVi.mocked(requirePlatformAdminEscrita).mockRejectedValueOnce(new Error("mfa_required"));
+    vi.mocked(requirePlatformAdminEscrita).mockRejectedValueOnce(new Error("mfa_required"));
     vi.mocked(loadAuthUser).mockResolvedValue({
       id: user, is_platform_admin: true, platform_admin_scope: "full", support: null,
     } as never);
