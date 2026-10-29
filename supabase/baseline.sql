@@ -66169,7 +66169,7 @@ begin
   v_old_provider := coalesce(nullif(v_settings #>> '{llm,provider}',''),'anthropic');
   v_old_model := nullif(v_settings #>> '{llm,default_model}','');
   if to_jsonb(v_old_provider) is distinct from p_expected->'provider'
-     or to_jsonb(v_old_model) is distinct from p_expected->'model' then
+     or (jsonb_build_object('model',v_old_model)->'model') is distinct from p_expected->'model' then
     return jsonb_build_object('error','version_conflict');
   end if;
   if not coalesce(p_platform_bypass,false) then
