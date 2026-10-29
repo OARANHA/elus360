@@ -99,8 +99,10 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (!org) return fail("not_found", "Tenant not found", 404, { requestId });
 
   const anterior = interpretarAutonomiaIa(org.ai_autonomy);
-  const alterou = (Object.keys(anterior) as Array<keyof typeof anterior>)
-    .some((campo) => anterior[campo] !== body.data[campo]);
+  // Chaves explícitas do contrato: evita indexação dinâmica da entrada Zod
+  // e garante a comparação de todos os quatro grants, sem depender do JSON bruto.
+  const chaves = ["provider", "model", "credentials", "operator_model"] as const;
+  const alterou = chaves.some((campo) => anterior[campo] !== body.data[campo]);
 
   if (!alterou) {
     return ok({ organization_id: orgId, permissions: anterior, changed: false }, { requestId });
