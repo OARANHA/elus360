@@ -22,9 +22,12 @@ CREATE TABLE public.ai_agent_versions (
 );
 CREATE TABLE public.ai_agents (
   id uuid PRIMARY KEY, organization_id uuid NOT NULL,
-  archived_at timestamptz
+  archived_at timestamptz, name text NOT NULL, description text,
+  model text NOT NULL, system_prompt text NOT NULL, kind text NOT NULL,
+  priority integer DEFAULT 0, is_active boolean, is_default boolean,
+  created_by uuid
 );
-GRANT SELECT, UPDATE ON public.ai_agents TO service_role;
+GRANT SELECT, UPDATE, INSERT ON public.ai_agents TO service_role;
 GRANT SELECT, UPDATE, INSERT ON public.ai_agent_versions TO service_role;
 GRANT USAGE ON SCHEMA public TO authenticated, service_role;
 GRANT SELECT, UPDATE, INSERT ON public.organizations TO authenticated, service_role;
@@ -192,9 +195,9 @@ SELECT set_config('request.jwt.claim.role','',false);
 
 -- Criação de versão protegida: a referência anterior vem do banco e
 -- a numeração/tenant são definidos na transação, nunca pelo corpo.
-INSERT INTO public.ai_agents(id,organization_id)
+INSERT INTO public.ai_agents(id,organization_id,name,model,system_prompt,kind)
 VALUES('33333333-3333-4333-8333-333333333333',
- '11111111-1111-4111-8111-111111111111');
+ '11111111-1111-4111-8111-111111111111','existing','openai/old','original','mcp_agent');
 SET ROLE service_role;
 SELECT set_config('request.jwt.claim.role','service_role',false);
 DO $create$
@@ -218,5 +221,39 @@ BEGIN
     RAISE EXCEPTION 'FAIL_create_with_grant_%',r;
   END IF;
 END $create$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
+
+-- Agente inicial e versão devem nascer juntos sob o grant atual.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $initial$
+DECLARE result jsonb;
+BEGIN
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  result := public.fn_elus_ai_agent_create_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"teste","model":"openai/new","system_prompt":"instrucoes","kind":"mcp_agent","created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    '{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","system_prompt":"instrucoes","provider":"openai","model":"new","channel_session_id":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    false);
+  IF result->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_initial_create_revoked_%',result;
+  END IF;
+  IF EXISTS(SELECT 1 FROM public.ai_agents WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') THEN
+    RAISE EXCEPTION 'FAIL_initial_create_orphan';
+  END IF;
+  UPDATE public.organizations SET ai_autonomy='{"provider":true,"model":true}'::jsonb;
+  result := public.fn_elus_ai_agent_create_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"teste","model":"openai/new","system_prompt":"instrucoes","kind":"mcp_agent","created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    '{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","system_prompt":"instrucoes","provider":"openai","model":"new","channel_session_id":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    false);
+  IF result->'agent'->>'id' IS DISTINCT FROM 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    OR result->'version'->>'id' IS DISTINCT FROM 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    OR result->'version'->>'version_number' IS DISTINCT FROM '1' THEN
+    RAISE EXCEPTION 'FAIL_initial_create_atomic_%',result;
+  END IF;
+END
+$initial$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);
