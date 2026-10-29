@@ -35,6 +35,21 @@ BEGIN
   ) THEN RAISE EXCEPTION 'FAIL_revocation_not_visible_after_lock'; END IF;
 END
 $check$;
+DO $rpc$
+DECLARE
+  res jsonb;
+BEGIN
+  res := public.fn_elus_ai_version_patch_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '33333333-3333-4333-8333-333333333333',
+    '44444444-4444-4444-8444-444444444444',
+    '{"model":"after_revoke"}'::jsonb,
+    '{"provider":"openai","model":"new","credential_id":null,"operator_model":null}'::jsonb,
+    false);
+  IF res->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_concurrent_RPC_revocation_%',res;
+  END IF;
+END $rpc$;
 COMMIT;
 SQL
 wait "$pid"
