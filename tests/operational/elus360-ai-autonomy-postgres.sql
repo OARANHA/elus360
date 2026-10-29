@@ -18,7 +18,7 @@ CREATE TABLE public.ai_agent_versions (
   proposal_ai_draft_enabled boolean, cases_enabled boolean, split_messages boolean,
   split_max_chars integer, inbound_debounce_ms integer,
   pipeline_ids uuid[], knowledge_source_ids uuid[], followup jsonb,
-  operator_enabled boolean, operator_tool_ids text[]
+  operator_enabled boolean, operator_tool_ids text[], created_by uuid
 );
 CREATE TABLE public.ai_agents (
   id uuid PRIMARY KEY, organization_id uuid NOT NULL,
