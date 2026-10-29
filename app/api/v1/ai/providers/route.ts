@@ -24,6 +24,7 @@ import { z } from "zod";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
+import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
 import { roleAtLeast } from "@/lib/auth/types";
 import {
   decidirBinding,
@@ -513,6 +514,33 @@ export async function PATCH(req: NextRequest): Promise<Response> {
     return fail("invalid_body", t("corpo inválido"), 422, { details: parsed.error.issues });
   }
   const corpo = parsed.data;
+
+  // Portado do ELUS legado: o PATCH também é uma porta de alteração técnica.
+  // Comparar apenas o que realmente mudou preserva grants parciais.
+  // A org é a identidade verificada pelo requireRole, nunca do body.
+  const { data: padraoAtual, error: erroPadrao } = await createAdminClient()
+    .from("organizations")
+    .select("settings")
+    .eq("id", org.orgId)
+    .maybeSingle();
+  if (erroPadrao || !padraoAtual)
+    return fail("configuracao_ia_indisponivel", "Não foi possível ler o padrão da organização.", 503);
+  const settingsBruto = padraoAtual.settings;
+  const settings = settingsBruto && typeof settingsBruto === "object" && !Array.isArray(settingsBruto)
+    ? settingsBruto as Record<string, unknown> : {};
+  const llmBruto = settings.llm;
+  const llm = llmBruto && typeof llmBruto === "object" && !Array.isArray(llmBruto)
+    ? llmBruto as Record<string, unknown> : {};
+  const providerAnterior = typeof llm.provider === "string" && llm.provider ? llm.provider : "anthropic";
+  const modelAnterior = typeof llm.default_model === "string" ? llm.default_model : null;
+  if (providerAnterior !== corpo.provider) {
+    const negado = await recusaConfiguracaoDeIa(user, org.orgId, "provider");
+    if (negado) return negado;
+  }
+  if (modelAnterior !== corpo.default_model) {
+    const negado = await recusaConfiguracaoDeIa(user, org.orgId, "model");
+    if (negado) return negado;
+  }
   const desligado = await provedorDesligado(corpo.provider);
   if (desligado) return desligado;
 
