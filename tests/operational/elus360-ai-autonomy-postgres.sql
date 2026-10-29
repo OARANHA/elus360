@@ -25,7 +25,7 @@ CREATE TABLE public.ai_agents (
   archived_at timestamptz
 );
 GRANT SELECT, UPDATE ON public.ai_agents TO service_role;
-GRANT SELECT, UPDATE ON public.ai_agent_versions TO service_role;
+GRANT SELECT, UPDATE, INSERT ON public.ai_agent_versions TO service_role;
 GRANT USAGE ON SCHEMA public TO authenticated, service_role;
 GRANT SELECT, UPDATE, INSERT ON public.organizations TO authenticated, service_role;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
