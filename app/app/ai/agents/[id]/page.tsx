@@ -21,6 +21,8 @@ import type { CoberturaPorFunil } from "./_components/FunisDoAgente";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
+import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
+import { AUTONOMIA_IA_PADRAO } from "@/lib/elus360/ai-managed/policy";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +72,9 @@ export default async function AgentEditorPage({ params }: { params: Promise<{ id
 
   const agent = agentRow as unknown as AgentRow;
   const readOnly = ROLE_RANK[activeOrg.role] < ROLE_RANK.admin;
+  const autonomiaTecnica = podeGerenciarIaDaPlataforma(user)
+    ? { provider: true, model: true, credentials: true, operator_model: true }
+    : (await lerAutonomiaIa(activeOrg.orgId)) ?? AUTONOMIA_IA_PADRAO;
 
   // Agente de voz não passa pelo fluxo de versão/publicação (esse é todo
   // desenhado em torno de `channel_session_id`, um número de WhatsApp
@@ -247,6 +252,7 @@ export default async function AgentEditorPage({ params }: { params: Promise<{ id
         materiais={materiais}
         routerMembership={routerMembership}
         readOnly={readOnly}
+        autonomiaTecnica={autonomiaTecnica}
         organizationTimezone={fusoUtilizavel(activeOrg.timezone)}
       />
     </div>
