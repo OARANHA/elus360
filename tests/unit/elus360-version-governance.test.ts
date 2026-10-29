@@ -7,6 +7,7 @@ vi.mock("@/lib/api/auth-dual", () => ({
   tetoDeEscritaDoToken: vi.fn(async () => null),
 }));
 vi.mock("@/lib/auth/server", () => ({ loadAuthUser: vi.fn() }));
+vi.mock("@/lib/auth/requirePlatformAdmin", () => ({ requirePlatformAdminEscrita: vi.fn(async () => ({ user: { id: "11111111-1111-4111-8111-111111111111" } })) }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
 vi.mock("@/lib/ai/agents/escopo", () => ({
