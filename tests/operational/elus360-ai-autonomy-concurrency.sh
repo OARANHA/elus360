@@ -35,6 +35,8 @@ BEGIN
   ) THEN RAISE EXCEPTION 'FAIL_revocation_not_visible_after_lock'; END IF;
 END
 $check$;
+SET LOCAL ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',true);
 DO $rpc$
 DECLARE
   res jsonb;
