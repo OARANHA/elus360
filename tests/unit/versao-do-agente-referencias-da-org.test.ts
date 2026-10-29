@@ -94,7 +94,7 @@ function bancoFalso(escritas: Array<{ tabela: string; op: string; valor: Linha }
       if (fn === "fn_elus_ai_agent_create_guarded") {
         const agent = args.p_agent as Linha;
         const version = args.p_version as Linha;
-        const currentOrg = tabelas.organizations.find(x => x.id === args.p_org);
+        const currentOrg = (tabelas.organizations ?? []).find(x => x.id === args.p_org);
         if (!currentOrg) return { data: { error: "organization_not_found" }, error: null };
         const policy = (currentOrg.ai_autonomy ?? {}) as Linha;
         if (!args.p_platform_bypass &&
