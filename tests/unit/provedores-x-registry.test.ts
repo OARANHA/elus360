@@ -214,7 +214,7 @@ describe("PUT /api/v1/ai/providers — auditoria", () => {
   it("o upsert traz o id de volta (senão o resourceId seria sempre null)", async () => {
     const { readFileSync } = await import("node:fs");
     const fonte = readFileSync("app/api/v1/ai/providers/route.ts", "utf8");
-    expect(fonte).toMatch(/\.select\("id, purpose, provider, model_id/);
+    // Gate 2B.2 substituiu upsert por RPC atômica com comparação server-side.\n    // O recibo da RPC deve carregar o id real para a auditoria.\n    expect(fonte).toMatch(/\.rpc\("fn_elus_ai_purpose_binding_guarded_write"/);\n    expect(fonte).toMatch(/const gravado = result/);\n    expect(fonte).toMatch(/resourceId:\s*\(gravado as \{ id\?: string \}\)\.id/);
   });
 });
 
