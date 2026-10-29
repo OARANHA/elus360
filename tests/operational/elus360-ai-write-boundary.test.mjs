@@ -27,3 +27,13 @@ test("fronteira de preflight não substitui a atomicidade do RPC", () => {
   const helper = readFileSync("lib/elus360/ai-managed/authorize-version-write.ts", "utf8");
   assert.match(helper, /não substitui o gate transacional contra revogação/i);
 });
+
+test("server action cria agente e draft apenas via RPC atômico", () => {
+  const source = readFileSync("app/app/ai/agents/[id]/_actions.ts", "utf8");
+  const start = source.indexOf("export async function createMcpAgentAction(");
+  assert.ok(start >= 0, "createMcpAgentAction ausente");
+  const action = source.slice(start);
+  assert.match(action, /fn_elus_ai_agent_create_guarded/);
+  assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\.insert\(/);
+  assert.match(action, /requirePlatformAdminEscrita/);
+});
