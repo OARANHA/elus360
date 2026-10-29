@@ -562,11 +562,15 @@ export function AgentForm(props: Props) {
       case "alteracoes_nao_salvas":
         return t("Salve o rascunho antes de publicar.");
       case "instalacao_sem_chave_do_provedor":
-        return `${t("Esta instalação não tem chave de")} ${motivo.provedor}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`;
+        return !podeVerConfiguracaoTecnica
+          ? t("A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.")
+          : `${t("Esta instalação não tem chave de")} ${motivo.provedor}. ${t("Escolha outra empresa de IA ou cadastre uma chave.")}`;
       case "sem_chave":
         return t("Escolha a chave de acesso da empresa de inteligência artificial.");
       case "chave_nao_utilizavel":
-        return `${t("Credencial")} ${motivo.provedor} ${motivo.estado === "invalid" ? t("inválida") : t("ainda não validada")}.`;
+        return !podeVerConfiguracaoTecnica
+          ? t("A IA ELUS360 desta empresa precisa ser validada pelo administrador da plataforma.")
+          : `${t("Credencial")} ${motivo.provedor} ${motivo.estado === "invalid" ? t("inválida") : t("ainda não validada")}.`;
       case "sem_numero":
         return t(
           "Escolha por qual número de WhatsApp ele atende. O rascunho está salvo; conecte um número em Conexões e volte aqui para publicar.",
