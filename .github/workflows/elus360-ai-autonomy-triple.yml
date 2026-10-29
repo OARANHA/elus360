@@ -1,0 +1,26 @@
+name: ELUS 360 - AI Autonomy Migration Triple
+
+on:
+  pull_request:
+    paths:
+      - "supabase/baseline.sql"
+      - "supabase/migrations/*_elus_ai_autonomy_guarded.sql"
+      - "tests/operational/elus360-ai-autonomy-triple.test.mjs"
+      - ".github/workflows/elus360-ai-autonomy-triple.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Sintaxe do verificador
+        run: node --check tests/operational/elus360-ai-autonomy-triple.test.mjs
+      - name: Paridade e restricoes do schema
+        run: node --test tests/operational/elus360-ai-autonomy-triple.test.mjs
