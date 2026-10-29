@@ -31,6 +31,7 @@ test("trigger é invoker e somente serviço/admin banco pode mudar grants", () =
   assert.match(migration, /security invoker/i);
   assert.match(migration, /if v_changed then/i);
   assert.match(migration, /current_user\s*=\s*'service_role'/i);
+  assert.match(migration, /current_user\s*=\s*'service_role'\s+and\s+auth\.role\(\)\s*=\s*'service_role'/i);
   assert.match(migration, /raise exception 'elus_ai_autonomy_restricted'/i);
   assert.match(migration, /before insert or update on public\.organizations/i);
   assert.match(migration, /revoke all on function public\.fn_guard_organizations_ai_autonomy\(\)\s+from public, anon, authenticated;/i);
