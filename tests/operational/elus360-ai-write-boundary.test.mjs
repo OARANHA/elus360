@@ -13,7 +13,7 @@ for (const route of routes) {
     const source = readFileSync(route, "utf8");
     const guard = source.indexOf("await podeAlterarTecnicaDeVersao(");
     const mutation = route.includes("[vid]")
-      ? source.indexOf(".update(update)", guard)
+      ? source.indexOf('admin.rpc("fn_elus_ai_version_patch_guarded"', guard)
       : route.includes("/versions/")
         ? source.indexOf(".insert({", guard)
         : source.indexOf(".insert({ ...records.agent", guard);
@@ -23,7 +23,7 @@ for (const route of routes) {
   });
 }
 
-test("fronteira explicita limite de revogação não-atômica", () => {
+test("fronteira de preflight não substitui a atomicidade do RPC", () => {
   const helper = readFileSync("lib/elus360/ai-managed/authorize-version-write.ts", "utf8");
   assert.match(helper, /não substitui o gate transacional contra revogação/i);
 });
