@@ -315,26 +315,35 @@ export async function POST(req: NextRequest): Promise<Response> {
   const escopo = await validarEscopoDaVersao(admin, organizationId, input.version);
   if (!escopo.ok) return fail(codigoDoEscopo(escopo), mensagemDoEscopo(escopo), 422, { requestId });
   const records = mcpAgentDraftRecords({ orgId: organizationId, userId: authUserId ?? "" }, input);
-  const { data: agentRow, error: agentError } = await admin
-    .from("ai_agents")
-    .insert({ ...records.agent, created_by: authUserId })
-    .select(AGENT_COLUMNS)
-    .single();
-  if (agentError || !agentRow)
-    return fail("internal_error", "Erro ao criar agent.", 500, { requestId });
-  const { data: versionRow, error: versionError } = await admin
-    .from("ai_agent_versions")
-    .insert({ ...records.version, created_by: authUserId })
-    .select(VERSION_COLUMNS)
-    .single();
-  if (versionError || !versionRow) {
-    await admin
-      .from("ai_agents")
-      .update({ archived_at: new Date().toISOString() })
-      .eq("organization_id", organizationId)
-      .eq("id", agentRow.id);
-    return fail("internal_error", t("Erro ao criar versão inicial."), 500, { requestId });
+  // O banco serializa a revogação de grants e cria agente + versão em
+  // uma única transação; nunca pode restar agente órfão após falha.
+  const { data: criado, error: erroCriacao } = await admin.rpc("fn_elus_ai_agent_create_guarded", {
+    p_org: organizationId,
+    p_agent: { ...records.agent, created_by: authUserId },
+    p_version: { ...records.version, created_by: authUserId },
+    p_platform_bypass: authz.via === "session" && (await (async () => {
+      const { loadAuthUser } = await import("@/lib/auth/server");
+      const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+      const usuario = await loadAuthUser();
+      if (!usuario || usuario.id !== authUserId || !podeGerenciarIaDaPlataforma(usuario)) return false;
+      try {
+        const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+        await requirePlatformAdminEscrita();
+        return true;
+      } catch { return false; }
+    })()),
+  });
+  if (erroCriacao || !criado || typeof criado !== "object" || Array.isArray(criado))
+    return fail("internal_error", "Falha na criação transacional de agente.", 500, { requestId });
+  if ("error" in criado) {
+    if (criado.error === "forbidden_platform_ai")
+      return fail("forbidden_platform_ai", "Permissão técnica revogada ou indisponível.", 403, { requestId });
+    return fail("configuracao_ia_indisponivel", "Organização indisponível.", 503, { requestId });
   }
+  const agentRow = criado.agent;
+  const versionRow = criado.version;
+  if (!agentRow || !versionRow || typeof agentRow !== "object" || typeof versionRow !== "object")
+    return fail("internal_error", "Resposta incompleta da criação transacional.", 500, { requestId });
 
   void audit({
     action: "ai_agent.created",
