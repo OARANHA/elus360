@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   deniedRead: false,
   deniedWrite: false,
   deniedSupport: false,
+  emptyCatalog: false,
   queries: [] as Array<{ table: string; filters: Array<[string, unknown]> }>,
   writes: [] as unknown[],
   audit: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock("@/lib/supabase/admin", () => ({
             data: { id: TENANT, settings: { llm: { provider: "anthropic", default_model: "modelo-antigo", credential_id: null } } },
             error: null,
           };
+          if (table === "ai_models" && h.emptyCatalog) return { data: null, error: null };
           if (table === "ai_models") return {
             data: { model_id: "modelo-novo", input_price_per_million_cents: 1, output_price_per_million_cents: 1 },
             error: null,
@@ -77,6 +79,7 @@ beforeEach(() => {
   h.deniedRead = false;
   h.deniedWrite = false;
   h.deniedSupport = false;
+  h.emptyCatalog = false;
   h.queries = [];
   h.writes = [];
   vi.clearAllMocks();
@@ -114,6 +117,15 @@ describe("ELUS360 — isolamento e autenticação do padrão de IA", () => {
       .toEqual(expect.arrayContaining([
         ["organization_id", TENANT], ["id", FOREIGN_CREDENTIAL],
       ]));
+    expect(h.writes).toEqual([]);
+    expect(h.audit).not.toHaveBeenCalled();
+  });
+
+  it("PATCH falha fechado se catálogo gerenciado está vazio, sem gravar", async () => {
+    h.emptyCatalog = true;
+    const res = await PATCH(req({ provider: "anthropic", default_model: "modelo-nao-comprovado" }), ctx);
+    expect(res.status).toBe(422);
+    expect(h.queries.filter((q) => q.table === "ai_models").length).toBe(2);
     expect(h.writes).toEqual([]);
     expect(h.audit).not.toHaveBeenCalled();
   });
