@@ -203,3 +203,37 @@ upstream novamente. Não realizar merge, migration real ou deploy antes do aceit
   adicionar testes de revogação e de negativas reais, sem introduzir
   `SECURITY DEFINER` ou bypass implícito. Não marcar Ready apenas com o
   GREEN dos testes estáticos.
+
+
+### Proteção transacional — implementação adicional (29/10/2026, PR #15)
+
+**Estado: IMPLEMENTADO EM BRANCH, CI E ACEITE PENDENTES.** Sem alteração de
+produção e sem criar outra migration; SQL permanece na `9037` com baseline
+espelhado.
+
+| Superfície | Escrita transacional preparada | Observação |
+| --- | --- | --- |
+| Provedores PUT (`ai_purpose_bindings`) | `fn_elus_ai_purpose_binding_write_guarded` | Lock da organização, comparação com registro anterior, grants por campo e CAS |
+| Provedores PATCH (padrão `organizations.settings.llm`) | `fn_elus_ai_default_write_guarded` | Preserva outras settings, verifica provider/model sob o mesmo lock |
+| Credencial POST (helper compartilhado) | `fn_elus_ai_credential_write_guarded` — insert | AES-GCM mantido no código; SQL recebe campos cifrados |
+| Credencial PATCH/rotação (helper compartilhado) | Mesmo RPC — update | Grant de credentials e lock no mesmo comando |
+| Credencial DELETE (rota REST) | Mesmo RPC — delete | FK ainda impede exclusão em uso |
+| Refresh automático de login por assinatura | Mesmo RPC — `refresh_login` | Apenas row preexistente `openai-assinatura`, identidade e label fixos, token cifrado e metadados da renovação; não aceita criar credencial nem trocar provider |
+
+O bypass técnico desses handlers HTTP é condicionado ao Superadmin `full`,
+fora de suporte, com MFA via `requirePlatformAdminEscrita`. Na manutenção
+automática dos tokens não se emite grant, pois o objetivo é renovar a
+conexão já existente, sem modificar o provedor do cliente.
+
+O teste PostgreSQL descartável cobre grant ausente/concedido/revogado,
+operações de credenciais e a exceção restrita da renovação. Os testes
+estáticos conferem o vínculo das rotas com os RPCs. A verificação com duas
+conexões já cobre o mecanismo de lock da organização para versões; a
+semântica equivalente dos novos RPCs é inferida do SQL e **não constitui
+ainda canário funcional ou aceitação de produção**.
+
+**Antes do merge:** receber GREEN do novo HEAD, revisar outros writers
+técnicos fora dessas superfícies (incluindo eventual integração de login e
+rotinas de background), validar mensagens de erro e isolamento tenant, e
+preparar rollback/digests. Não confundir implantação de código com aplicação
+da migration.
