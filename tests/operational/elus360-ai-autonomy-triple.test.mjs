@@ -41,5 +41,10 @@ test("DDL não é executado por este teste e arquivo fica idempotente", () => {
   assert.match(migration, /add column if not exists/i);
   assert.match(migration, /create or replace function/i);
   assert.match(migration, /drop trigger if exists/i);
-  assert.doesNotMatch(migration, /^\s*(?:drop table|truncate table|delete from)\s/mi);
+  assert.doesNotMatch(migration, /^\s*(?:drop table|truncate table)\s/mi);
+  // DELETE de credencial só pode ocorrer pela operação explicitamente delimitada.
+  const deletes = [...migration.matchAll(/^\s*delete from\s+public\.ai_provider_credentials\b/gmi)];
+  assert.equal(deletes.length, 1, "exclusão de credenciais fora do RPC esperado");
+  assert.match(migration, /delete from public\.ai_provider_credentials\s+where id=p_id and organization_id=p_org;/i);
+  assert.doesNotMatch(migration, /^\s*delete from\s+(?!public\.ai_provider_credentials\b)/gmi);
 });
