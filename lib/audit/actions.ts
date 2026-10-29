@@ -1365,6 +1365,8 @@ export const AUDIT_ACTIONS = [
   "ai.knowledge_source_reindexed",
   // ELUS: alteração supervisionada dos grants técnicos de IA da organização.
   "platform_admin.ai_autonomy_updated",
+  // ELUS: definição do provedor/modelo/credencial padrão por empresa pelo Superadmin.
+  "platform_admin.ai_default_updated",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */
