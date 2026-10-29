@@ -73,3 +73,36 @@ BEGIN
     RAISE EXCEPTION 'FAIL_revocation';
   END IF;
 END $$;
+
+-- Revogação concorrente: um snapshot antigo não deve ressuscitar o grant.
+-- O filtro CAS da API usa igualdade JSONB no WHERE; a operação com valor antigo
+-- precisa afetar ZERO linhas depois da revogação.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+UPDATE public.organizations SET ai_autonomy='{"model":true}'::jsonb;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
+UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $cas$
+DECLARE
+  affected integer;
+BEGIN
+  UPDATE public.organizations
+     SET ai_autonomy='{"model":true}'::jsonb
+   WHERE id='11111111-1111-4111-8111-111111111111'
+     AND ai_autonomy='{"model":true}'::jsonb;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  IF affected <> 0 THEN RAISE EXCEPTION 'FAIL_stale_CAS_reanimated_grant'; END IF;
+END
+$cas$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
+DO $check$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.organizations WHERE ai_autonomy <> '{}'::jsonb) THEN
+    RAISE EXCEPTION 'FAIL_stale_CAS_result';
+  END IF;
+END
+$check$;
