@@ -32,7 +32,7 @@ export type ResultadoDeGuardar =
        * `label_em_uso` é o único que o chamador precisa distinguir: é escolha do
        * usuário e tem conserto óbvio (mudar o nome). O resto é falha nossa.
        */
-      motivo: "cifragem" | "label_em_uso" | "banco" | "assinatura_so_pelo_login";
+      motivo: "cifragem" | "label_em_uso" | "banco" | "assinatura_so_pelo_login" | "forbidden_platform_ai";
       detalhe?: string;
     };
 
@@ -53,7 +53,7 @@ export type ResultadoDeRotacionar =
        * leitura da rota e o update. `label_em_uso` é escolha do usuário; o
        * resto é falha nossa — mesma divisão de `guardarCredencial`.
        */
-      motivo: "cifragem" | "label_em_uso" | "nao_encontrada" | "banco";
+      motivo: "cifragem" | "label_em_uso" | "nao_encontrada" | "banco" | "forbidden_platform_ai";
       detalhe?: string;
     };
 
@@ -171,6 +171,10 @@ async function inserirCredencial(p: PedidoDeGuardar): Promise<ResultadoDeGuardar
       p_platform_bypass: p.platformBypass === true,
     },
   );
+  if (created && typeof created === "object" && !Array.isArray(created)
+      && "error" in created && created.error === "forbidden_platform_ai") {
+    return { ok: false, motivo: "forbidden_platform_ai" };
+  }
   if (error || !created || typeof created !== "object" || Array.isArray(created) || !("id" in created)) {
     if (error?.code === "23505") return { ok: false, motivo: "label_em_uso" };
     return { ok: false, motivo: "banco", detalhe: error?.message };
@@ -275,6 +279,10 @@ export async function rotacionarCredencial(
       p_platform_bypass: p.platformBypass === true,
     },
   );
+  if (updated && typeof updated === "object" && !Array.isArray(updated)
+      && "error" in updated && updated.error === "forbidden_platform_ai") {
+    return { ok: false, motivo: "forbidden_platform_ai" };
+  }
   if (error) {
     if (error.code === "23505") return { ok: false, motivo: "label_em_uso" };
     return { ok: false, motivo: "banco", detalhe: error.message };
