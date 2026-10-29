@@ -738,7 +738,15 @@ export async function createMcpAgentAction(
       p_org: activeOrg.orgId,
       p_agent: { ...records.agent, is_active: false, created_by: authUser.id },
       p_version: { ...records.version, created_by: authUser.id },
-      p_platform_bypass: false,
+      p_platform_bypass: await (async () => {
+        const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+        if (!podeGerenciarIaDaPlataforma(authUser)) return false;
+        try {
+          const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+          await requirePlatformAdminEscrita();
+          return true;
+        } catch { return false; }
+      })(),
     },
   );
   if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
