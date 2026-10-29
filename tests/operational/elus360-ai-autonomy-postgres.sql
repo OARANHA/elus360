@@ -10,9 +10,12 @@ GRANT SELECT, UPDATE, INSERT ON public.organizations TO authenticated, service_r
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('request.jwt.claim.role', true), '')
 $$;
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $
   SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
-$$;
+$;
+-- Supabase concede USAGE no schema auth aos papeis de API; simular esse contrato.
+GRANT USAGE ON SCHEMA auth TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION auth.role(), auth.uid() TO authenticated, service_role;
 INSERT INTO public.organizations(id) VALUES ('11111111-1111-4111-8111-111111111111');
 \ir ../../supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql
 -- Reaplicação idempotente.
