@@ -53,3 +53,107 @@ execute function public.fn_guard_organizations_ai_autonomy();
 
 revoke all on function public.fn_guard_organizations_ai_autonomy()
   from public, anon, authenticated;
+
+
+-- Escrita técnica atômica: service_role apenas, após auth/tenant/RBAC no servidor.
+-- A row lock de organizations serializa este PATCH com a revogação de grants.
+create or replace function public.fn_elus_ai_version_patch_guarded(
+  p_org uuid, p_agent uuid, p_version uuid,
+  p_patch jsonb, p_expected jsonb, p_platform_bypass boolean default false
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = pg_catalog, public, pg_temp
+as $elus_patch$
+declare
+  v_grants jsonb;
+  v_old public.ai_agent_versions%rowtype;
+  v_new public.ai_agent_versions%rowtype;
+  v_row jsonb;
+  v_key text;
+  v_required text;
+begin
+  if current_user <> 'service_role' or auth.role() is distinct from 'service_role' then
+    raise exception 'elus_ai_version_patch_restricted' using errcode = '42501';
+  end if;
+  if jsonb_typeof(p_patch) is distinct from 'object'
+     or jsonb_typeof(p_expected) is distinct from 'object'
+     or p_patch = '{}'::jsonb then
+    raise exception 'elus_ai_version_patch_invalid' using errcode = '22023';
+  end if;
+  for v_key in select jsonb_object_keys(p_patch) loop
+    if v_key <> all(array['system_prompt', 'provider', 'model', 'credential_id', 'operator_model', 'tool_ids', 'trigger_config', 'channel_session_id', 'max_steps', 'token_budget', 'cost_budget_cents', 'history_message_window', 'history_token_window', 'handoff_keywords', 'handoff_tool_enabled', 'handoff_legal_enabled', 'proposal_ai_draft_enabled', 'cases_enabled', 'split_messages', 'split_max_chars', 'inbound_debounce_ms', 'pipeline_ids', 'knowledge_source_ids', 'followup']::text[]) then
+      raise exception 'elus_ai_version_patch_column_restricted' using errcode = '42501';
+    end if;
+  end loop;
+  -- Lock order: organization primeiro, depois version. Revogação usa a mesma linha.
+  select ai_autonomy into v_grants from public.organizations
+    where id = p_org for update;
+  if not found then return jsonb_build_object('error', 'organization_not_found'); end if;
+  select * into v_old from public.ai_agent_versions
+    where id=p_version and agent_id=p_agent and organization_id=p_org for update;
+  if not found then return jsonb_build_object('error', 'version_not_found'); end if;
+  if v_old.status <> 'draft' then return jsonb_build_object('error', 'version_immutable'); end if;
+  -- CAS do servidor (não aceitar referências do corpo do cliente sem leitura anterior).
+  if (to_jsonb(v_old)->'provider') is distinct from (p_expected->'provider')
+     or (to_jsonb(v_old)->'model') is distinct from (p_expected->'model')
+     or (to_jsonb(v_old)->'credential_id') is distinct from (p_expected->'credential_id')
+     or (to_jsonb(v_old)->'operator_model') is distinct from (p_expected->'operator_model')
+     or (p_patch ? 'system_prompt' and
+         (to_jsonb(v_old)->'system_prompt') is distinct from (p_expected->'system_prompt'))
+     or (p_patch ? 'followup' and
+         (to_jsonb(v_old)->'followup') is distinct from (p_expected->'followup'))
+  then return jsonb_build_object('error', 'version_conflict'); end if;
+  if not coalesce(p_platform_bypass,false) then
+    for v_key, v_required in
+      select column_name, grant_name from (values
+        ('provider','provider'), ('model','model'),
+        ('credential_id','credentials'), ('operator_model','operator_model')
+      ) as technical(column_name,grant_name)
+    loop
+      if p_patch ? v_key
+         and (p_patch->v_key) is distinct from (to_jsonb(v_old)->v_key)
+         and (v_grants->v_required) is distinct from 'true'::jsonb
+      then return jsonb_build_object('error', 'forbidden_platform_ai'); end if;
+    end loop;
+  end if;
+  select * into v_new from jsonb_populate_record(v_old,p_patch);
+  update public.ai_agent_versions
+  set
+    system_prompt = v_new.system_prompt,
+    provider = v_new.provider,
+    model = v_new.model,
+    credential_id = v_new.credential_id,
+    operator_model = v_new.operator_model,
+    tool_ids = v_new.tool_ids,
+    trigger_config = v_new.trigger_config,
+    channel_session_id = v_new.channel_session_id,
+    max_steps = v_new.max_steps,
+    token_budget = v_new.token_budget,
+    cost_budget_cents = v_new.cost_budget_cents,
+    history_message_window = v_new.history_message_window,
+    history_token_window = v_new.history_token_window,
+    handoff_keywords = v_new.handoff_keywords,
+    handoff_tool_enabled = v_new.handoff_tool_enabled,
+    handoff_legal_enabled = v_new.handoff_legal_enabled,
+    proposal_ai_draft_enabled = v_new.proposal_ai_draft_enabled,
+    cases_enabled = v_new.cases_enabled,
+    split_messages = v_new.split_messages,
+    split_max_chars = v_new.split_max_chars,
+    inbound_debounce_ms = v_new.inbound_debounce_ms,
+    pipeline_ids = v_new.pipeline_ids,
+    knowledge_source_ids = v_new.knowledge_source_ids,
+    followup = v_new.followup
+  where id=p_version and agent_id=p_agent and organization_id=p_org and status='draft'
+  returning to_jsonb(public.ai_agent_versions.*) into v_row;
+  if v_row is null then return jsonb_build_object('error','version_conflict'); end if;
+  return v_row;
+end
+$elus_patch$;
+
+revoke all on function public.fn_elus_ai_version_patch_guarded(
+  uuid, uuid, uuid, jsonb, jsonb, boolean
+) from public, anon, authenticated;
+grant execute on function public.fn_elus_ai_version_patch_guarded(
+  uuid, uuid, uuid, jsonb, jsonb, boolean
+) to service_role;
