@@ -146,6 +146,19 @@ export async function PATCH(
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
+  let platformBypass = false;
+  const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin requer sessão full com MFA.", 403, { requestId });
+    }
+  }
+
+
   let rawBody: unknown;
   try {
     rawBody = await req.json();
@@ -203,6 +216,7 @@ export async function PATCH(
     ...(input.api_key !== undefined ? { apiKey: input.api_key } : {}),
     ...(input.label !== undefined ? { label: input.label } : {}),
     requestId,
+    platformBypass,
   });
 
   if (!resultado.ok) {
@@ -246,6 +260,19 @@ export async function DELETE(
   if (platformDenied) return platformDenied;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
+
+  let platformBypass = false;
+  const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    try {
+      const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
+      await requirePlatformAdminEscrita();
+      platformBypass = true;
+    } catch {
+      return fail("forbidden_platform_ai", "Superadmin requer sessão full com MFA.", 403, { requestId });
+    }
+  }
+
 
   const admin = createAdminClient();
 
@@ -299,26 +326,26 @@ export async function DELETE(
     });
   }
 
-  const { error: delErr } = await admin
-    .from("ai_provider_credentials")
-    .delete()
-    .eq("id", id)
-    .eq("organization_id", activeOrg.orgId);
-
-  if (delErr) {
-    if (delErr.code === "23503") {
-      // Corrida: uma versão passou a usar a chave entre a checagem e o delete.
-      // Não manda mais "remover versões" — repete o caminho certo.
-      return fail(
-        "credential_in_use",
-        t(
-          "Uma versão de agente passou a usar esta chave agora. Recarregue a página e tente de novo — se o uso for de propósito, a saída é Editar credencial, que mantém válidas as versões que já usam esta chave.",
-        ),
-        409,
-        { requestId },
-      );
-    }
-    return fail("internal_error", "Erro ao deletar credential.", 500, { requestId });
+  const { data: excluida, error: delErr } = await admin.rpc(
+    "fn_elus_ai_credential_write_guarded", {
+      p_org: activeOrg.orgId,
+      p_op: "delete",
+      p_id: id,
+      p_patch: {},
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (delErr?.code === "23503") {
+    return fail("credential_in_use",
+      t("Uma versão passou a usar esta chave. Recarregue e tente novamente."), 409, { requestId });
+  }
+  if (delErr) return fail("internal_error", "Erro ao deletar credential.", 500, { requestId });
+  if (!excluida || typeof excluida !== "object" || Array.isArray(excluida))
+    return fail("internal_error", "Nenhuma credencial foi excluída.", 500, { requestId });
+  if ("error" in excluida) {
+    return fail(excluida.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "not_found",
+      "Permissão revogada ou credencial indisponível.",
+      excluida.error === "forbidden_platform_ai" ? 403 : 404, { requestId });
   }
 
   await audit({
