@@ -25,6 +25,8 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
+import { decidirEscritaTecnicaIa } from "@/lib/elus360/ai-managed/guard";
+import { lerAutonomiaIa } from "@/lib/elus360/ai-managed/server";
 import { roleAtLeast } from "@/lib/auth/types";
 import {
   decidirBinding,
@@ -338,6 +340,18 @@ const corpoDoPut = z.object({
   is_enabled: z.boolean().optional(),
 });
 
+const bindingAnteriorDoPut = z.object({
+  id: z.string().uuid(),
+  organization_id: z.string().uuid(),
+  purpose: z.string().min(1),
+  provider: z.string().min(1),
+  model_id: z.string().min(1),
+  credential_id: z.string().uuid().nullable(),
+  base_url: z.string().url().nullable(),
+  is_enabled: z.boolean(),
+});
+
+
 export async function PUT(req: NextRequest): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
@@ -358,7 +372,51 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const ponto = PONTO_POR_ID.get(corpo.purpose);
   if (!ponto) return fail("ponto_desconhecido", `"${corpo.purpose}" não é um ponto do sistema`, 404);
 
+  // Estado anterior autenticado por org/purpose, nunca fornecido pelo cliente.
   const db = await createClient();
+  let anterior: z.infer<typeof bindingAnteriorDoPut> | null = null;
+  try {
+    const { data, error } = await db.from("ai_purpose_bindings")
+      .select("id, organization_id, purpose, provider, model_id, credential_id, base_url, is_enabled")
+      .eq("organization_id", org.orgId)
+      .eq("purpose", corpo.purpose)
+      .maybeSingle();
+    if (error || data === undefined) throw new Error("binding_indisponivel");
+    if (data !== null) {
+      anterior = bindingAnteriorDoPut.parse(data);
+      if (anterior.organization_id !== org.orgId || anterior.purpose !== corpo.purpose)
+        throw new Error("binding_fora_do_escopo");
+    }
+  } catch {
+    return fail("configuracao_ia_indisponivel", t("Não foi possível ler a configuração anterior de IA."), 503);
+  }
+
+  // PUT substitui campos opcionais ausentes pelos defaults efetivamente gravados.
+  const proposta = {
+    provider: corpo.provider,
+    model: corpo.model_id,
+    credential_id: corpo.credential_id ?? null,
+    base_url: corpo.base_url ?? null,
+    is_enabled: corpo.is_enabled ?? true,
+  };
+  const decisao = await decidirEscritaTecnicaIa(
+    {
+      orgIdConfiavel: org.orgId,
+      anteriorDoServidor: {
+        provider: anterior?.provider ?? null,
+        model: anterior?.model_id ?? null,
+        credential_id: anterior?.credential_id ?? null,
+        base_url: anterior?.base_url ?? null,
+        is_enabled: anterior?.is_enabled ?? null,
+      },
+      propostaValidada: proposta,
+    },
+    { lerAutonomiaPorOrganizacao: lerAutonomiaIa },
+  );
+  if (!decisao.permitido)
+    return fail(decisao.motivo === "forbidden_platform_ai" ? "forbidden_platform_ai" : "configuracao_ia_indisponivel",
+      "Esta configuração técnica de IA não está autorizada.", decisao.motivo === "forbidden_platform_ai" ? 403 : 503);
+
 
   // A capacidade vem do catálogo (o que o FABRICANTE declara), nunca de
   // heurística sobre o nome do modelo.
@@ -429,23 +487,50 @@ export async function PUT(req: NextRequest): Promise<Response> {
     }
   }
 
-  const { data: gravado, error } = await db
-    .from("ai_purpose_bindings")
-    .upsert(
-      {
-        organization_id: org.orgId,
-        purpose: corpo.purpose,
-        provider: corpo.provider,
-        model_id: corpo.model_id,
-        credential_id: corpo.credential_id ?? null,
-        base_url: corpo.base_url ?? null,
-        is_enabled: corpo.is_enabled ?? true,
-      },
-      { onConflict: "organization_id,purpose" },
-    )
+  if (anterior &&
+    anterior.provider === proposta.provider &&
+    anterior.model_id === proposta.model &&
+    anterior.credential_id === proposta.credential_id &&
+    anterior.base_url === proposta.base_url &&
+    anterior.is_enabled === proposta.is_enabled)
+    return ok({ binding: anterior, avisos: validacao.avisos });
+
+  const valores = {
+    organization_id: org.orgId,
+    purpose: corpo.purpose,
+    provider: proposta.provider,
+    model_id: proposta.model,
+    credential_id: proposta.credential_id,
+    base_url: proposta.base_url,
+    is_enabled: proposta.is_enabled,
+  };
+  // Compare-and-swap da configuração anterior. Nunca usar upsert para tomar
+  // posse de uma linha concorrente e reativar grants revogados.
+  let escrita;
+  if (anterior) {
+    let atualizacao = db.from("ai_purpose_bindings")
+      .update(valores)
+      .eq("id", anterior.id)
+      .eq("organization_id", org.orgId)
+      .eq("purpose", corpo.purpose)
+      .eq("provider", anterior.provider)
+      .eq("model_id", anterior.model_id)
+      .eq("is_enabled", anterior.is_enabled);
+    for (const campo of ["credential_id", "base_url"] as const) {
+      atualizacao = anterior[campo] === null
+        ? atualizacao.is(campo, null)
+        : atualizacao.eq(campo, anterior[campo]);
+    }
+    escrita = atualizacao;
+  } else {
+    escrita = db.from("ai_purpose_bindings").insert(valores);
+  }
+  const { data: gravado, error } = await escrita
     .select("id, purpose, provider, model_id, credential_id, base_url, is_enabled")
     .maybeSingle();
 
+  if (error?.code === "23505" || (!error && !gravado && anterior))
+    return fail("configuracao_ia_alterada", t("A configuração de IA mudou. Recarregue antes de salvar novamente."), 409);
   if (error) return fail("save_failed", error.message, 500);
   if (!gravado) {
     // Upsert que casa zero linhas devolve sucesso no PostgREST — a tela diria
