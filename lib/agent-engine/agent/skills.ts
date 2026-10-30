@@ -173,7 +173,7 @@ export async function setSkillPointer(
 
 /**
  * Resolve os ponteiros e devolve as skills ativas do run — skills de plataforma (globais)
- * + skills do tenant. Chamada no início de CADA run (sem cache de processo): ponteiro
+ * + skills do tenant. Skills de catálogo marcadas catalog_only só entram após\n * a instalação explícita pela organização (sem alterar o fallback legado).\n * Chamada no início de CADA run (sem cache de processo): ponteiro
  * movido ⇒ próximo run já vê a versão nova, sem restart. Ordem ESTÁVEL por nome (o índice
  * injetado é byte-determinístico — o prefixo de cache F2-17 depende disso). Se um tenant e
  * a plataforma têm skill de mesmo nome, a do tenant vence (override local).
@@ -191,7 +191,7 @@ export async function loadSkills(db: Queryable, tenantId: string): Promise<Loade
     `select v.id, v.organization_id, v.name, v.description, v.body, v.matcher, v.manifest
      from skill_pointers p
      join skill_versions v on v.id = p.version_id
-     where p.organization_id is null or p.organization_id = $1`,
+     where (p.organization_id = $1 or (p.organization_id is null and v.catalog_only = false))`,
     [tenantId],
   );
   // tenant vence plataforma no mesmo nome; ordem final estável por nome (prefixo estável).
