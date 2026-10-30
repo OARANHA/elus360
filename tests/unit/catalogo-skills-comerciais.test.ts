@@ -7,6 +7,8 @@ const migration = readFileSync(
   "utf8",
 );
 
+const runtime = readFileSync(resolve(process.cwd(), "lib/agent-engine/agent/skills.ts"), "utf8");
+
 const names = [
   "diagnostico-consultivo",
   "qualificacao-comercial",
@@ -27,7 +29,9 @@ describe("catalogo comercial de skills de plataforma", () => {
     expect(migration).not.toMatch(/\b(update|delete|truncate)\s+public\.skill_(versions|pointers)/i);
   });
   it("mantem instrucao de fallback controlado e nao ativa envios", () => {
-    expect(migration).toContain('fallback antes de "Instalar"');
+    expect(migration).toContain("add column if not exists catalog_only boolean not null default false");
+    expect((migration.match(/true\n    \)/g) ?? []).length).toBe(5);
+    expect(runtime).toContain("p.organization_id = $1 or (p.organization_id is null and v.catalog_only = false)");
     expect(migration).not.toMatch(/insert into public\.(messages|job_queue|followup_enrollments)/i);
   });
 });
