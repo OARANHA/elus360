@@ -2,11 +2,13 @@
 -- Guardas: idempotencia e skill_versions imutaveis; nao altera versoes ja publicadas.
 -- IMPORTANTE: o runtime pode consumir skills de plataforma como fallback antes de "Instalar".
 -- Liberacao a producao requer teste de matcher/fallback e aceite explicito.
+alter table public.skill_versions add column if not exists catalog_only boolean not null default false;
+
 do $seed$
 declare v_id uuid;
 begin
   if not exists (select 1 from public.skill_pointers where organization_id is null and name = 'diagnostico-consultivo') then
-    insert into public.skill_versions (organization_id, name, description, body, matcher)
+    insert into public.skill_versions (organization_id, name, description, body, matcher, catalog_only)
     values (
       null,
       'diagnostico-consultivo',
@@ -26,7 +28,8 @@ A pessoa explica uma dificuldade no atendimento, relacionamento ou vendas e busc
 - Respeite quem não quer avançar. Não pressione nem finja identidade humana.
 ## Encerramento
 Resuma a dor e sugira próximo passo proporcional ao interesse explicitado.$skill_diagnostico_consultivo$,
-      '{"any_keywords":["preciso de ajuda","tenho problema","não consigo vender","atendimento","quero melhorar"],"probe_keywords":["como funciona","preciso automatizar"]}'::jsonb
+      '{"any_keywords":["preciso de ajuda","tenho problema","não consigo vender","atendimento","quero melhorar"],"probe_keywords":["como funciona","preciso automatizar"]}'::jsonb,
+      true
     )
     returning id into v_id;
     insert into public.skill_pointers (organization_id, name, version_id)
@@ -34,7 +37,7 @@ Resuma a dor e sugira próximo passo proporcional ao interesse explicitado.$skil
   end if;
 
   if not exists (select 1 from public.skill_pointers where organization_id is null and name = 'qualificacao-comercial') then
-    insert into public.skill_versions (organization_id, name, description, body, matcher)
+    insert into public.skill_versions (organization_id, name, description, body, matcher, catalog_only)
     values (
       null,
       'qualificacao-comercial',
@@ -55,7 +58,8 @@ Há intenção comercial e contexto suficiente para orientar o próximo passo.
 - Uma pergunta por mensagem; use as respostas já fornecidas.
 ## Próximo passo
 Sintetize problema, necessidade, restrição e ação combinada para eventual passagem humana.$skill_qualificacao_comercial$,
-      '{"any_keywords":["quero contratar","quero orçamento","quero começar","tenho urgência","tenho verba"],"probe_keywords":["me interessa","quero conhecer"]}'::jsonb
+      '{"any_keywords":["quero contratar","quero orçamento","quero começar","tenho urgência","tenho verba"],"probe_keywords":["me interessa","quero conhecer"]}'::jsonb,
+      true
     )
     returning id into v_id;
     insert into public.skill_pointers (organization_id, name, version_id)
@@ -63,7 +67,7 @@ Sintetize problema, necessidade, restrição e ação combinada para eventual pa
   end if;
 
   if not exists (select 1 from public.skill_pointers where organization_id is null and name = 'apresentacao-de-valor') then
-    insert into public.skill_versions (organization_id, name, description, body, matcher)
+    insert into public.skill_versions (organization_id, name, description, body, matcher, catalog_only)
     values (
       null,
       'apresentacao-de-valor',
@@ -83,7 +87,8 @@ A pessoa já revelou um problema ou pede esclarecimento sobre valor e diferencia
 - Se a capacidade for incerta, diga que precisa verificar e encaminhe para validação humana.
 ## Próximo passo
 Convide para demonstração somente quando existir um caminho real e o interesse estiver claro.$skill_apresentacao_de_valor$,
-      '{"any_keywords":["qual a vantagem","benefícios","o que resolve","por que usar","diferença"],"probe_keywords":["me explique","quais recursos"]}'::jsonb
+      '{"any_keywords":["qual a vantagem","benefícios","o que resolve","por que usar","diferença"],"probe_keywords":["me explique","quais recursos"]}'::jsonb,
+      true
     )
     returning id into v_id;
     insert into public.skill_pointers (organization_id, name, version_id)
@@ -91,7 +96,7 @@ Convide para demonstração somente quando existir um caminho real e o interesse
   end if;
 
   if not exists (select 1 from public.skill_pointers where organization_id is null and name = 'recomendacao-de-plano') then
-    insert into public.skill_versions (organization_id, name, description, body, matcher)
+    insert into public.skill_versions (organization_id, name, description, body, matcher, catalog_only)
     values (
       null,
       'recomendacao-de-plano',
@@ -111,7 +116,8 @@ A pessoa deseja escolher um plano, comparar limites ou iniciar contratação.
 - Se nenhuma opção estiver confirmada, ofereça validação por pessoa autorizada.
 ## Próximo passo
 Registre ou encaminhe a preferência, sem declarar pagamento ou assinatura sem confirmação.$skill_recomendacao_de_plano$,
-      '{"any_keywords":["qual plano","melhor plano","assinar","mensalidade","pacote"],"probe_keywords":["quanto custa","preços","valores"]}'::jsonb
+      '{"any_keywords":["qual plano","melhor plano","assinar","mensalidade","pacote"],"probe_keywords":["quanto custa","preços","valores"]}'::jsonb,
+      true
     )
     returning id into v_id;
     insert into public.skill_pointers (organization_id, name, version_id)
@@ -119,7 +125,7 @@ Registre ou encaminhe a preferência, sem declarar pagamento ou assinatura sem c
   end if;
 
   if not exists (select 1 from public.skill_pointers where organization_id is null and name = 'followup-contextual') then
-    insert into public.skill_versions (organization_id, name, description, body, matcher)
+    insert into public.skill_versions (organization_id, name, description, body, matcher, catalog_only)
     values (
       null,
       'followup-contextual',
@@ -139,7 +145,8 @@ Há uma retomada autorizada e permitida pelo fluxo de acompanhamento configurado
 - Se não existir contexto verificável, não personalize artificialmente.
 ## Encerramento
 Deixe uma pergunta opcional clara e respeite silêncio ou recusa.$skill_followup_contextual$,
-      '{"any_keywords":["vou pensar","depois falo","me chama depois","vou avaliar","retorno"],"probe_keywords":["mais tarde","semana que vem"]}'::jsonb
+      '{"any_keywords":["vou pensar","depois falo","me chama depois","vou avaliar","retorno"],"probe_keywords":["mais tarde","semana que vem"]}'::jsonb,
+      true
     )
     returning id into v_id;
     insert into public.skill_pointers (organization_id, name, version_id)
