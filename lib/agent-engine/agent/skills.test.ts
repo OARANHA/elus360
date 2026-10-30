@@ -19,6 +19,21 @@ describe('loadSkills', () => {
   });
 });
 
+describe('loadSkills — opt-in das skills de catálogo', () => {
+  it('mantém skills legadas como fallback e só carrega novas após instalação', async () => {
+    const rows = [
+      { id: 'legacy', organization_id: null, name: 'objecao-preco', description: 'legada', body: 'b', matcher: { any_keywords: ['caro'] } },
+      { id: 'installed', organization_id: 'org1', name: 'diagnostico-consultivo', description: 'instalada', body: 'b', matcher: { any_keywords: ['problema'] } },
+    ];
+    const db = { query: vi.fn().mockResolvedValue({ rows }) } as never;
+    const skills = await loadSkills(db, 'org1');
+    expect(skills.map((s) => s.name)).toEqual(['diagnostico-consultivo', 'objecao-preco']);
+    const [sql, params] = (db as { query: ReturnType<typeof vi.fn> }).query.mock.calls[0]!;
+    expect(sql).toContain('p.organization_id = $1 or (p.organization_id is null and v.catalog_only = false)');
+    expect(params).toEqual(['org1']);
+  });
+});
+
 describe('recentInboundSignal', () => {
   const msg = (direction: 'inbound' | 'outbound', body: string) => ({ direction, body, sent_at: '' });
 
