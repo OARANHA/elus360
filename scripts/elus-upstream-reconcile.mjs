@@ -5,7 +5,8 @@
  * Nao faz fetch, checkout, patch, SQL, push ou deploy.
  */
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, isAbsolute, relative, sep } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const SHA = /^[a-f0-9]{40}$/;
@@ -20,10 +21,10 @@ const SENSITIVE = [
   [/^(?:app\/app\/prospecting\/|lib\/prospecting\/)/, "prospecting"],
 ];
 const INFRA = /^(?:\.github\/|Dockerfile|compose|hostgator-setup-kit\/|package\.json$|pnpm-lock\.yaml$|proxy\.ts$)/;
-function git(args, {allowFailure = false} = {}) {
-  const result = spawnSync("git", args, { cwd: process.cwd(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 30000 });
+function git(args, {allowFailure = false, cwd = process.cwd(), input, binary = false} = {}) {
+  const result = spawnSync("git", args, { cwd, encoding: binary ? null : "utf8", input, maxBuffer: 64 * 1024 * 1024, timeout: 30000 });
   if (result.error || (result.status !== 0 && !allowFailure)) throw Error("GIT_FAILED:" + args[0]);
-  return result.status === 0 ? result.stdout.trimEnd() : null;
+  return result.status === 0 ? (binary ? result.stdout : result.stdout.trimEnd()) : null;
 }
 function oid(ref, path) {
   if (!path || path.includes("\0") || path.includes("\n")) throw Error("UNSAFE_PATH");
@@ -49,9 +50,13 @@ function statusFor(path, before, after, fork) {
   return "safe_to_prepare";
 }
 function parse(args) {
-  if (args.length !== 6 || args[0] !== "--base" || args[2] !== "--target" || args[4] !== "--fork")
-    throw Error("USAGE: --base SHA40 --target SHA40 --fork SHA40");
-  const refs = [args[1], args[3], args[5]];
+  const mode = args[0] === "prepare" ? "prepare" : "plan";
+  const params = args[0] === "prepare" || args[0] === "plan" ? args.slice(1) : args;
+  if ((mode === "plan" && params.length !== 6) || (mode === "prepare" && params.length !== 8) ||
+      params[0] !== "--base" || params[2] !== "--target" || params[4] !== "--fork" ||
+      (mode === "prepare" && params[6] !== "--out"))
+    throw Error("USAGE: [plan|prepare] --base SHA40 --target SHA40 --fork SHA40 [--out ABSOLUTE_NEW_PATH]");
+  const refs = [params[1], params[3], params[5]];
   if (refs.some(x => !SHA.test(x))) throw Error("PIN_REQUIRED");
   for (const ref of refs) git(["rev-parse", "--verify", ref + "^{commit}"]);
   if (git(["merge-base", "--is-ancestor", refs[0], refs[1]], {allowFailure:true}) === null) {
@@ -59,7 +64,7 @@ function parse(args) {
     const check = spawnSync("git", ["merge-base", "--is-ancestor", refs[0], refs[1]], {cwd:process.cwd()});
     if (check.status !== 0) throw Error("RELEASES_NOT_ANCESTRAL");
   }
-  return refs;
+  return {refs, mode, out: params[7]};
 }
 export function reconcile(base, target, fork) {
   const change = git(["diff", "--name-only", "-z", "--no-renames", base, target]);
@@ -80,10 +85,46 @@ export function reconcile(base, target, fork) {
     files
   };
 }
+
+/**
+ * Prepara SOMENTE patches de codigo ordinario classificados como seguros.
+ * Cria worktree detached num caminho novo absoluto; nao faz git add/commit/push.
+ * O checkout do fork e comparado por SHA pinado: nao modifica a branch atual.
+ */
+export function prepare(base, target, fork, out) {
+  if (!out || !isAbsolute(out)) throw Error("ABSOLUTE_OUTPUT_REQUIRED");
+  const dir = resolve(out);
+  if (existsSync(dir)) throw Error("OUTPUT_ALREADY_EXISTS");
+  const top = resolve(git(["rev-parse", "--show-toplevel"]));
+  const nested = relative(top,dir);
+  if (!nested.startsWith(".."+sep) && nested !== ".." && !isAbsolute(nested))
+    throw Error("OUTPUT_MUST_BE_OUTSIDE_CHECKOUT");
+  const report = reconcile(base,target,fork);
+  const safe = report.files.filter(x=>x.status === "safe_to_prepare").map(x=>x.path);
+  git(["worktree","add","--detach",dir,fork]);
+  try {
+    if (safe.length) {
+      const patch = git(["diff","--binary","--no-renames",base,target,"--",...safe],{binary:true});
+      if (patch.length) {
+        git(["apply","--check","--binary","-"],{cwd:dir,input:patch,binary:true});
+        git(["apply","--binary","-"],{cwd:dir,input:patch,binary:true});
+      }
+    }
+    mkdirSync(resolve(dir,".elus-upstream"),{recursive:true});
+    writeFileSync(resolve(dir,".elus-upstream","report.json"),JSON.stringify({
+      ...report, preparedFiles:safe, note:"Worktree detached, sem commit. Revisar os arquivos antes de qualquer PR."
+    },null,2)+"\n");
+    return {output:dir, preparedFiles:safe.length, reviewRequired:report.gate!=="candidate_analysis_ready",totals:report.totals};
+  } catch(e) {
+    throw Error("PREPARE_INCOMPLETE_AT:"+dir+":"+String(e.message).slice(0,120));
+  }
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const [base,target,fork] = parse(process.argv.slice(2));
-    process.stdout.write(JSON.stringify(reconcile(base,target,fork),null,2) + "\n");
+    const {refs:[base,target,fork],mode,out} = parse(process.argv.slice(2));
+    const result = mode === "prepare" ? prepare(base,target,fork,out) : reconcile(base,target,fork);
+    process.stdout.write(JSON.stringify(result,null,2) + "\n");
   } catch(e) {
     process.stderr.write("ELUS_RECONCILE_NO_GO:" + String(e.message).slice(0,150) + "\n");
     process.exitCode = 3;
