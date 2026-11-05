@@ -32,11 +32,15 @@ export function semanticContractSignals(path,before,after) {
       // and initializer expressions can change behavior without adding an import edge.
       exports.push(statement.getText(ast));
     }
-    return exports;
+    return {exports,statements:ast.statements.map(statement=>statement.getText(ast))};
   };
-  const oldExports=analyze(before),newExports=analyze(after);
-  if(!oldExports||!newExports) return ["semantic_analysis_incomplete"];
-  if(JSON.stringify(oldExports)!==JSON.stringify(newExports)) return ["exported_contract_change"];
+  const oldData=analyze(before),newData=analyze(after);
+  if(!oldData||!newData) return ["semantic_analysis_incomplete"];
+  if(JSON.stringify(oldData.exports)!==JSON.stringify(newData.exports)) return ["exported_contract_change"];
+  // A named reexport can expose an internal function whose declaration changed
+  // while 'export {name}' itself remains byte-for-byte identical.
+  if(oldData.exports.length && JSON.stringify(oldData.statements)!==JSON.stringify(newData.statements))
+    return ["exported_module_internal_change"];
   return [];
 }
 export function contractSignals(path, before, after) {
@@ -58,6 +62,7 @@ export function auditPath(path, type) {
 
 const CHECKS = {
   exported_contract_change: ["export_surface_semantic_review", "runtime_contract_regression"],
+  exported_module_internal_change: ["export_surface_semantic_review", "runtime_contract_regression"],
   semantic_analysis_incomplete: ["manual_ast_parse_review"],
   tenant_isolation: ["cross_tenant_rls_negative", "service_role_org_filter"],
   authentication_authorization: ["auth_rbac_mfa_negative", "api_token_access"],
