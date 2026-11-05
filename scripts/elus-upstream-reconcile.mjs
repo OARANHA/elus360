@@ -135,6 +135,8 @@ export function reconcile(base, target, fork) {
   }
   const change = git(["diff", "--name-only", "-z", "--no-renames", base, target]);
   const paths = change ? change.split("\0").filter(Boolean) : [];
+  const configBlob=oid(fork,"tsconfig.json");
+  const configuredTs=configBlob?readSource(fork,"tsconfig.json",configBlob):null;
   const files = paths.map(path => {
     const before = oid(base, path), after = oid(target, path), local = oid(fork, path);
     const original = before === after || after === local ? "" : readSource(base,path,before);
@@ -142,7 +144,7 @@ export function reconcile(base, target, fork) {
     const flags = before === after || after === local ? [] : [
       ...auditPath(path, modeOf(target,path)),
       ...contractSignals(path, original, incoming),
-      ...changedModuleSignals(path, original, incoming),
+      ...changedModuleSignals(path, original, incoming, configuredTs),
     ];
     return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags, suggested_checks: checksForSignals(flags)};
   });
