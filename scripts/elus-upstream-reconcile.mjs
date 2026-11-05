@@ -21,6 +21,7 @@ const SENSITIVE = [
   [/^(?:workers\/|lib\/event|app\/api\/v1\/cron\/)/, "worker_events"],
   [/^(?:app\/app\/prospecting\/|lib\/prospecting\/)/, "prospecting"],
 ];
+const UI_PROTECTED = /^(?:app\/admin\/|app\/\(public\)\/|app\/auth\/|app\/app\/(?:settings|ai|admin)\/|components\/(?:auth|ai|elus|admin|settings)\/|lib\/(?:i18n|permissions|rbac|audit)\/)/;
 const INFRA = /^(?:\.github\/|Dockerfile|compose|hostgator-setup-kit\/|package\.json$|pnpm-lock\.yaml$|proxy\.ts$)/;
 function git(args, {allowFailure = false, cwd = process.cwd(), input, binary = false} = {}) {
   const result = spawnSync("git", args, { cwd, encoding: binary ? null : "utf8", input, maxBuffer: 64 * 1024 * 1024, timeout: 30000 });
@@ -47,6 +48,7 @@ function impact(path) {
   if (BLOCK.test(path)) return "elus_extension";
   if (SQL.test(path)) return "database_schema";
   if (INFRA.test(path)) return "delivery_infrastructure";
+  if (UI_PROTECTED.test(path)) return "client_visibility_or_admin_contract";
   for (const [re, label] of SENSITIVE) if (re.test(path)) return label;
   if (!SAFE.test(path)) return "unclassified";
   return "application_code";
