@@ -129,13 +129,15 @@ export function compilerOptionsFromConfig(raw) {
 function normalizedFile(path) {return posix.normalize(path.replace(/\\\\/g,"/")).replace(/^\\.\\//,"");}
 function configuredResolver(sources,rawConfig) {
   const config=compilerOptionsFromConfig(rawConfig);
-  const available=new Set(sources.map(s=>normalizedFile(s.path)));
+  const sourceByPath=new Map(sources.map(s=>[normalizedFile(s.path),s.content]));
+  const available=new Set(sourceByPath.keys());
+  const cache=config.options?ts.createModuleResolutionCache(".",path=>path,config.options):null;
   const dirs=new Set(["."]);
   for(const path of available) {let dir=posix.dirname(path);while(dir!=="."&&!dirs.has(dir)){dirs.add(dir);dir=posix.dirname(dir);}}
   const host={
     fileExists:path=>available.has(normalizedFile(path)),
     directoryExists:path=>dirs.has(normalizedFile(path))||path===".",
-    readFile:path=>sources.find(s=>s.path===normalizedFile(path))?.content,
+    readFile:path=>sourceByPath.get(normalizedFile(path)),
     getCurrentDirectory:()=>".",
     realpath:path=>path,
     getDirectories:()=>[]
@@ -149,7 +151,7 @@ function configuredResolver(sources,rawConfig) {
     const isRelative=specifier.startsWith("./")||specifier.startsWith("../");
     const local=isRelative||matchesAlias(specifier)||isLocal(specifier);
     if(!config.options) return {local:true,path:null,reason:config.reason};
-    const result=ts.resolveModuleName(specifier,importer,config.options,host);
+    const result=ts.resolveModuleName(specifier,importer,config.options,host,cache);
     const resolved=normalizedFile(result.resolvedModule?.resolvedFileName??"");
     if(resolved && available.has(resolved)) return {local:true,path:resolved,reason:null};
     // A configured alias or relative import must never fall back to a package.
