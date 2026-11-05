@@ -9,7 +9,7 @@ import { resolve, isAbsolute, relative, sep } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
-import { auditPath, contractSignals } from "./elus-upstream-contract-risk.mjs";
+import { auditPath, contractSignals, checksForSignals } from "./elus-upstream-contract-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -92,7 +92,7 @@ export function reconcile(base, target, fork) {
       ...auditPath(path, modeOf(target,path)),
       ...contractSignals(path, readSource(base,path,before), readSource(target,path,after)),
     ];
-    return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags};
+    return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags, suggested_checks: checksForSignals(flags)};
   });
   const counts = {};
   for (const file of files) counts[file.status] = (counts[file.status] ?? 0) + 1;
