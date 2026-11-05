@@ -366,3 +366,22 @@ test("tsconfig extends sem suporte nao libera integracao automatica",async()=>{
   assert.equal(graph.complete,false);
   assert.ok(graph.unresolved.some(e=>e.reason==="unsupported_tsconfig_extends"));
 });
+
+test("grafo TS com aliases e cadeias protegidas nunca promove candidatos com import computado",async()=>{
+  const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"],"#internal/*":["lib/*"]}}});
+  const sources=[
+    {path:"components/low.ts",content:"export const value=1;"},
+    {path:"components/middle.ts",content:'export * from "@/components/low";'},
+    {path:"lib/auth/check.ts",content:'import {value} from "@/components/middle"; export const check=value;'},
+    {path:"lib/rbac/check.ts",content:'export {check} from "#internal/auth/check";'},
+    {path:"app/api/v1/ai/routes/route.ts",content:'import {check} from "#internal/rbac/check"; export const GET=()=>check;'},
+    {path:"components/dynamic.ts",content:"export async function load(key){return import(key);}"},
+  ];
+  const graph=dependencyGraph(sources,config);
+  assert.equal(graph.complete,false);
+  assert.ok(graph.unresolved.some(x=>x.reason==="computed_module_specifier"));
+  assert.deepEqual(transitiveProtectedDependents(["components/low.ts"],sources,graph).get("components/low"),[
+    "app/api/v1/ai/routes/route.ts","lib/auth/check.ts","lib/rbac/check.ts"
+  ]);
+});
