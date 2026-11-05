@@ -632,3 +632,34 @@ test("resolucao independente TypeScript Program/CompilerHost concorda com grafo 
   }
   assert.equal(compared,5);
 });
+
+test("prepare em worktree isolada aplica apenas mudanca ordinaria e preserva contrato exportado",()=>{
+  const f=fixture(),prior=process.cwd(),out=join(tmpdir(),"elus-semantic-prepared-"+process.pid+"-"+Date.now());
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.base);
+    writeFileSync(join(f.cwd,"components/safe.tsx"),"export function allow(role:string){return role==='admin';}");
+    writeFileSync(join(f.cwd,"components/plain.ts"),"const ordinary=1;");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","base semantic worktree");
+    const base=git(f.cwd,"rev-parse","HEAD");
+    writeFileSync(join(f.cwd,"components/safe.tsx"),"export function allow(role:string){return true;}");
+    writeFileSync(join(f.cwd,"components/plain.ts"),"const ordinary=2;");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","upstream with contract and ordinary edits");
+    const target=git(f.cwd,"rev-parse","HEAD");
+    const report=reconcile(base,target,base);
+    assert.equal(report.files.find(x=>x.path==="components/safe.tsx").status,"contract_requires_review");
+    assert.equal(report.files.find(x=>x.path==="components/plain.ts").status,"safe_to_prepare");
+    const output=prepare(base,target,base,out);
+    assert.equal(output.preparedFiles,1);
+    assert.equal(readFileSync(join(out,"components/plain.ts"),"utf8"),"const ordinary=2;");
+    assert.equal(readFileSync(join(out,"components/safe.tsx"),"utf8"),"export function allow(role:string){return role==='admin';}");
+    assert.equal(readFileSync(join(f.cwd,"components/plain.ts"),"utf8"),"const ordinary=2;");
+    const reportFile=JSON.parse(readFileSync(join(out,".elus-upstream/report.json"),"utf8"));
+    assert.deepEqual(reportFile.preparedFiles,["components/plain.ts"]);
+  }finally {
+    process.chdir(f.cwd);
+    if(existsSync(out)) git(f.cwd,"worktree","remove","--force",out);
+    process.chdir(prior);
+    rmSync(f.cwd,{recursive:true,force:true});
+  }
+});
