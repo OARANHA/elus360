@@ -555,3 +555,80 @@ test("comparacao exata do conjunto de arestas nao oculta regressao do grafo",asy
   const lostPairs=pairs(dependencyGraph(mutated,config));
   assert.ok([...oldPairs].some(edge=>!lostPairs.has(edge)));
 });
+
+test("matriz semantica: assinatura, permissao, tenant e IA alterados sem novos imports exigem revisao",async()=>{
+  const {contractSignals}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  const changes=[
+    {id:"auth_policy",path:"components/policy.ts",before:"export function canAccess(role:string){return role==='admin';}",after:"export function canAccess(role:string){return true;}"},
+    {id:"rbac_signature",path:"components/role.ts",before:"export function authorize(role:'admin'|'member'){return role==='admin';}",after:"export function authorize(role:string){return true;}"},
+    {id:"tenant_filter",path:"components/tenant.ts",before:"export const allowed=(tenant:string,row:{tenant:string})=>row.tenant===tenant;",after:"export const allowed=(tenant:string,row:{tenant:string})=>true;"},
+    {id:"ai_governance",path:"components/agent.ts",before:"export function chooseModel(grant:boolean){return grant?'approved':'blocked';}",after:"export function chooseModel(grant:boolean){return 'anything';}"},
+    {id:"api_payload",path:"components/endpoint.ts",before:"export const serialize=(x:number)=>({ok:x});",after:"export const serialize=(x:number)=>({raw:x});"},
+    {id:"export_removal",path:"components/contracts.ts",before:"export function allowed(){return false;}",after:"function allowed(){return false;}"},
+  ];
+  for(const row of changes) {
+    const signals=contractSignals(row.path,row.before,row.after);
+    assert.ok(signals.includes("exported_contract_change"),row.id+": "+JSON.stringify(signals));
+  }
+  assert.deepEqual(contractSignals("components/plain.ts","const x=1;","const x=2;"),[]);
+});
+test("integracao Git triadica: export mutado sem import nao vira safe_to_prepare",()=>{
+  const f=fixture(),prior=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.base);
+    writeFileSync(join(f.cwd,"components/safe.tsx"),"export function allow(){return true;}");
+    git(f.cwd,"add",".");
+    git(f.cwd,"commit","-qm","base exported function");
+    const baseSha=git(f.cwd,"rev-parse","HEAD");
+    writeFileSync(join(f.cwd,"components/safe.tsx"),"export function allow(){return false;}");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","upstream modifies contract");
+    const targetSha=git(f.cwd,"rev-parse","HEAD");
+    const result=reconcile(baseSha,targetSha,baseSha);
+    const changed=result.files.find(v=>v.path==="components/safe.tsx");
+    assert.equal(changed.status,"contract_requires_review");
+    assert.ok(changed.signals.includes("exported_contract_change"));
+    assert.equal(result.totals.safe_to_prepare??0,0);
+  }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
+});
+test("resolucao independente TypeScript Program/CompilerHost concorda com grafo AST em aliases encadeados",async()=>{
+  const ts=(await import("typescript")).default;
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"],"#domain/*":["lib/domain/*"]}}});
+  const sources=[
+    {path:"components/shared.ts",content:"export const x=1;"},
+    {path:"lib/domain/barrel.ts",content:'export {x} from "@/components/shared";'},
+    {path:"lib/auth/guard.ts",content:'import {x} from "#domain/barrel";export const guard=x;'},
+    {path:"lib/rbac/check.ts",content:'export {guard} from "@/lib/auth/guard";'},
+    {path:"app/api/v1/ai/route.ts",content:'import {guard} from "@/lib/rbac/check";export const POST=()=>guard;'},
+    {path:"lib/mcp/handler.ts",content:'import {guard} from "@/lib/auth/guard";export const handle=()=>guard;'}
+  ];
+  const graph=dependencyGraph(sources,config);
+  assert.equal(graph.complete,true,JSON.stringify(graph.unresolved));
+  const options={module:ts.ModuleKind.ESNext,moduleResolution:ts.ModuleResolutionKind.Bundler,baseUrl:"/virtual",paths:{"@/*":["./*"],"#domain/*":["lib/domain/*"]},noLib:true};
+  const files=new Map(sources.map(s=>["/virtual/"+s.path,s.content]));
+  const baseHost=ts.createCompilerHost(options);
+  const dirs=new Set(["/virtual"]);
+  for(const name of files.keys()){let d=name.substring(0,name.lastIndexOf("/"));while(d.length>1&&!dirs.has(d)){dirs.add(d);d=d.substring(0,d.lastIndexOf("/"));}}
+  baseHost.fileExists=name=>files.has(name);
+  baseHost.readFile=name=>files.get(name);
+  baseHost.directoryExists=name=>dirs.has(name);
+  baseHost.getCurrentDirectory=()=>"/virtual";
+  baseHost.getSourceFile=(name,language)=>files.has(name)?ts.createSourceFile(name,files.get(name),language,true):undefined;
+  const program=ts.createProgram({rootNames:[...files.keys()],options,host:baseHost});
+  let compared=0;
+  for(const [name] of files){
+    const file=program.getSourceFile(name);
+    for(const node of file.statements) {
+      if(!ts.isImportDeclaration(node)&&!ts.isExportDeclaration(node)) continue;
+      if(!node.moduleSpecifier) continue;
+      const resolved=program.getResolvedModuleFromModuleSpecifier(node.moduleSpecifier,file)?.resolvedModule;
+      assert.ok(resolved,"CompilerHost could not resolve "+node.moduleSpecifier.text);
+      const target=resolved.resolvedFileName.slice("/virtual/".length);
+      const importer=name.slice("/virtual/".length);
+      assert.ok(graph.reverse.get(target)?.has(importer),importer+" -> "+target);
+      compared++;
+    }
+  }
+  assert.equal(compared,5);
+});
