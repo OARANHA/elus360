@@ -681,3 +681,13 @@ test("endpoint real sem import novo: permissao e resposta HTTP alteradas requere
   assert.ok(signals.includes("exported_contract_change"));
   assert.ok(signals.length>=1);
 });
+
+test("contrato CommonJS alterado sem imports nao recebe classificador seguro",async()=>{
+  const {contractSignals}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  const before="function check(r){return r==='admin';} module.exports={check};";
+  const after="function check(r){return true;} module.exports={check};";
+  const signals=contractSignals("components/access.cjs",before,after);
+  assert.ok(signals.includes("exported_module_internal_change"),JSON.stringify(signals));
+  const direct=contractSignals("components/access.cjs","module.exports=function check(){return false;}","module.exports=function check(){return true;}");
+  assert.ok(direct.includes("exported_contract_change"),JSON.stringify(direct));
+});
