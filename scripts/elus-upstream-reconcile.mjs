@@ -2,7 +2,7 @@
 /**
  * ELUS360 Upstream Sync — reconciliacao triadica somente leitura.
  * Compara BASE_UPSTREAM, TARGET_UPSTREAM e HEAD_ELUS por blob Git.
- * Nao faz fetch, checkout, patch, SQL, push ou deploy.
+ * Plan: apenas leitura. Prepare: patch restrito em worktree descartavel. Nunca SQL, push ou deploy.
  */
 import { spawnSync } from "node:child_process";
 import { resolve, isAbsolute, relative, sep } from "node:path";
@@ -10,7 +10,6 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const SHA = /^[a-f0-9]{40}$/;
-const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
 const BLOCK = /^(?:lib\/elus360\/|components\/elus360\/|docs\/elus360\/|scripts\/elus-|tests\/(?:unit\/elus360-|operational\/elus-))/;
 const SQL = /^(?:supabase\/|scripts\/.*(?:migration|sql|upgrade|baseline))/i;
