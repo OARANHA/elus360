@@ -27,3 +27,19 @@ export function auditPath(path, type) {
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return ["test_change_requires_review"];
   return [];
 }
+
+const CHECKS = {
+  tenant_isolation: ["cross_tenant_rls_negative", "service_role_org_filter"],
+  authentication_authorization: ["auth_rbac_mfa_negative", "api_token_access"],
+  managed_ai: ["ai_managed_grants_negative", "provider_model_credentials_write_paths"],
+  agent_runtime: ["agent_version_mutation_guards", "embedding_family_compatibility"],
+  messaging_events: ["event_idempotency_audit", "worker_dispatch_regression"],
+  sensitive_import: ["cross_module_contract_review"],
+  uninspectable_content: ["manual_binary_or_large_file_review"],
+  non_source_asset: ["asset_and_build_manual_review"],
+  non_regular_git_object: ["symlink_executable_or_gitlink_manual_review"],
+  test_change_requires_review: ["test_integrity_review"],
+};
+export function checksForSignals(signals) {
+  return [...new Set(signals.flatMap(signal=>CHECKS[signal]??["manual_contract_review"]))].sort();
+}
