@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync, writeFileSync, mkdirSync, rmSync} from "node:fs";
+import {mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join, dirname} from "node:path";
 import {execFileSync} from "node:child_process";
-import {reconcile} from "../../scripts/elus-upstream-reconcile.mjs";
+import {reconcile, prepare} from "../../scripts/elus-upstream-reconcile.mjs";
 
 function git(cwd,...args) { return execFileSync("git",args,{cwd,encoding:"utf8"}).trim(); }
 function fixture() {
@@ -12,9 +12,9 @@ function fixture() {
   git(cwd,"init","-q");git(cwd,"config","user.name","Tests");git(cwd,"config","user.email","test@example.invalid");
   function set(path, content) { const full=join(cwd,path);mkdirSync(dirname(full),{recursive:true});writeFileSync(full,content); }
   function commit(label){git(cwd,"add",".");git(cwd,"commit","-qm",label);return git(cwd,"rev-parse","HEAD");}
-  set("components/a.tsx","old");set("lib/auth/guard.ts","old");set("lib/elus360/policy.ts","old");set("app/app/p.tsx","old");set("app/app/delete.tsx","old");
+  set("components/a.tsx","old");set("components/safe.tsx","old");set("lib/auth/guard.ts","old");set("lib/elus360/policy.ts","old");set("app/app/p.tsx","old");set("app/app/delete.tsx","old");
   const base=commit("base");
-  set("components/a.tsx","upstream");set("lib/auth/guard.ts","upstream");set("lib/elus360/policy.ts","upstream");set("app/app/p.tsx","upstream");rmSync(join(cwd,"app/app/delete.tsx"));
+  set("components/a.tsx","upstream");set("components/safe.tsx","upstream");set("lib/auth/guard.ts","upstream");set("lib/elus360/policy.ts","upstream");set("app/app/p.tsx","upstream");rmSync(join(cwd,"app/app/delete.tsx"));
   const target=commit("target");
   git(cwd,"checkout","-q",base);set("components/a.tsx","upstream");set("app/app/p.tsx","elus-custom");const fork=commit("fork");
   return {cwd,base,target,fork};
@@ -26,17 +26,38 @@ test("tripla separa integrado, seguro, conflito, contrato, extensao e exclusao",
     const p=reconcile(f.base,f.target,f.fork);
     const statuses=Object.fromEntries(p.files.map(x=>[x.path,x.status]));
     assert.equal(statuses["components/a.tsx"],"already_integrated");
+    assert.equal(statuses["components/safe.tsx"],"safe_to_prepare");
     assert.equal(statuses["lib/auth/guard.ts"],"contract_requires_review");
     assert.equal(statuses["lib/elus360/policy.ts"],"protected_requires_review");
     assert.equal(statuses["app/app/p.tsx"],"conflict_requires_review");
     assert.equal(statuses["app/app/delete.tsx"],"deletion_requires_review");
     assert.equal(p.gate,"manual_review_required");
-    assert.equal(p.totals.changed,5);
+    assert.equal(p.totals.changed,6);
   } finally {process.chdir(previous);rmSync(f.cwd,{recursive:true,force:true});}
 });
 test("caminho ordinario novo somente e seguro quando nao customizado",()=>{
   const f=fixture();const old=process.cwd();try {
     process.chdir(f.cwd);const p=reconcile(f.base,f.target,f.fork);
-    assert.equal(p.files.filter(x=>x.status==="safe_to_prepare").length,0);
+    assert.equal(p.files.filter(x=>x.status==="safe_to_prepare").length,1);
   }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
+
+test("prepare aplica apenas safe em detached worktree e preserva fork e contratos",()=>{
+  const f=fixture(), old=process.cwd(), out=join(tmpdir(),"elus-prepared-"+Date.now()+"-"+process.pid);
+  try {
+    process.chdir(f.cwd);
+    const p=prepare(f.base,f.target,f.fork,out);
+    assert.equal(p.preparedFiles,1);
+    assert.equal(readFileSync(join(out,"components/safe.tsx"),"utf8"),"upstream");
+    assert.equal(readFileSync(join(out,"lib/auth/guard.ts"),"utf8"),"old");
+    assert.equal(readFileSync(join(out,"app/app/p.tsx"),"utf8"),"elus-custom");
+    assert.equal(readFileSync(join(f.cwd,"components/safe.tsx"),"utf8"),"old");
+    const r=JSON.parse(readFileSync(join(out,".elus-upstream/report.json"),"utf8"));
+    assert.deepEqual(r.preparedFiles,["components/safe.tsx"]);
+  } finally {
+    process.chdir(f.cwd);
+    if(existsSync(out)) git(f.cwd,"worktree","remove","--force",out);
+    process.chdir(old);
+    rmSync(f.cwd,{recursive:true,force:true});
+  }
 });
