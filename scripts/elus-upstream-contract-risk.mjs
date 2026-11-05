@@ -25,7 +25,10 @@ export function semanticContractSignals(path,before,after) {
     if(ast.parseDiagnostics.length) return null;
     const exports=[];
     for(const statement of ast.statements) {
-      const isExport=ts.isExportDeclaration(statement)||ts.isExportAssignment(statement)||
+      const cjs=ts.isExpressionStatement(statement)&&ts.isBinaryExpression(statement.expression)&&
+        ts.isPropertyAccessExpression(statement.expression.left)&&
+        /^(?:module\.exports(?:\.[A-Za-z_$][\w$]*)?|exports\.[A-Za-z_$][\w$]*)$/.test(statement.expression.left.getText(ast));
+      const isExport=cjs||ts.isExportDeclaration(statement)||ts.isExportAssignment(statement)||
         statement.modifiers?.some(m=>m.kind===ts.SyntaxKind.ExportKeyword||m.kind===ts.SyntaxKind.DefaultKeyword);
       if(!isExport) continue;
       // Exported declarations and reexports are public contracts; their bodies, types
