@@ -6,7 +6,9 @@ on:
       - "docs/elus360/extension-contract.md"
       - "docs/elus360/upstream-sync.md"
       - "scripts/elus-upstream-prepare.mjs"
+      - "scripts/elus-upstream-reconcile.mjs"
       - "tests/operational/elus-upstream-prepare.test.mjs"
+      - "tests/operational/elus-upstream-reconcile.test.mjs"
       - ".github/workflows/elus360-upstream-sync.yml"
   workflow_dispatch:
 
@@ -22,6 +24,10 @@ jobs:
         with:
           node-version: "22"
       - name: Sintaxe do analisador
-        run: node --check scripts/elus-upstream-prepare.mjs
+        run: |
+          node --check scripts/elus-upstream-prepare.mjs
+          node --check scripts/elus-upstream-reconcile.mjs
       - name: Gates sem rede externa, banco ou Docker
-        run: node --test tests/operational/elus-upstream-prepare.test.mjs
+        run: |
+          node --test tests/operational/elus-upstream-prepare.test.mjs
+          node --test tests/operational/elus-upstream-reconcile.test.mjs
