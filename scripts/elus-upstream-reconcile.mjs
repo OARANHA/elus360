@@ -8,6 +8,8 @@ import { spawnSync } from "node:child_process";
 import { resolve, isAbsolute, relative, sep } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { TextDecoder } from "node:util";
+import { auditPath, contractSignals } from "./elus-upstream-contract-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -29,6 +31,18 @@ function oid(ref, path) {
   if (!path || path.includes("\0") || path.includes("\n")) throw Error("UNSAFE_PATH");
   return git(["rev-parse", "--verify", ref + ":" + path], {allowFailure: true})?.trim() ?? null;
 }
+function readSource(ref, path, id) {
+  if (!id) return "";
+  const size = Number(git(["cat-file", "-s", id]));
+  if (!Number.isSafeInteger(size) || size > 524288) return null;
+  const bytes = git(["show", ref + ":" + path], {binary:true});
+  try {return new TextDecoder("utf-8", {fatal:true}).decode(bytes);}
+  catch {return null;}
+}
+function modeOf(ref, path) {
+  const line = git(["ls-tree", ref, "--", path]);
+  return line ? line.split(" ", 1)[0] : null;
+}
 function impact(path) {
   if (BLOCK.test(path)) return "elus_extension";
   if (SQL.test(path)) return "database_schema";
@@ -37,7 +51,7 @@ function impact(path) {
   if (!SAFE.test(path)) return "unclassified";
   return "application_code";
 }
-function statusFor(path, before, after, fork) {
+function statusFor(path, before, after, fork, signals = []) {
   if (after === fork) return "already_integrated";
   if (before === after) return "unchanged";
   const domain = impact(path);
@@ -45,7 +59,7 @@ function statusFor(path, before, after, fork) {
     return "protected_requires_review";
   if (!after) return "deletion_requires_review";
   if (before !== fork) return "conflict_requires_review";
-  if (domain !== "application_code") return "contract_requires_review";
+  if (domain !== "application_code" || signals.length) return "contract_requires_review";
   return "safe_to_prepare";
 }
 function parse(args) {
@@ -66,11 +80,19 @@ function parse(args) {
   return {refs, mode, out: params[7]};
 }
 export function reconcile(base, target, fork) {
+  for (const ref of [base,target,fork]) {
+    if (!SHA.test(ref)) throw Error("PIN_REQUIRED");
+    git(["rev-parse","--verify",ref+"^{commit}"]);
+  }
   const change = git(["diff", "--name-only", "-z", "--no-renames", base, target]);
   const paths = change ? change.split("\0").filter(Boolean) : [];
   const files = paths.map(path => {
     const before = oid(base, path), after = oid(target, path), local = oid(fork, path);
-    return {path, impact: impact(path), status: statusFor(path, before, after, local)};
+    const flags = before === after || after === local ? [] : [
+      ...auditPath(path, modeOf(target,path)),
+      ...contractSignals(path, readSource(base,path,before), readSource(target,path,after)),
+    ];
+    return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags};
   });
   const counts = {};
   for (const file of files) counts[file.status] = (counts[file.status] ?? 0) + 1;
@@ -100,6 +122,7 @@ export function prepare(base, target, fork, out) {
     throw Error("OUTPUT_MUST_BE_OUTSIDE_CHECKOUT");
   const report = reconcile(base,target,fork);
   const safe = report.files.filter(x=>x.status === "safe_to_prepare").map(x=>x.path);
+  if (git(["status","--porcelain"])) throw Error("WORKTREE_NOT_CLEAN");
   git(["worktree","add","--detach",dir,fork]);
   try {
     if (safe.length) {
