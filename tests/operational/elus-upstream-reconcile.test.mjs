@@ -663,3 +663,21 @@ test("prepare em worktree isolada aplica apenas mudanca ordinaria e preserva con
     rmSync(f.cwd,{recursive:true,force:true});
   }
 });
+
+test("reexport nominal preservado nao oculta alteracao na funcao interna exportada",async()=>{
+  const {contractSignals}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  const before="function canManage(role:string){return role==='admin';}\nexport {canManage};";
+  const after="function canManage(role:string){return true;}\nexport {canManage};";
+  const signals=contractSignals("components/access.ts",before,after);
+  assert.ok(signals.includes("exported_module_internal_change"),JSON.stringify(signals));
+  const parseFailure=contractSignals("components/access.ts","export function canManage(){return true;}","export function canManage( {");
+  assert.ok(parseFailure.includes("semantic_analysis_incomplete"),JSON.stringify(parseFailure));
+});
+test("endpoint real sem import novo: permissao e resposta HTTP alteradas requerem revisao",async()=>{
+  const {contractSignals}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  const before="export async function PATCH(req:Request){ if(!req.headers.get('x-role')) return new Response('denied',{status:403}); return Response.json({ok:true}); }";
+  const after="export async function PATCH(req:Request){ return Response.json({ok:true}); }";
+  const signals=contractSignals("app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",before,after);
+  assert.ok(signals.includes("exported_contract_change"));
+  assert.ok(signals.length>=1);
+});
