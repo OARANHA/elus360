@@ -1,6 +1,6 @@
 /**
  * ELUS Upstream Sync — inventario estatico de dependencias diretas e superfícies IA.
- * Analise conservadora: nao executa codigo e nao afirma cobertura transitiva.
+ * Analise conservadora: nao executa codigo nem prova fluxo de dados.
  */
 import { posix } from "node:path";
 const SCRIPT = /\.(?:[cm]?js|jsx|tsx?)$/;
@@ -52,6 +52,38 @@ export function directProtectedDependents(changedPaths, sources) {
     }
   }
   return new Map([...found].map(([name,paths])=>[name,[...new Set(paths)].sort()]));
+}
+/**
+ * Busca reversa sobre grafo de imports estaticos. Retorna consumidores
+ * protegidos alcancaveis por caminho direto ou transitive, sem loops em ciclos.
+ * Uma aresta "A importa B" significa que A depende de B.
+ */
+export function transitiveProtectedDependents(changedPaths, sources) {
+  const byImported = new Map();
+  for (const {path,content} of sources) {
+    for (const imported of importPaths(content,path)) {
+      const consumers=byImported.get(imported) ?? new Set();
+      consumers.add(path);
+      byImported.set(imported,consumers);
+    }
+  }
+  const result=new Map();
+  for (const path of changedPaths) {
+    const start=canonical(path);
+    const seen=new Set([start]);
+    const queue=[start];
+    const protectedReachable=new Set();
+    while(queue.length) {
+      const current=queue.shift();
+      for(const consumer of byImported.get(current) ?? []) {
+        if(PROTECTED.some(prefix=>consumer.startsWith(prefix))) protectedReachable.add(consumer);
+        const id=canonical(consumer);
+        if(!seen.has(id)) {seen.add(id);queue.push(id);}
+      }
+    }
+    if(protectedReachable.size) result.set(start,[...protectedReachable].sort());
+  }
+  return result;
 }
 export function protectedConsumers(path,dependents) {
   return dependents.get(canonical(path)) ?? [];
