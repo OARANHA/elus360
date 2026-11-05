@@ -90,11 +90,12 @@ function inspectForkDependencies(fork,candidatePaths) {
     const tab=line.indexOf("\t"),metadata=line.slice(0,tab).split(" ");
     return {path:line.slice(tab+1),mode:metadata[0],type:metadata[1],oid:metadata[2]};
   }).filter(entry=>/\.(?:[cm]?[jt]s|[jt]sx)$/.test(entry.path));
-  if(entries.length>2400 || entries.some(e=>e.mode!=="100644"||e.type!=="blob"))
+  if(entries.length>5000 || entries.some(e=>e.mode!=="100644"||e.type!=="blob"))
     return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
   if(!entries.length) return {dependents:new Map(),complete:false,count:0,unresolved:1};
   const input=entries.map(e=>e.oid).join("\n")+"\n";
   const blobs=git(["cat-file","--batch"],{input,binary:true});
+  if(blobs.length>48*1024*1024) return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
   const sources=[];
   let offset=0;
   const decoder=new TextDecoder("utf-8",{fatal:true});
@@ -103,7 +104,7 @@ function inspectForkDependencies(fork,candidatePaths) {
     if(nl<0) return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
     const header=blobs.subarray(offset,nl).toString("ascii").split(" ");
     const size=Number(header[2]);
-    if(header[0]!==entry.oid||header[1]!=="blob"||!Number.isSafeInteger(size)||size>524288||
+    if(header[0]!==entry.oid||header[1]!=="blob"||!Number.isSafeInteger(size)||size>2097152||
        size<0||nl+1+size>=blobs.length||blobs[nl+1+size]!==10)
       return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
     try {sources.push({path:entry.path,content:decoder.decode(blobs.subarray(nl+1,nl+1+size))});}
