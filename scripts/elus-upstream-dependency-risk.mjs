@@ -172,6 +172,7 @@ function configuredResolver(sources,rawConfig,resourcePaths=[]) {
 /** Missing local module, syntax error or computed import blocks automatic preparation. */
 export function dependencyGraph(sources,rawConfig=null,resourcePaths=[]) {
   const available=new Set(sources.map(s=>s.path)),reverse=new Map(),unresolved=[];
+  let verified_resources=0;
   const configured=rawConfig===null?null:configuredResolver(sources,rawConfig,resourcePaths);
   if(configured?.config.reason) unresolved.push({reason:configured.config.reason});
   if(!ts) unresolved.push({reason:"typescript_compiler_missing"});
@@ -182,12 +183,12 @@ export function dependencyGraph(sources,rawConfig=null,resourcePaths=[]) {
       if(!configured && !isLocal(specifier)) continue;
       const resolved=configured?configured.resolve(specifier,path):resolveLocal(specifier,path,available);
       if(configured && !resolved.local) continue;
-      if(resolved.resource) continue;
+      if(resolved.resource){verified_resources++;continue;}
       if(!resolved.path){unresolved.push({path,reason:resolved.reason,specifier});continue;}
       const consumers=reverse.get(resolved.path)??new Set();consumers.add(path);reverse.set(resolved.path,consumers);
     }
   }
-  return {reverse,unresolved,complete:unresolved.length===0,scanned:sources.length};
+  return {reverse,unresolved,complete:unresolved.length===0,scanned:sources.length,verified_resources};
 }
 export function transitiveProtectedDependents(changedPaths,sources,graph=dependencyGraph(sources)) {
   const available=new Set(sources.map(s=>s.path)),result=new Map();
