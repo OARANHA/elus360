@@ -1,6 +1,6 @@
 # ELUS Upstream Sync — Gate 2: reconciliação triádica
 
-Estado: **implementado em branch de revisão**. Não demonstra compatibilidade funcional, não publica imagens e não aplica alterações upstream. Complementa, sem substituir, o Gate 1 em `scripts/elus-upstream-prepare.mjs`.
+Estado: **implementado em branch de revisão**. Não demonstra compatibilidade funcional, não publica imagens e só aplica patches classificados como seguros em **worktree isolada** quando o modo prepare é solicitado. Complementa, sem substituir, o Gate 1 em `scripts/elus-upstream-prepare.mjs`.
 
 ## Fonte de verdade
 
@@ -14,7 +14,7 @@ Estado: **implementado em branch de revisão**. Não demonstra compatibilidade f
 Em checkout descartável contendo os objetos Git dos três commits, executar:
 
 ```bash
-node scripts/elus-upstream-reconcile.mjs --base <SHA40_DA_V194> --target <SHA40_RELEASE_OFICIAL> --fork <SHA40_MAIN_ELUS360>
+node scripts/elus-upstream-reconcile.mjs plan --base <SHA40_DA_V194> --target <SHA40_RELEASE_OFICIAL> --fork <SHA40_MAIN_ELUS360>
 ```
 
 Os três SHAs devem ser **commits completos e verificáveis**. O destino deve ser descendente da base oficial. O código não executa `fetch` e não verifica por si mesmo a autenticidade de tags: o operador/runner deve verificar a proveniência fora do script.
@@ -29,6 +29,16 @@ O JSON gerado contém classificação por arquivo:
 
 A classificação é **por identidade de blobs e caminhos**, não equivalência semântica. Um código com alterações textuais diferentes pode já implementar a funcionalidade; deve ser auditado como conflito, não replicado automaticamente. Não aceitar `safe_to_prepare` como prova de ausência de efeitos colaterais.
 
+## Preparação isolada
+
+Opcionalmente, depois da análise e revisão preliminar, executar:
+
+```bash
+node scripts/elus-upstream-reconcile.mjs prepare --base <SHA40_DA_V194> --target <SHA40_RELEASE_OFICIAL> --fork <SHA40_MAIN_ELUS360> --out /tmp/elus-upstream-candidate-novo
+```
+
+O destino absoluto não deve existir e deve estar **fora do checkout atual**. O comando cria uma worktree detached do commit ELUS e aplica exclusivamente patches de arquivos `safe_to_prepare`. Arquivos sensíveis, conflitos, exclusões e migrations permanecem inalterados. O relatório `.elus-upstream/report.json` lista os arquivos preparados; **não há commit, push, merge nem execução SQL**. Um erro durante o patch não remove automaticamente a worktree, permitindo inspeção. O resultado não é uma versão pronta para produção.
+
 ## Invariantes necessários antes de uma PR de atualização
 
 1. Preservar marca ELUS360, onboarding e os contratos de governança em `lib/elus360/ai-managed/` e telas administrativas.
@@ -41,4 +51,4 @@ A classificação é **por identidade de blobs e caminhos**, não equivalência 
 
 ## Próxima capacidade
 
-Acoplar a classificação ao preparador isolado e à criação de PR, preservando arquivos sensíveis e exigindo testes aplicáveis por contrato. Esta capacidade ainda não é entregue pelo Gate 2. O executor da PR #71 do repositório histórico pode ser usado como referência de implementação, **não** como origem operacional nem migrado sem revisão.
+A classificação já está acoplada a um preparador em worktree isolada. Faltam a criação automatizada da PR com revisão dos patches, a detecção semântica profunda e a seleção de testes por contrato. Essas capacidades ainda não são entregues pelo Gate 2. O executor da PR #71 do repositório histórico pode ser usado como referência de implementação, **não** como origem operacional nem migrado sem revisão.
