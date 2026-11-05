@@ -39,6 +39,9 @@ const CHECKS = {
   non_source_asset: ["asset_and_build_manual_review"],
   non_regular_git_object: ["symlink_executable_or_gitlink_manual_review"],
   test_change_requires_review: ["test_integrity_review"],
+  protected_reverse_dependency: ["review_protected_importers", "cross_module_contract_review"],
+  uninventoried_ai_surface: ["review_ai_write_surface_inventory", "ai_managed_grants_negative"],
+  dependency_analysis_incomplete: ["manual_dependency_review"],
 };
 export function checksForSignals(signals) {
   return [...new Set(signals.flatMap(signal=>CHECKS[signal]??["manual_contract_review"]))].sort();
