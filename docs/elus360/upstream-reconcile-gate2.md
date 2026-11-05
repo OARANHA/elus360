@@ -141,6 +141,18 @@ Na mesma PR foram acrescentados testes determinísticos para: (a) import computa
 
 A sincronização no Hindsight `Elus360` continua não confirmada caso o conector permaneça `UNAVAILABLE`. A PR continua Draft; sem merge, deploy nem mudanças em banco.
 
+## Gate 1 42125199338 — métrica de arestas e prova de conservação
+
+A execução [42125199338](https://github.com/OARANHA/elus360/actions/runs/42125199338) confirmou SUCCESS no HEAD `d3ac3fcbddd340fa4608108108a9c7148fd012b6`, com sintaxe PASS, preparo **12/12** e reconciliação **39/39**. Benchmark no checkout de merge `0cd72381214cc95a9b531772216c8427d07686cd`: **3.194 fontes, 15.290 arestas dirigidas de importação, 239 recursos rastreados, 4 imports de recursos confirmados, 69/100 componentes da amostra com importadores protegidos, 3.648 ms, RSS 246,7 MiB, heap 135,5 MiB, delta heap 114 MiB**. O resultado permanece `complete:false` com **1** `computed_module_specifier` em `curso/semear-demonstracao.ts`. A etapa de benchmark teve sucesso operacional sem liberar o reconciliador para atualizações automáticas.
+
+**Comparação exata de blobs:** as árvores Git dos merges `c002c9e2677bda0a6717bd07f410400982d6e838` (3.192 fontes) e `0cd72381214cc95a9b531772216c8427d07686cd` (3.194 fontes) foram verificadas via Git Trees API com `truncated:false`. **Todos os 3.192 caminhos históricos mantiveram o mesmo SHA de blob**; zero modificados, zero removidos. Foram acrescidos apenas `sentry.edge.config.ts` e `sentry.server.config.ts`. Logo, não houve regressão do conteúdo das fontes anteriores entre esses dois snapshots. Isso não comprova automaticamente igualdade das arestas do resolvedor; esse é um gate separado.
+
+**Próximo gate publicado, pendente de CI:** o benchmark reconstrói o grafo do inventário histórico no mesmo checkout (sem as duas novas fontes) e compara o conjunto completo de pares `[dependência, importador]` com o grafo expandido. Registra `prior_inventory_sources`, `prior_inventory_edges`, `retained_prior_edges`, `lost_prior_edges` e `added_module_edges`. A opção `--require-edge-preservation` faz a CI falhar se o inventário anterior não tiver 3.192 fontes ou se qualquer par anterior desaparecer. Há teste adversarial com remoção intencional de um import para confirmar que a comparação detecta perda de aresta. Esta prova mede conservação de arestas em um conjunto de fontes idênticas, porém não realiza verificação de semântica/autorização em runtime. Se o inventário mudar em commit futuro, será preciso revalidar a baseline pinada, não desativar o gate.
+
+**Evidência fail-closed:** o run 42125199338 executou o teste de integração `import computado em fonte runtime bloqueia candidato ordinario e prepare` (PASS). O teste exige `dependency_scan.complete=false`, motivo `computed_module_specifier` e `status=contract_requires_review` para o candidato ordinário; nunca `safe_to_prepare`. O teste de remoção de CSS também passou no mesmo workflow, provando que a ausência de um blob regular torna o scan inconclusivo. Os demais testes de módulos Sentry, hooks e dependências protegidas ficaram GREEN nesse HEAD. A avaliação funcional final, incluindo novos commits e eventual teste canário controlado, permanece **não aprovada**.
+
+**Memória:** consultar o Hindsight `Elus360`; enquanto o serviço continuar `UNAVAILABLE`, este documento e o comentário de PR constituem checkpoint operacional versionado, sem afirmar gravação no banco da memória.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
