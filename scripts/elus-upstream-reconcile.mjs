@@ -116,7 +116,7 @@ function inspectForkDependencies(fork,candidatePaths) {
   const config=configId?readSource(fork,"tsconfig.json",configId):null;
   const graph=dependencyGraph(sources,config??"");
   return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
-    complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length};
+    complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length,unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort()};
 }
 function inventoryFor(fork) {
   const path="docs/elus360/ai-governance-write-surfaces.json";
@@ -172,7 +172,7 @@ export function reconcile(base, target, fork) {
     fork: "OARANHA/elus360", upstream: "melgarafael/DeskcommCRM",
     refs: {base, target, fork}, totals: {changed: files.length, ...counts},
     gate: gated.length ? "manual_review_required" : "candidate_analysis_ready",
-    dependency_scan: {scope:"typescript_ast_transitive_imports",scanned:dependencyScan.count,complete:dependencyScan.complete,unresolved_count:dependencyScan.unresolved},
+    dependency_scan: {scope:"typescript_ast_transitive_imports",scanned:dependencyScan.count,complete:dependencyScan.complete,unresolved_count:dependencyScan.unresolved,unresolved_reasons:dependencyScan.unresolved_reasons??[]},
     uninventoried_ai_paths: [...uninventoried].sort(),
     disclaimer: "Comparacao por blobs, nao prova equivalencia semantica. Nenhuma alteracao foi aplicada. Validar SHA oficial, testes e contratos antes da PR.",
     files
