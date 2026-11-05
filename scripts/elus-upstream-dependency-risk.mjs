@@ -127,7 +127,7 @@ export function compilerOptionsFromConfig(raw) {
   const options={...converted.options,baseUrl:converted.options.baseUrl??".",moduleResolution:converted.options.moduleResolution??ts.ModuleResolutionKind.Bundler};
   return {options,reason:null};
 }
-function normalizedFile(path) {return posix.normalize(path.replace(/\\\\/g,"/")).replace(/^\\.\\//,"");}
+function normalizedFile(path) {const normalized=posix.normalize(path.split("\\\\").join("/"));return normalized.startsWith("./")?normalized.slice(2):normalized;}
 function configuredResolver(sources,rawConfig) {
   const config=compilerOptionsFromConfig(rawConfig);
   const sourceByPath=new Map(sources.map(s=>[normalizedFile(s.path),s.content]));
