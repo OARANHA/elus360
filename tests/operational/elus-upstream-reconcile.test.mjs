@@ -691,3 +691,66 @@ test("contrato CommonJS alterado sem imports nao recebe classificador seguro",as
   const direct=contractSignals("components/access.cjs","module.exports=function check(){return false;}","module.exports=function check(){return true;}");
   assert.ok(direct.includes("exported_contract_change"),JSON.stringify(direct));
 });
+
+test("simulacao DeskcommCRM v1-v2-v3 preserva correcoes ELUS no fork e aplica somente patches ordinarios",()=>{
+  const cwd=mkdtempSync(join(tmpdir(),"elus-upstream-multiversion-"));
+  const previous=process.cwd(),out=join(tmpdir(),"elus-upstream-multiversion-out-"+process.pid+"-"+Date.now());
+  const set=(path,content)=>{const full=join(cwd,path);mkdirSync(dirname(full),{recursive:true});writeFileSync(full,content);};
+  const commit=label=>{git(cwd,"add",".");git(cwd,"commit","-qm",label);return git(cwd,"rev-parse","HEAD");};
+  try{
+    git(cwd,"init","-q");git(cwd,"config","user.name","ELUS Tests");git(cwd,"config","user.email","tests@example.invalid");
+    set("tsconfig.json",JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}}));
+    set("components/ordinary.ts","const ordinary=1;");
+    set("components/fork-custom.ts","const elusCorrectedValue=1;");
+    set("lib/auth/require-role.ts","export function requireRole(role:string){return role==='admin';}");
+    set("lib/tenant/scope.ts","export function scoped(id:string,row:{org:string}){return row.org===id;}");
+    set("lib/ai/agent-policy.ts","export function allowAgent(granted:boolean){return granted;}");
+    set("app/api/v1/ai/agents/route.ts","export async function PATCH(){return new Response('denied',{status:403});}");
+    set("lib/elus360/identity.ts","export const identity='elus-owned';");
+    const upstreamV1=commit("DeskcommCRM v1");
+    // Simulate upstream v2: ordinary improvement + changes to security and ELUS-owned surfaces.
+    set("components/ordinary.ts","const ordinary=2;");
+    set("components/fork-custom.ts","const elusCorrectedValue=2;");
+    set("lib/auth/require-role.ts","export function requireRole(role:string){return true;}");
+    set("lib/tenant/scope.ts","export function scoped(id:string,row:{org:string}){return true;}");
+    set("lib/ai/agent-policy.ts","export function allowAgent(granted:boolean){return true;}");
+    set("app/api/v1/ai/agents/route.ts","export async function PATCH(){return Response.json({ok:true});}");
+    set("lib/elus360/identity.ts","export const identity='upstream-override';");
+    const upstreamV2=commit("DeskcommCRM v2 contract mutations");
+    // v3 is a second upstream update; the ordinary improvement remains eligible.
+    set("components/ordinary.ts","const ordinary=3;");
+    const upstreamV3=commit("DeskcommCRM v3 ordinary improvement");
+    git(cwd,"checkout","-q",upstreamV1);
+    set("components/fork-custom.ts","const elusCorrectedValue='FIXED_BY_ELUS';");
+    set("lib/elus360/identity.ts","export const identity='elus-owned-v2';");
+    const fork=commit("ELUS-owned bugfix and isolated customization");
+    process.chdir(cwd);
+    const report=reconcile(upstreamV1,upstreamV3,fork);
+    const status=Object.fromEntries(report.files.map(file=>[file.path,file.status]));
+    assert.equal(status["components/ordinary.ts"],"safe_to_prepare");
+    assert.equal(status["components/fork-custom.ts"],"conflict_requires_review");
+    assert.equal(status["lib/elus360/identity.ts"],"protected_requires_review");
+    for(const path of ["lib/auth/require-role.ts","lib/tenant/scope.ts","lib/ai/agent-policy.ts","app/api/v1/ai/agents/route.ts"])
+      assert.equal(status[path],"contract_requires_review",path);
+    assert.equal(report.gate,"manual_review_required");
+    const beforeFork=git(cwd,"rev-parse","HEAD");
+    const prepared=prepare(upstreamV1,upstreamV3,fork,out);
+    assert.equal(prepared.preparedFiles,1);
+    assert.equal(readFileSync(join(out,"components/ordinary.ts"),"utf8"),"const ordinary=3;");
+    assert.equal(readFileSync(join(out,"components/fork-custom.ts"),"utf8"),"const elusCorrectedValue='FIXED_BY_ELUS';");
+    assert.equal(readFileSync(join(out,"lib/elus360/identity.ts"),"utf8"),"export const identity='elus-owned-v2';");
+    assert.equal(readFileSync(join(out,"lib/auth/require-role.ts"),"utf8"),"export function requireRole(role:string){return role==='admin';}");
+    assert.equal(readFileSync(join(out,"lib/tenant/scope.ts"),"utf8"),"export function scoped(id:string,row:{org:string}){return row.org===id;}");
+    assert.equal(readFileSync(join(out,"lib/ai/agent-policy.ts"),"utf8"),"export function allowAgent(granted:boolean){return granted;}");
+    assert.equal(readFileSync(join(out,"app/api/v1/ai/agents/route.ts"),"utf8"),"export async function PATCH(){return new Response('denied',{status:403});}");
+    const reportJson=JSON.parse(readFileSync(join(out,".elus-upstream/report.json"),"utf8"));
+    assert.deepEqual(reportJson.preparedFiles,["components/ordinary.ts"]);
+    assert.equal(git(cwd,"rev-parse","HEAD"),beforeFork);
+    assert.equal(git(cwd,"status","--porcelain"),"");
+  }finally{
+    process.chdir(cwd);
+    if(existsSync(out)) git(cwd,"worktree","remove","--force",out);
+    process.chdir(previous);
+    rmSync(cwd,{recursive:true,force:true});
+  }
+});
