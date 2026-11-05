@@ -182,6 +182,36 @@ Os testes adversariais relevantes estão explicitamente aprovados no log: `entry
 
 **Memória:** Hindsight `Elus360` segue sujeito à verificação de conectividade. Não afirmar `sync_retain` bem-sucedido sem confirmação explícita do serviço.
 
+## Gate semântico/operacional — contrato exportado e worktree isolada (05/11/2026)
+
+**Contexto de início:** Gerente IA confirmou **Gate 1 GREEN** run [42128546326](https://github.com/OARANHA/elus360/actions/runs/42128546326) para HEAD `90935d0ff437586617857e1579a464c36c82fd30`. Esta autorização **não** incluiu merge, deploy, alteração de banco ou aceite funcional do reconciliador. Hindsight `Elus360` foi consultado antes da implementação, mas a chamada retornou `UNAVAILABLE`; o checkpoint permanece versionado e a sincronização segue pendente.
+
+**Evolução publicada:** além do grafo de imports, `scripts/elus-upstream-contract-risk.mjs` agora examina AST das versões anterior/nova de código JS/TS, incluindo JSX/TSX, exports diretos, exports nomeados, export default e atribuições CommonJS `module.exports` / `exports.nome`. Mudanças em declarações exportadas geram `exported_contract_change`; alterações em implementações internas de módulos com exports inalterados geram `exported_module_internal_change`; falha de parsing ou ausência do compilador TypeScript gera `semantic_analysis_incomplete`. Todos são sinais de revisão, **nunca autorização automática**. A comparação é sintática/conservadora, **não** comprova equivalência comportamental ou tipos em runtime.
+
+### Matriz de cenários esperados versus observados
+
+| Cenário representativo DeskcommCRM / ELUS360 | Fixture | Resultado esperado | Evidência observada |
+| --- | --- | --- | --- |
+| Autenticação: função pública deixa de exigir papel admin | `components/policy.ts` | `exported_contract_change`, revisão | Teste novo publicado; CI pendente |
+| RBAC: assinatura de autorização passa a aceitar papel genérico | `components/role.ts` | `exported_contract_change`, revisão | Teste novo publicado; CI pendente |
+| Multi-tenancy: filtro de organização deixa de comparar tenant | `components/tenant.ts` | `exported_contract_change`, revisão | Teste novo publicado; CI pendente |
+| Governança IA: função exportada passa a ignorar grant | `components/agent.ts` | `exported_contract_change`, revisão | Teste novo publicado; CI pendente |
+| API: serializador público muda o payload sem novo import | `components/endpoint.ts` | `exported_contract_change`, revisão | Teste novo publicado; CI pendente |
+| API PATCH: handler deixa de validar autorização | `app/api/v1/ai/agents/[id]/versions/[vid]/route.ts` (código sintético representativo) | Revisão obrigatória | Teste novo publicado; CI pendente |
+| Implementação interna de função exposta via `export {canManage}` | `components/access.ts` | `exported_module_internal_change`, revisão | Teste novo publicado; CI pendente |
+| Export CommonJS muda retorno/ignora papel | `components/access.cjs` | `exported_module_internal_change` ou `exported_contract_change` | Teste novo publicado; CI pendente |
+| Resolução de cinco links import/reexport auth, RBAC, IA, API e MCP | `TypeScript Program/CompilerHost` independente vs grafo AST | Destinos e pares idênticos | Teste novo publicado; CI pendente |
+| Prepare com alteração de contrato exportado + alteração ordinária | Git temporário e worktree detached | Aplicar só arquivo ordinário; preservar contrato e checkout de origem | Teste novo publicado; CI pendente |
+| Import computado sem destino estático | `curso/semear-demonstracao.ts` e fixture | `complete:false`; nenhum `safe_to_prepare` | **PASS** nos 40/40 testes do run [42127652555](https://github.com/OARANHA/elus360/actions/runs/42127652555) |
+| Recurso CSS removido após estar presente no Git | Git temporário e worktree | `contract_requires_review` | **PASS** no run 42127652555 |
+| Alteração ordinária sem export público, sem signals, sem consumidores protegidos | `components/plain.ts` | Pode ser `safe_to_prepare` após gates completos | Teste novo publicado; CI pendente |
+
+Os nomes de arquivos `components/*` da matriz são **fixtures sintéticas** inspiradas nas categorias de contrato existentes; não foram alterados os endpoints de produção. A fixture `PATCH` utiliza a nomenclatura de uma rota efetivamente presente no repositório, mas seu conteúdo simplificado **não equivale** ao handler real. Nenhum teste real de HTTP, Supabase, RLS ou autorização em produção foi executado.
+
+**Critérios para avançar:** (1) CI de sintaxe e testes sem falhas; (2) oráculo independente `TypeScript Program/CompilerHost` concorda nos cinco vínculos de imports/reexports da fixture; (3) nenhuma alteração de contrato exportado ou import computado recebe `safe_to_prepare`; (4) `prepare` em worktree destacada preserva o arquivo de contrato no commit de origem e aplica somente mudanças ordinárias; (5) relatórios documentam os caminhos bloqueados e o erro de parsing; (6) para aceite funcional final, ainda falta validação de comportamento e autorização em ambiente isolado antes de qualquer canário real, respeitando governança e deploy.
+
+**Riscos residuais:** um AST sintático não detecta todas as mudanças indiretas possíveis, inclusive efeitos colaterais em módulos sem exports, chamadas remotas, aliases de runtime, mudanças ambientais ou semântica entre frameworks. Diferenças de imports só foram confrontadas em fixtures do `CompilerHost`; o inventário real ainda não foi integralmente comparado por um segundo compilador. O fail-closed do grafo permanece necessário.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
