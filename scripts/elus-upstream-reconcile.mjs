@@ -85,7 +85,7 @@ function parse(args) {
 function inspectForkDependencies(fork,candidatePaths) {
   if(!candidatePaths.length) return {dependents:new Map(),complete:true,count:0,unresolved:0};
   // One Git tree read and one batch object read (rather than three processes per source).
-  const tree=git(["ls-tree","-r","-z",fork,"--","app/","lib/","components/","workers/","hooks/","types/","curso/"],{binary:true});
+  const tree=git(["ls-tree","-r","-z",fork,"--","app/","lib/","components/","workers/","hooks/","types/","curso/","proxy.ts","instrumentation.ts","instrumentation-client.ts"],{binary:true});
   const entries=tree.toString("utf8").split("\0").filter(Boolean).map(line=>{
     const tab=line.indexOf("\t"),metadata=line.slice(0,tab).split(" ");
     return {path:line.slice(tab+1),mode:metadata[0],type:metadata[1],oid:metadata[2]};
