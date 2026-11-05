@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+let ts;
+try { ts = require("typescript"); } catch { ts = null; }
 /**
  * ELUS Upstream Sync — heuristicas conservadoras de impacto de contrato.
  * Sinais NÃO provam equivalência semântica ou segurança; apenas escalonam revisão.
@@ -11,6 +15,30 @@ const rules = [
   ["messaging_events", /\b(?:event_log|WAHA|whatsapp|dispatch|webhook|Idempotency-Key|audit_log)\b/i],
   ["sensitive_import", /(?:from\s*["']|import\s*\(["']|require\s*\(["'])(?:@\/|\.\.?\/)(?:[^"']*\/)?(?:elus360|auth|supabase|ai-managed|agent-engine|governanca|mcp|permissions|credentials|rbac|audit)(?:\/|["'])/i],
 ];
+/** Conservative AST guard for export contracts modified without any import change. */
+export function semanticContractSignals(path,before,after) {
+  if(!/\\.(?:[cm]?[jt]s|[jt]sx)$/.test(path) || before===after) return [];
+  if(!ts) return ["semantic_analysis_incomplete"];
+  const analyze=content=>{
+    const kind=/\\.tsx$/.test(path)?ts.ScriptKind.TSX:ts.ScriptKind.TS;
+    const ast=ts.createSourceFile(path,content,ts.ScriptTarget.Latest,true,kind);
+    if(ast.parseDiagnostics.length) return null;
+    const exports=[];
+    for(const statement of ast.statements) {
+      const isExport=ts.isExportDeclaration(statement)||ts.isExportAssignment(statement)||
+        statement.modifiers?.some(m=>m.kind===ts.SyntaxKind.ExportKeyword||m.kind===ts.SyntaxKind.DefaultKeyword);
+      if(!isExport) continue;
+      // Exported declarations and reexports are public contracts; their bodies, types
+      // and initializer expressions can change behavior without adding an import edge.
+      exports.push(statement.getText(ast));
+    }
+    return exports;
+  };
+  const oldExports=analyze(before),newExports=analyze(after);
+  if(!oldExports||!newExports) return ["semantic_analysis_incomplete"];
+  if(JSON.stringify(oldExports)!==JSON.stringify(newExports)) return ["exported_contract_change"];
+  return [];
+}
 export function contractSignals(path, before, after) {
   // Apenas texto UTF-8 puro de tamanho moderado pode receber classificação automática.
   if (typeof before !== "string" || typeof after !== "string") return ["uninspectable_content"];
@@ -19,7 +47,7 @@ export function contractSignals(path, before, after) {
   const changed = before !== after;
   if (!changed) return [];
   const combined = before + "\n" + after;
-  return rules.filter(([,rx])=>rx.test(combined)).map(([label])=>label);
+  return [...rules.filter(([,rx])=>rx.test(combined)).map(([label])=>label),...semanticContractSignals(path,before,after)];
 }
 export function auditPath(path, type) {
   if (!/\.(?:mjs|cjs|js|jsx|ts|tsx)$/.test(path)) return ["non_source_asset"];
@@ -29,6 +57,8 @@ export function auditPath(path, type) {
 }
 
 const CHECKS = {
+  exported_contract_change: ["export_surface_semantic_review", "runtime_contract_regression"],
+  semantic_analysis_incomplete: ["manual_ast_parse_review"],
   tenant_isolation: ["cross_tenant_rls_negative", "service_role_org_filter"],
   authentication_authorization: ["auth_rbac_mfa_negative", "api_token_access"],
   managed_ai: ["ai_managed_grants_negative", "provider_model_credentials_write_paths"],
