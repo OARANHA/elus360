@@ -486,3 +486,45 @@ test("scanner pinado reconhece CSS Git regular e bloqueia recurso removido",()=>
     assert.ok(candidate.signals.includes("dependency_analysis_incomplete"));
   }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
 });
+
+test("import computado em fonte runtime bloqueia candidato ordinario e prepare",()=>{
+  const f=fixture(),previous=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    mkdirSync(join(f.cwd,"curso"),{recursive:true});
+    writeFileSync(join(f.cwd,"curso/runtime.ts"),'export async function carregar(nome){return import(nome)}');
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","dynamic source in fork");
+    const sha=git(f.cwd,"rev-parse","HEAD");
+    const report=reconcile(f.base,f.target,sha);
+    const candidate=report.files.find(file=>file.path==="components/safe.tsx");
+    assert.equal(report.dependency_scan.complete,false);
+    assert.ok(report.dependency_scan.unresolved_reasons.includes("computed_module_specifier"));
+    assert.equal(candidate.status,"contract_requires_review");
+    assert.ok(candidate.signals.includes("dependency_analysis_incomplete"));
+    assert.equal(report.totals.safe_to_prepare??0,0);
+  }finally{process.chdir(previous);rmSync(f.cwd,{recursive:true,force:true});}
+});
+test("cobertura reversa adicionada nao remove arestas ou consumidores protegidos",async()=>{
+  const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}});
+  const base=[
+    {path:"components/shared.ts",content:"export const x=1;"},
+    {path:"hooks/useShared.ts",content:'export {x} from "@/components/shared";'},
+    {path:"lib/auth/guard.ts",content:'import {x} from "@/hooks/useShared"; export const guard=x;'}
+  ];
+  const expanded=[...base,
+    {path:"sentry.server.config.ts",content:'import "@/lib/auth/guard";'},
+    {path:"instrumentation.ts",content:'import("./sentry.server.config");'}
+  ];
+  const before=dependencyGraph(base,config);
+  const after=dependencyGraph(expanded,config);
+  assert.equal(before.complete,true,JSON.stringify(before.unresolved));
+  assert.equal(after.complete,true,JSON.stringify(after.unresolved));
+  assert.ok(after.edge_count>=before.edge_count);
+  const prev=transitiveProtectedDependents(["components/shared.ts"],base,before).get("components/shared");
+  const next=transitiveProtectedDependents(["components/shared.ts"],expanded,after).get("components/shared");
+  assert.deepEqual(prev,["lib/auth/guard.ts"]);
+  assert.deepEqual(next,prev);
+  assert.ok(after.reverse.get("lib/auth/guard.ts").has("sentry.server.config.ts"));
+  assert.ok(after.reverse.get("sentry.server.config.ts").has("instrumentation.ts"));
+});
