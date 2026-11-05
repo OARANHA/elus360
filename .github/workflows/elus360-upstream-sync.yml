@@ -7,6 +7,7 @@ on:
       - "docs/elus360/upstream-sync.md"
       - "scripts/elus-upstream-prepare.mjs"
       - "scripts/elus-upstream-reconcile.mjs"
+      - "scripts/elus-upstream-contract-risk.mjs"
       - "tests/operational/elus-upstream-prepare.test.mjs"
       - "tests/operational/elus-upstream-reconcile.test.mjs"
       - ".github/workflows/elus360-upstream-sync.yml"
@@ -27,6 +28,7 @@ jobs:
         run: |
           node --check scripts/elus-upstream-prepare.mjs
           node --check scripts/elus-upstream-reconcile.mjs
+          node --check scripts/elus-upstream-contract-risk.mjs
       - name: Gates sem rede externa, banco ou Docker
         run: |
           node --test tests/operational/elus-upstream-prepare.test.mjs
