@@ -90,7 +90,7 @@ function inspectForkDependencies(fork,candidatePaths) {
     const tab=line.indexOf("\t"),metadata=line.slice(0,tab).split(" ");
     return {path:line.slice(tab+1),mode:metadata[0],type:metadata[1],oid:metadata[2]};
   }).filter(entry=>/\.(?:[cm]?[jt]s|[jt]sx)$/.test(entry.path) && !/\.test\.[jt]sx?$/.test(entry.path));
-  const resourcePaths=tree.toString("utf8").split("\0").filter(Boolean).map(line=>line.slice(line.indexOf("\t")+1)).filter(path=>/\\.(?:css|scss|sass|json)$/.test(path));
+  const resourcePaths=tree.toString("utf8").split("\0").filter(Boolean).map(line=>line.slice(line.indexOf("\t")+1)).filter(path=>/\.(?:css|scss|sass|json)$/.test(path));
   if(entries.length>5000 || entries.some(e=>e.mode!=="100644"||e.type!=="blob"))
     return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
   if(!entries.length) return {dependents:new Map(),complete:false,count:0,unresolved:1};
