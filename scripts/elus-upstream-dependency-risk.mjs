@@ -188,7 +188,7 @@ export function dependencyGraph(sources,rawConfig=null,resourcePaths=[]) {
       const consumers=reverse.get(resolved.path)??new Set();consumers.add(path);reverse.set(resolved.path,consumers);
     }
   }
-  return {reverse,unresolved,complete:unresolved.length===0,scanned:sources.length,verified_resources};
+  return {reverse,unresolved,complete:unresolved.length===0,scanned:sources.length,verified_resources,edge_count:[...reverse.values()].reduce((n,users)=>n+users.size,0)};
 }
 export function transitiveProtectedDependents(changedPaths,sources,graph=dependencyGraph(sources)) {
   const available=new Set(sources.map(s=>s.path)),result=new Map();
