@@ -269,7 +269,7 @@ test("aliases locais desconhecidos nao sao tratados como packages externos",asyn
     {path:"components/demo2.ts",content:'import "#private/helper";'}
   ]);
   assert.equal(graph.complete,false);
-  assert.equal(graph.unresolved.filter(x=>x.reason==="unresolved_local_module").length,2);
+  assert.equal(graph.unresolved.filter(x=>x.reason==="unsupported_local_specifier").length,2);
 });
 test("grafo longo preserva integridade de caminhos e ciclos dentro de limite",async()=>{
   const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
