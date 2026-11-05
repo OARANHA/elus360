@@ -128,10 +128,11 @@ export function compilerOptionsFromConfig(raw) {
   return {options,reason:null};
 }
 function normalizedFile(path) {const normalized=posix.normalize(path.split("\\\\").join("/"));return normalized.startsWith("./")?normalized.slice(2):normalized;}
-function configuredResolver(sources,rawConfig) {
+function configuredResolver(sources,rawConfig,resourcePaths=[]) {
   const config=compilerOptionsFromConfig(rawConfig);
   const sourceByPath=new Map(sources.map(s=>[normalizedFile(s.path),s.content]));
-  const available=new Set(sourceByPath.keys());
+  const available=new Set([...sourceByPath.keys(),...resourcePaths.map(normalizedFile)]);
+  const resources=new Set(resourcePaths.map(normalizedFile));
   const cache=config.options?ts.createModuleResolutionCache(".",path=>path,config.options):null;
   const dirs=new Set(["."]);
   for(const path of available) {let dir=posix.dirname(path);while(dir!=="."&&!dirs.has(dir)){dirs.add(dir);dir=posix.dirname(dir);}}
@@ -154,7 +155,14 @@ function configuredResolver(sources,rawConfig) {
     if(!config.options) return {local:true,path:null,reason:config.reason};
     const result=ts.resolveModuleName(specifier,importer,config.options,host,cache);
     const resolved=normalizedFile(result.resolvedModule?.resolvedFileName??"");
-    if(resolved && available.has(resolved)) return {local:true,path:resolved,reason:null};
+    if(resolved && sourceByPath.has(resolved)) return {local:true,path:resolved,reason:null};
+    if(resolved && resources.has(resolved)) return {local:true,path:null,resource:true,reason:null};
+    // CSS and JSON are non-executable leaves: only an exact tracked path is accepted.
+    // Missing assets must still block, never silently suppress the import.
+    if(isRelative && /\\.(?:css|scss|sass|json)$/.test(specifier)) {
+      const leaf=normalizedFile(posix.join(posix.dirname(importer),specifier));
+      if(resources.has(leaf)) return {local:true,path:null,resource:true,reason:null};
+    }
     // A configured alias or relative import must never fall back to a package.
     if(local) return {local:true,path:null,reason:"unresolved_configured_module"};
     // baseUrl can resolve unprefixed local modules. If not found, treat as external.
@@ -162,9 +170,9 @@ function configuredResolver(sources,rawConfig) {
   }};
 }
 /** Missing local module, syntax error or computed import blocks automatic preparation. */
-export function dependencyGraph(sources,rawConfig=null) {
+export function dependencyGraph(sources,rawConfig=null,resourcePaths=[]) {
   const available=new Set(sources.map(s=>s.path)),reverse=new Map(),unresolved=[];
-  const configured=rawConfig===null?null:configuredResolver(sources,rawConfig);
+  const configured=rawConfig===null?null:configuredResolver(sources,rawConfig,resourcePaths);
   if(configured?.config.reason) unresolved.push({reason:configured.config.reason});
   if(!ts) unresolved.push({reason:"typescript_compiler_missing"});
   for(const {path,content} of sources){
@@ -174,6 +182,7 @@ export function dependencyGraph(sources,rawConfig=null) {
       if(!configured && !isLocal(specifier)) continue;
       const resolved=configured?configured.resolve(specifier,path):resolveLocal(specifier,path,available);
       if(configured && !resolved.local) continue;
+      if(resolved.resource) continue;
       if(!resolved.path){unresolved.push({path,reason:resolved.reason,specifier});continue;}
       const consumers=reverse.get(resolved.path)??new Set();consumers.add(path);reverse.set(resolved.path,consumers);
     }
