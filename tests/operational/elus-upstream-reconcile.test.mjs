@@ -358,3 +358,11 @@ test("falha de parse e import computado preservam fail-closed",async()=>{
   const computed=changedModuleSignals("components/a.ts","export const x=1;","export const y=import(target);",config);
   assert.ok(computed.includes("dependency_analysis_incomplete"));
 });
+
+test("tsconfig extends sem suporte nao libera integracao automatica",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const cfg=JSON.stringify({extends:"./tsconfig.base.json",compilerOptions:{moduleResolution:"bundler",module:"esnext"}});
+  const graph=dependencyGraph([{path:"components/a.ts",content:"export const a=1;"}],cfg);
+  assert.equal(graph.complete,false);
+  assert.ok(graph.unresolved.some(e=>e.reason==="unsupported_tsconfig_extends"));
+});
