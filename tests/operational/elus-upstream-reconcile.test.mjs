@@ -450,3 +450,19 @@ test("entrypoints Sentry seguem dependencias TS protegidas, sem ignorar modulo a
   assert.equal(missing.complete,false);
   assert.ok(missing.unresolved.some(x=>x.specifier==="./sentry.server.config"));
 });
+
+test("mudancas no layout raiz e recursos nao executaveis nunca sao safe_to_prepare",async()=>{
+  const {auditPath}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  assert.ok(auditPath("app/globals.css","100644").includes("non_source_asset"));
+  assert.ok(auditPath("curso/espanhol-demonstracao.json","100644").includes("non_source_asset"));
+  const f=fixture(),prior=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.target);
+    mkdirSync(join(f.cwd,"app"),{recursive:true});
+    writeFileSync(join(f.cwd,"app/layout.tsx"),"export const metadata={title:'Upstream'};");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","layout-upstream-change");
+    const report=reconcile(f.base,git(f.cwd,"rev-parse","HEAD"),f.fork);
+    assert.equal(report.files.find(v=>v.path==="app/layout.tsx").status,"contract_requires_review");
+  }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
+});
