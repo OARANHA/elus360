@@ -7,7 +7,7 @@ import { dependencyGraph, transitiveProtectedDependents } from "./elus-upstream-
 const started=performance.now();
 const memoryStart=process.memoryUsage();
 const names=execFileSync("git",["ls-files","-z"],{maxBuffer:32*1024*1024})
- .toString("utf8").split("\0").filter(path=>(/^(?:app|lib|components|workers|hooks|types|curso)\//.test(path)||/^(?:proxy|instrumentation|instrumentation-client)\.ts$/.test(path))&&/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)&&!/\.test\.[jt]sx?$/.test(path));
+ .toString("utf8").split("\0").filter(path=>(/^(?:app|lib|components|workers|hooks|types|curso)\//.test(path)||/^(?:proxy|instrumentation|instrumentation-client|sentry\.edge\.config|sentry\.server\.config)\.ts$/.test(path))&&/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)&&!/\.test\.[jt]sx?$/.test(path));
 const count=names.length;
 if(!count || count>5000) {
   console.log(JSON.stringify({benchmark:"elus-real-tree-ast",head:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),sources:count,complete:false,reason:count?"source_limit_exceeded":"empty_source_inventory",duration_ms:Math.round(performance.now()-started)}));
@@ -21,7 +21,8 @@ for(const path of names) {
   sources.push({path,content:new TextDecoder("utf-8",{fatal:true}).decode(bytes)});
 }
 const config=readFileSync("tsconfig.json","utf8");
-const graph=dependencyGraph(sources,config);
+const resources=execFileSync("git",["ls-files","-z"],{maxBuffer:32*1024*1024}).toString("utf8").split("\0").filter(path=>/\\.(?:css|scss|sass|json)$/.test(path));
+const graph=dependencyGraph(sources,config,resources);
 const reasonCounts={};
 for(const item of graph.unresolved) reasonCounts[item.reason]=(reasonCounts[item.reason]??0)+1;
 const unresolvedSamples={};
