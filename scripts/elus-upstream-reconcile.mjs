@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals } from "./elus-upstream-contract-risk.mjs";
-import { PROTECTED_PATHS, directProtectedDependents, protectedConsumers, uninventoriedAiSurfaces } from "./elus-upstream-dependency-risk.mjs";
+import { transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -84,10 +84,10 @@ function parse(args) {
 }
 function inspectForkDependencies(fork, candidatePaths) {
   if (!candidatePaths.length) return {dependents:new Map(), complete:true, count:0};
-  const buf=git(["ls-tree","-r","-z","--name-only",fork,"--",...PROTECTED_PATHS],{binary:true});
+  const buf=git(["ls-tree","-r","-z","--name-only",fork,"--","app/","lib/","components/","workers/"],{binary:true});
   const sourcePaths=buf.toString("utf8").split("\0").filter(p=>/\.(?:[cm]?js|jsx|tsx?)$/.test(p));
   // The scan is bounded. An incomplete scan MUST NOT silently greenlight a candidate.
-  if (sourcePaths.length>450) return {dependents:new Map(),complete:false,count:sourcePaths.length};
+  if (sourcePaths.length>2400) return {dependents:new Map(),complete:false,count:sourcePaths.length};
   const sources=[];
   for(const path of sourcePaths) {
     const id=oid(fork,path);
@@ -97,7 +97,7 @@ function inspectForkDependencies(fork, candidatePaths) {
     if(content===null) return {dependents:new Map(),complete:false,count:sourcePaths.length};
     sources.push({path,content});
   }
-  return {dependents:directProtectedDependents(candidatePaths,sources),complete:true,count:sources.length};
+  return {dependents:transitiveProtectedDependents(candidatePaths,sources),complete:true,count:sources.length};
 }
 function inventoryFor(fork) {
   const path="docs/elus360/ai-governance-write-surfaces.json";
@@ -148,7 +148,7 @@ export function reconcile(base, target, fork) {
     fork: "OARANHA/elus360", upstream: "melgarafael/DeskcommCRM",
     refs: {base, target, fork}, totals: {changed: files.length, ...counts},
     gate: gated.length ? "manual_review_required" : "candidate_analysis_ready",
-    dependency_scan: {scope:"direct_protected_imports",scanned:dependencyScan.count,complete:dependencyScan.complete},
+    dependency_scan: {scope:"transitive_protected_imports",scanned:dependencyScan.count,complete:dependencyScan.complete},
     uninventoried_ai_paths: [...uninventoried].sort(),
     disclaimer: "Comparacao por blobs, nao prova equivalencia semantica. Nenhuma alteracao foi aplicada. Validar SHA oficial, testes e contratos antes da PR.",
     files
