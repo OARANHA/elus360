@@ -528,3 +528,30 @@ test("cobertura reversa adicionada nao remove arestas ou consumidores protegidos
   assert.ok(after.reverse.get("lib/auth/guard.ts").has("sentry.server.config.ts"));
   assert.ok(after.reverse.get("sentry.server.config.ts").has("instrumentation.ts"));
 });
+
+test("comparacao exata do conjunto de arestas nao oculta regressao do grafo",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}});
+  const baseline=[
+    {path:"components/shared.ts",content:"export const x=1;"},
+    {path:"hooks/useShared.ts",content:'export {x} from "@/components/shared";'},
+    {path:"lib/auth/guard.ts",content:'import {x} from "@/hooks/useShared";'},
+  ];
+  const added=[
+    ...baseline,
+    {path:"sentry.server.config.ts",content:'import "@/lib/auth/guard";'},
+    {path:"instrumentation.ts",content:'import("./sentry.server.config");'}
+  ];
+  const pairs=g=>new Set([...g.reverse].flatMap(([target,users])=>[...users].map(user=>JSON.stringify([target,user]))));
+  const oldGraph=dependencyGraph(baseline,config),newGraph=dependencyGraph(added,config);
+  const oldPairs=pairs(oldGraph),newPairs=pairs(newGraph);
+  assert.equal(oldGraph.complete,true,JSON.stringify(oldGraph.unresolved));
+  assert.equal(newGraph.complete,true,JSON.stringify(newGraph.unresolved));
+  assert.equal(oldGraph.edge_count,2);
+  assert.equal(newGraph.edge_count,4);
+  for(const edge of oldPairs) assert.ok(newPairs.has(edge),"aresta anterior perdida: "+edge);
+  // Deliberate reverse-graph regression must be detected by exact pair comparison.
+  const mutated=added.map(s=>s.path==="hooks/useShared.ts"?{...s,content:"export const x=0;"}:s);
+  const lostPairs=pairs(dependencyGraph(mutated,config));
+  assert.ok([...oldPairs].some(edge=>!lostPairs.has(edge)));
+});
