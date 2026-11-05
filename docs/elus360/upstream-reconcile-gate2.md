@@ -109,6 +109,16 @@ Workflow [42119277811](https://github.com/OARANHA/elus360/actions/runs/421192778
 
 O conector Hindsight `Elus360` retornou `UNAVAILABLE` durante esta rodada. Este checkpoint versionado é o substituto rastreável temporário; **não declara sincronização de memória concluída**.
 
+## Gate de redução de resolução inconclusiva — PR #20
+
+**Baseline comprovado:** execução [42120593035](https://github.com/OARANHA/elus360/actions/runs/42120593035) do commit `03c5e04a0f81c80d57c49526d92434bc767ff8f4` (checkout sintético do merge `a4365d03692f701bc41eacdb20fbcc60a9f355ab`). O workflow concluiu **GREEN**, 12 testes de preparação e **31 testes de reconciliação PASS**. O benchmark no checkout de CI reportou **3.914 fontes, 4.968 ms, RSS 270,4 MiB, heap utilizado 148,9 MiB, variação de heap 127,5 MiB, 58 de 100 componentes amostrados com consumidores protegidos, `complete:false`, 1.220 problemas**. Distribuição: **1.219 `unresolved_configured_module`** e **1 `invalid_content`**. As primeiras referências inconclusivas eram importações em `app/admin/(protected)/audit/[entryId]/_client.tsx` a hooks (ex.: `@/hooks/i18n/useLocaleDeData`); o único `invalid_content` vinha de `lib/waha/webhook-auth.test.ts` contendo NUL dentro de literal em arquivo de teste excluído do `tsconfig.json` de produção.
+
+**Correção estrutural aplicada:** o grafo de produção inspeciona agora `app/`, `lib/`, `components/`, `workers/`, `hooks/`, `types/`, `curso/` e os entrypoints `proxy.ts`, `instrumentation.ts`, `instrumentation-client.ts`. Arquivos `*.test.ts[x]`, formalmente excluídos do `tsconfig.json`, deixam de contaminar a análise do runtime compilado; as mudanças em testes continuam exigindo revisão pelo gate de status e pela suíte de integridade independente. Não se descartam erros em código que pertence ao escopo compilado.
+
+**Validação nova:** benchmark exporta `historical_baseline_unresolved:1220`, `unresolved_reduction`, divisão por categoria `unresolved_specifier_categories`, motivos `unresolved_counts`, RSS e heap. O workflow executa `--require-reduction` e **falha com exit code 2** se não houver redução mensurável em relação à baseline. As causas remanescentes não são ignoradas; `complete:false` continua impedindo preparação automática. A baseline vale para a árvore da PR #20 nesta investigação; mudanças estruturais futuras exigem revalidá-la em novo commit pinado.
+
+**Estado de aceite:** esses commits foram publicados na branch da PR #20, mas o novo CI ainda não foi confirmado. A redução esperada pela inclusão de `hooks/` e exclusão de testes não constitui redução medida. Os testes adversariais publicados cobrem dependência protegida atravessando um hook e teste excluído que não altera a completude do grafo de runtime. Hindsight `Elus360`: indisponibilidade reportada anteriormente; checkpoint não confirmado na memória.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
