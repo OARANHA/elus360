@@ -69,6 +69,14 @@ Na resolução de imports locais, variantes concorrentes como `components/widget
 
 A suíte operacional inclui: cadeia de 360 imports indiretos chegando a um módulo `lib/elus360/`, módulos cíclicos, novas importações ao domínio protegido, `index`, `require`, `import()`, aliases sem mapeamento e colisão entre arquivo e diretório. O teste de desempenho usa um **limite de regressão de 15 segundos para a fixture sintética**; esse limite não mede tempo real do repositório nem garante orçamento de CPU em produção. A contagem de módulos inspecionados e `unresolved_count` continuam publicadas no relatório da análise.
 
+## Evidência de regressão CI e correção específica (05/11/2026)
+
+A execução do workflow Gate 1 para o HEAD `2d1b221ef7fb967cefc42e8f1c83a86986af58d2` foi **RED** ([run 41985467145](https://github.com/OARANHA/elus360/actions/runs/41985467145)). O job `contrato-upstream` confirmou instalação do TypeScript e sintaxe, mas os testes operacionais tiveram **20 PASS / 1 FAIL**. O teste de aliases locais desconhecidos esperava equivocadamente `unresolved_local_module`; o código retornou `unsupported_local_specifier`, também um resultado fail-closed. A asserção foi alinhada ao contrato real, sem liberar candidatos.
+
+O mesmo log comprovou que a fixture de 360 imports transitivos passou em **12,571 ms no runner daquela execução**, dentro do limite de regressão de 15 segundos. Essa é uma medição de fixture em CI, **não** um benchmark no repositório real ou garantia de latência futura.
+
+Foram acrescentados testes para `type T = import("@/components/domain").Domain` (import type AST com consumidores em `app/api/`) e imports indiretos de `app/actions/`, `components/auth/` e `lib/mcp/`. A cobertura protegida também foi ampliada nesses domínios. Os novos testes estão publicados e exigem a CI do HEAD subsequente antes de declaração de PASS.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
