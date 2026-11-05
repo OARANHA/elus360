@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Read-only benchmark on the checked-out Git tree. No network, SQL or writes. */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, lstatSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { dependencyGraph, transitiveProtectedDependents } from "./elus-upstream-dependency-risk.mjs";
 const started=performance.now();
@@ -14,6 +14,7 @@ if(!count || count>5000) {
 }
 const sources=[];
 for(const path of names) {
+  if(!lstatSync(path).isFile()) {console.log(JSON.stringify({benchmark:"elus-real-tree-ast",sources:count,complete:false,reason:"nonregular_tracked_source",duration_ms:Math.round(performance.now()-started)}));process.exit(0);}
   const bytes=readFileSync(path);
   if(bytes.length>2097152) {console.log(JSON.stringify({benchmark:"elus-real-tree-ast",sources:count,complete:false,reason:"source_too_large",duration_ms:Math.round(performance.now()-started)}));process.exit(0);}
   sources.push({path,content:new TextDecoder("utf-8",{fatal:true}).decode(bytes)});
