@@ -385,3 +385,11 @@ test("grafo TS com aliases e cadeias protegidas nunca promove candidatos com imp
     "app/api/v1/ai/routes/route.ts","lib/auth/check.ts","lib/rbac/check.ts"
   ]);
 });
+
+test("alias hash para contrato protegido gera sinais de contrato e incompletude",async()=>{
+  const {changedModuleSignals}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"#secure/*":["lib/auth/*"]}}});
+  const signals=changedModuleSignals("components/ordinary.ts","export const x=1;",'import "#secure/guard";',config);
+  assert.ok(signals.includes("protected_module_import_change"));
+  assert.ok(signals.includes("dependency_analysis_incomplete"));
+});
