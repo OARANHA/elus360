@@ -30,6 +30,7 @@ test("tripla separa integrado, seguro, conflito, contrato, extensao e exclusao",
     assert.equal(statuses["components/permission.tsx"],"contract_requires_review");
     assert.equal(statuses["components/img.svg"],"contract_requires_review");
     assert.ok(p.files.find(x=>x.path==="components/permission.tsx").signals.includes("managed_ai"));
+    assert.ok(p.files.find(x=>x.path==="components/permission.tsx").suggested_checks.includes("ai_managed_grants_negative"));
     assert.equal(statuses["lib/auth/guard.ts"],"contract_requires_review");
     assert.equal(statuses["lib/elus360/policy.ts"],"protected_requires_review");
     assert.equal(statuses["app/app/p.tsx"],"conflict_requires_review");
@@ -82,4 +83,19 @@ test("prepare rejeita checkout sujo antes de criar worktree",()=>{
     assert.throws(()=>prepare(f.base,f.target,f.fork,out),/WORKTREE_NOT_CLEAN/);
     assert.equal(existsSync(out),false);
   } finally {process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
+
+test("selecao de checks exige revisao para auth e tenants mesmo fora de pastas protegidas",async()=>{
+  const {contractSignals, checksForSignals}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  const flags=contractSignals("components/general.tsx","export const x = 1;","export const x = getUser() + organization_id");
+  assert.ok(flags.includes("authentication_authorization"));
+  assert.ok(flags.includes("tenant_isolation"));
+  const gates=checksForSignals(flags);
+  assert.ok(gates.includes("auth_rbac_mfa_negative"));
+  assert.ok(gates.includes("cross_tenant_rls_negative"));
+});
+test("arquivos executaveis ou nao codigo nunca sao preparaveis automaticamente",async()=>{
+  const {auditPath}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  assert.deepEqual(auditPath("components/x.tsx","120000"),["non_regular_git_object"]);
+  assert.deepEqual(auditPath("components/photo.svg","100644"),["non_source_asset"]);
 });
