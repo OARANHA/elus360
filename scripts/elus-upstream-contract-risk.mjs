@@ -17,10 +17,10 @@ const rules = [
 ];
 /** Conservative AST guard for export contracts modified without any import change. */
 export function semanticContractSignals(path,before,after) {
-  if(!/\\.(?:[cm]?[jt]s|[jt]sx)$/.test(path) || before===after) return [];
+  if(!/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path) || before===after) return [];
   if(!ts) return ["semantic_analysis_incomplete"];
   const analyze=content=>{
-    const kind=/\\.tsx$/.test(path)?ts.ScriptKind.TSX:ts.ScriptKind.TS;
+    const kind=/\.tsx$/.test(path)?ts.ScriptKind.TSX:/\.jsx$/.test(path)?ts.ScriptKind.JSX:/\.[mc]?js$/.test(path)?ts.ScriptKind.JS:ts.ScriptKind.TS;
     const ast=ts.createSourceFile(path,content,ts.ScriptTarget.Latest,true,kind);
     if(ast.parseDiagnostics.length) return null;
     const exports=[];
