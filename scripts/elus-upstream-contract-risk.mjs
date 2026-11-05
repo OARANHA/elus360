@@ -41,7 +41,7 @@ export function semanticContractSignals(path,before,after) {
       const isMutatingExpression=expression && (ts.isCallExpression(expression)||ts.isNewExpression(expression)||
         ts.isAwaitExpression(expression)||ts.isPostfixUnaryExpression(expression)||
         ts.isPrefixUnaryExpression(expression)||
-        (ts.isBinaryExpression(expression)&&ts.isAssignmentOperator(expression.operatorToken.kind)));
+        (ts.isBinaryExpression(expression)&&expression.operatorToken.kind===ts.SyntaxKind.EqualsToken));
       const isDirectEffect=isMutatingExpression||ts.isIfStatement(statement)||
         ts.isTryStatement(statement)||ts.isForStatement(statement)||ts.isForOfStatement(statement)||
         ts.isWhileStatement(statement)||ts.isDoStatement(statement);
