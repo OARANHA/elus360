@@ -68,7 +68,8 @@ function mappedProtectedImport(specifier,rawConfig) {
       captured=specifier.slice(before.length,specifier.length-after.length);
     }
     for(const target of targets) {
-      const mapped=posix.normalize(target.replace("*",captured)).replace(/^\\.\\//,"");
+      const normalized=posix.normalize(target.replace("*",captured));
+      const mapped=normalized.startsWith("./") ? normalized.slice(2) : normalized;
       if(PROTECTED.some(prefix=>mapped.startsWith(prefix))) return true;
     }
   }
