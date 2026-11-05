@@ -393,3 +393,30 @@ test("alias hash para contrato protegido gera sinais de contrato e incompletude"
   assert.ok(signals.includes("protected_module_import_change"));
   assert.ok(signals.includes("dependency_analysis_incomplete"));
 });
+
+test("reconciliacao inclui hooks reais em grafo transitivo protegido",()=>{
+  const f=fixture(),prior=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    mkdirSync(join(f.cwd,"hooks"),{recursive:true});
+    writeFileSync(join(f.cwd,"hooks/useSafe.ts"),'import "@/components/safe"; export const useSafe=()=>true;');
+    writeFileSync(join(f.cwd,"lib/auth/guard.ts"),'import {useSafe} from "@/hooks/useSafe"; export const guard=useSafe;');
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","fork runtime hooks chain");
+    const report=reconcile(f.base,f.target,git(f.cwd,"rev-parse","HEAD"));
+    const file=report.files.find(x=>x.path==="components/safe.tsx");
+    assert.equal(file.status,"contract_requires_review");
+    assert.ok(file.signals.includes("protected_reverse_dependency"));
+    assert.ok(file.protected_importers.includes("lib/auth/guard.ts"));
+  }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
+});
+test("arquivo de teste excluido pelo tsconfig nao contamina grafo runtime",()=>{
+  const f=fixture(),prior=process.cwd();
+  try{
+    process.chdir(f.cwd);
+    writeFileSync(join(f.cwd,"lib/waha-auth.test.ts"),'test("nul",()=>{const text="a\\0b";});');
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","fork excluded test source");
+    const report=reconcile(f.base,f.target,git(f.cwd,"rev-parse","HEAD"));
+    assert.equal(report.dependency_scan.complete,true,JSON.stringify(report.dependency_scan));
+    assert.equal(report.files.find(x=>x.path==="components/safe.tsx").status,"safe_to_prepare");
+  }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
+});
