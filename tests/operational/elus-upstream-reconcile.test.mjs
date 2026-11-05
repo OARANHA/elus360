@@ -287,3 +287,26 @@ test("grafo longo preserva integridade de caminhos e ciclos dentro de limite",as
   assert.deepEqual(dependents.get("components/start"),["lib/elus360/entry.ts"]);
   assert.ok(elapsed<15000,"grafo sintetico excessivamente lento: "+elapsed.toFixed(0)+"ms");
 });
+
+test("AST detecta dependencias usadas apenas em tipos importados",async()=>{
+  const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const sources=[
+    {path:"components/domain.ts",content:"export interface Domain {id:string}"},
+    {path:"app/api/v1/orders/route.ts",content:'type Domain = import("@/components/domain").Domain; export type {Domain};'}
+  ];
+  const graph=dependencyGraph(sources);
+  assert.equal(graph.complete,true,JSON.stringify(graph.unresolved));
+  assert.deepEqual(transitiveProtectedDependents(["components/domain.ts"],sources,graph).get("components/domain"),["app/api/v1/orders/route.ts"]);
+});
+test("modulos de autenticacao, acoes e MCP fazem parte dos consumidores protegidos",async()=>{
+  const {transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const sources=[
+    {path:"components/shared.ts",content:"export const x=1;"},
+    {path:"app/actions/example.ts",content:'import "@/components/shared";'},
+    {path:"lib/mcp/example.ts",content:'import "@/components/shared";'},
+    {path:"components/auth/example.ts",content:'import "@/components/shared";'}
+  ];
+  assert.deepEqual(transitiveProtectedDependents(["components/shared.ts"],sources).get("components/shared"),[
+    "app/actions/example.ts","components/auth/example.ts","lib/mcp/example.ts"
+  ]);
+});
