@@ -430,6 +430,7 @@ test("recursos CSS e JSON existentes no Git encerram aresta, sem mascarar module
   ];
   const complete=dependencyGraph(sources,config,["app/globals.css","curso/receitas.json"]);
   assert.equal(complete.complete,true,JSON.stringify(complete.unresolved));
+  assert.equal(complete.verified_resources,2);
   const missing=dependencyGraph(sources,config,["app/globals.css"]);
   assert.equal(missing.complete,false);
   assert.ok(missing.unresolved.some(x=>x.specifier==="./receitas.json"));
