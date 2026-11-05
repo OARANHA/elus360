@@ -37,12 +37,28 @@ const classify=specifier=>{
   return "package_or_baseurl";
 };
 for(const issue of graph.unresolved){const category=classify(issue.specifier);unresolvedBySpecifierClass[category]=(unresolvedBySpecifierClass[category]??0)+1;}
+// Historical source inventory parity: the only newer source roots are two Sentry entrypoints.
+// Rebuild the prior inventory from the SAME checked-out Git blobs, then compare exact
+// dependency -> importer pairs rather than assuming source-count equality implies safety.
+const addedSentry=new Set(["sentry.edge.config.ts","sentry.server.config.ts"]);
+const priorSources=sources.filter(source=>!addedSentry.has(source.path));
+const previousGraph=dependencyGraph(priorSources,config,resources);
+const edgePairs=g=>{
+  const pairs=new Set();
+  for(const [target,importers] of g.reverse) for(const importer of importers) pairs.add(JSON.stringify([target,importer]));
+  return pairs;
+};
+const priorEdges=edgePairs(previousGraph),currentEdges=edgePairs(graph);
+const lostEdges=[...priorEdges].filter(edge=>!currentEdges.has(edge));
+const addedEdges=[...currentEdges].filter(edge=>!priorEdges.has(edge));
+const previousSourceCount=priorSources.length;
 const changed=names.filter(p=>p.startsWith("components/")).slice(0,100);
 const matched=transitiveProtectedDependents(changed,sources,graph);
 const historicalBaseline=1220;
 const previousGateBaseline=7;
 const unresolvedReduction=historicalBaseline-graph.unresolved.length;
 const reductionFromPrevious=previousGateBaseline-graph.unresolved.length;
-console.log(JSON.stringify({benchmark:"elus-real-tree-ast",head:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),sources:count,module_edges:graph.edge_count,tracked_non_source_resources:resources.length,verified_resource_imports:graph.verified_resources,candidate_sample:changed.length,protected_dependents:matched.size,complete:graph.complete,unresolved_count:graph.unresolved.length,historical_baseline_unresolved:historicalBaseline,unresolved_reduction:unresolvedReduction,previous_gate_unresolved:previousGateBaseline,reduction_from_previous:reductionFromPrevious,unresolved_counts:reasonCounts,unresolved_specifier_categories:unresolvedBySpecifierClass,unresolved_example_paths:unresolvedSamples,memory_rss_mib:Number((process.memoryUsage().rss/1048576).toFixed(1)),memory_heap_mib:Number((process.memoryUsage().heapUsed/1048576).toFixed(1)),memory_heap_delta_mib:Number(((process.memoryUsage().heapUsed-memoryStart.heapUsed)/1048576).toFixed(1)),unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort(),duration_ms:Math.round(performance.now()-started)}));
+console.log(JSON.stringify({benchmark:"elus-real-tree-ast",head:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),sources:count,module_edges:graph.edge_count,prior_inventory_sources:previousSourceCount,prior_inventory_edges:priorEdges.size,retained_prior_edges:priorEdges.size-lostEdges.length,lost_prior_edges:lostEdges.length,added_module_edges:addedEdges.length,tracked_non_source_resources:resources.length,verified_resource_imports:graph.verified_resources,candidate_sample:changed.length,protected_dependents:matched.size,complete:graph.complete,unresolved_count:graph.unresolved.length,historical_baseline_unresolved:historicalBaseline,unresolved_reduction:unresolvedReduction,previous_gate_unresolved:previousGateBaseline,reduction_from_previous:reductionFromPrevious,unresolved_counts:reasonCounts,unresolved_specifier_categories:unresolvedBySpecifierClass,unresolved_example_paths:unresolvedSamples,memory_rss_mib:Number((process.memoryUsage().rss/1048576).toFixed(1)),memory_heap_mib:Number((process.memoryUsage().heapUsed/1048576).toFixed(1)),memory_heap_delta_mib:Number(((process.memoryUsage().heapUsed-memoryStart.heapUsed)/1048576).toFixed(1)),unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort(),duration_ms:Math.round(performance.now()-started)}));
 
 if(process.argv.includes("--require-reduction") && reductionFromPrevious<=0) {console.error("BENCHMARK_NO_UNRESOLVED_REDUCTION");process.exitCode=2;}
+if(process.argv.includes("--require-edge-preservation") && (previousSourceCount!==3192 || lostEdges.length!==0 || currentEdges.size<priorEdges.size)) {console.error("BENCHMARK_EDGE_PRESERVATION_FAILED");process.exitCode=3;}
