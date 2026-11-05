@@ -35,7 +35,24 @@ export function semanticContractSignals(path,before,after) {
       // and initializer expressions can change behavior without adding an import edge.
       exports.push(statement.getText(ast));
     }
-    return {exports,statements:ast.statements.map(statement=>statement.getText(ast))};
+    const effects=[];
+    for(const statement of ast.statements) {
+      const isDirectEffect=ts.isExpressionStatement(statement)||ts.isIfStatement(statement)||
+        ts.isTryStatement(statement)||ts.isForStatement(statement)||ts.isForOfStatement(statement)||
+        ts.isWhileStatement(statement)||ts.isDoStatement(statement);
+      // A top-level initializer that calls external code can alter startup/runtime
+      // behavior even if the file has no explicit export.
+      let initializerCall=false;
+      if(ts.isVariableStatement(statement)) for(const decl of statement.declarationList.declarations) {
+        const visit=node=>{
+          if(ts.isCallExpression(node)||ts.isNewExpression(node)||ts.isAwaitExpression(node)) initializerCall=true;
+          if(!initializerCall) ts.forEachChild(node,visit);
+        };
+        if(decl.initializer) visit(decl.initializer);
+      }
+      if(isDirectEffect||initializerCall) effects.push(statement.getText(ast));
+    }
+    return {exports,statements:ast.statements.map(statement=>statement.getText(ast)),effects};
   };
   const oldData=analyze(before),newData=analyze(after);
   if(!oldData||!newData) return ["semantic_analysis_incomplete"];
@@ -44,6 +61,7 @@ export function semanticContractSignals(path,before,after) {
   // while 'export {name}' itself remains byte-for-byte identical.
   if(oldData.exports.length && JSON.stringify(oldData.statements)!==JSON.stringify(newData.statements))
     return ["exported_module_internal_change"];
+  if(JSON.stringify(oldData.effects)!==JSON.stringify(newData.effects)) return ["module_initialization_change"];
   return [];
 }
 export function contractSignals(path, before, after) {
@@ -66,6 +84,7 @@ export function auditPath(path, type) {
 const CHECKS = {
   exported_contract_change: ["export_surface_semantic_review", "runtime_contract_regression"],
   exported_module_internal_change: ["export_surface_semantic_review", "runtime_contract_regression"],
+  module_initialization_change: ["runtime_side_effect_review", "runtime_contract_regression"],
   semantic_analysis_incomplete: ["manual_ast_parse_review"],
   tenant_isolation: ["cross_tenant_rls_negative", "service_role_org_filter"],
   authentication_authorization: ["auth_rbac_mfa_negative", "api_token_access"],
