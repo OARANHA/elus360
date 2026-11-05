@@ -95,6 +95,20 @@ A consulta read-only ao Git Trees API para o SHA `0472d4545ec546136e35ebc447a6c0
 
 O limite atualizado é **5.000 arquivos**, **2 MiB por arquivo** e **48 MiB de saída Git batched**, preservando fail-closed acima do orçamento; leitura por subprocesso segue com timeout de 30 segundos e `maxBuffer` 64 MiB. A resolução TypeScript usa cache de módulos e índice de conteúdo por caminho. Estas quantidades descrevem o inventário de arquivos **e não são medições de tempo de AST na árvore real**. O cronômetro da execução real será exibido pela etapa `Benchmark AST de arvore real (read-only)` da CI do novo HEAD.
 
+## Benchmark real da CI GREEN — evidências e limitações (05/11/2026)
+
+Workflow [42119277811](https://github.com/OARANHA/elus360/actions/runs/42119277811), HEAD de PR `3c12643d36e3bf8d937a7123de7e3a56d7735141`: `contrato-upstream` **SUCCESS**, verificação sintática **PASS**, testes de reconciliação **29/29 PASS** e benchmark read-only **PASS como execução do comando**. O log contém:
+
+```json
+{"benchmark":"elus-real-tree-ast","head":"06c7cdfe6f18c08842173cc685a81bc9c5a0da19","sources":3914,"candidate_sample":100,"protected_dependents":58,"complete":false,"unresolved_count":1220,"unresolved_reasons":["invalid_content","unresolved_configured_module"],"duration_ms":4763}
+```
+
+**A ressalva é central:** o benchmark terminou com `complete:false` e 1.220 entradas inconclusivas; **CI GREEN não é aprovação funcional do reconciliador**. Mesmo assim o reconciliador permanece fail-closed e impede classificação automática `safe_to_prepare` quando o scan é incompleto. Os números do benchmark são **da execução no runner**, não de uma aplicação real de patch upstream. Nenhuma medida de RSS/heap constava nesse HEAD; o script do benchmark foi instrumentado em commit posterior para publicar `memory_rss_mib`, `memory_heap_mib`, `memory_heap_delta_mib`, `unresolved_counts` e amostras limitadas de caminhos de módulos não resolvidos. Tais métricas **ainda não foram medidas nem aprovadas por CI**.
+
+**Riscos em investigação:** importações de assets e referências de módulos fora do inventário atual podem explicar parte das `unresolved_configured_module`; não reinterpretar a ausência de arquivo como segurança até classificar cada origem. `invalid_content` sinaliza fonte contendo caracteres inválidos sob o contrato do parser (incluindo NUL) e bloqueia aprovação. Foram acrescentados testes para cadeia de componentes → auth → RBAC → API/IA e um caso adversarial de alias `#` que exige simultaneamente revisão de contrato e sinal de análise inconclusiva. Nenhum desses acréscimos equivale a testes executados até a nova CI.
+
+O conector Hindsight `Elus360` retornou `UNAVAILABLE` durante esta rodada. Este checkpoint versionado é o substituto rastreável temporário; **não declara sincronização de memória concluída**.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
