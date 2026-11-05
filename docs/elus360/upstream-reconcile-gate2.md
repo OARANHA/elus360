@@ -131,6 +131,16 @@ O benchmark agora informa `verified_resource_imports` e `tracked_non_source_reso
 
 **Limitação:** a comparação de número de fontes não é comparação de conjunto idêntico (escopo ajustado entre as versões); 69 dependentes protegidos não representa cobertura semântica de todas as arestas. O Gate AST permanece em desenvolvimento, sem aprovação funcional, merge, deploy ou alterações no banco.
 
+## Gate 1 run 42124114060 — redução a 1 e preservação do inventário (05/11/2026)
+
+A execução [42124114060](https://github.com/OARANHA/elus360/actions/runs/42124114060) foi confirmada **SUCCESS** para HEAD da PR `328f735f81eb87fdf26fb614bb887b48be7a54d0`: 12/12 testes de preparação, 37/37 testes de reconciliação, sintaxe e benchmark. O runner usou checkout sintético do merge `ab9096582877f4490232d0e3cf0f09cdebd133af`. Benchmark real: `sources:3194`, `tracked_non_source_resources:239`, `verified_resource_imports:4`, `candidate_sample:100`, `protected_dependents:69`, `duration_ms:2746`, `memory_rss_mib:246.9`, `memory_heap_mib:135.3`, `memory_heap_delta_mib:113.9`, `unresolved_count:1`, `complete:false`. O último caso é `computed_module_specifier` em `curso/semear-demonstracao.ts`; o caminho `arquivo` depende de `process.argv[2]` e não pode ser tratado como resolvido sem execução. O fail-closed continua exigido.
+
+Comparação adicional, por Git Trees API read-only: inventário anterior no merge `c002c9e2677bda0a6717bd07f410400982d6e838` = 3.192 fontes; inventário atual no merge `ab9096582877f4490232d0e3cf0f09cdebd133af` = 3.194 fontes. Interseção **3.192/3.192**, **zero arquivos removidos**; os únicos novos são `sentry.edge.config.ts` e `sentry.server.config.ts`. Esta evidência demonstra **inclusão de fontes sem exclusões**, mas não prova igualdade semântica de todos os imports entre os dois snapshots. Em ambos os benchmarks, 69/100 componentes da amostra apresentaram consumidores protegidos.
+
+Na mesma PR foram acrescentados testes determinísticos para: (a) import computado em uma fonte do fork impedindo `safe_to_prepare` para candidato ordinário, e (b) ampliação do inventário com módulos Sentry sem perda das arestas anteriores do exemplo componentes → hooks → auth. O grafo passa a calcular `edge_count` e o benchmark publica `module_edges`, para permitir comparação numérica de arestas em execuções posteriores. Os novos testes e a nova métrica **ainda dependem de CI do HEAD subsequente**; não inferir PASS com base no GREEN anterior.
+
+A sincronização no Hindsight `Elus360` continua não confirmada caso o conector permaneça `UNAVAILABLE`. A PR continua Draft; sem merge, deploy nem mudanças em banco.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
