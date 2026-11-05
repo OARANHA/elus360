@@ -111,7 +111,9 @@ function inspectForkDependencies(fork,candidatePaths) {
     offset=nl+size+2;
   }
   if(offset!==blobs.length) return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
-  const graph=dependencyGraph(sources);
+  const configId=oid(fork,"tsconfig.json");
+  const config=configId?readSource(fork,"tsconfig.json",configId):null;
+  const graph=dependencyGraph(sources,config??"");
   return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
     complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length};
 }
