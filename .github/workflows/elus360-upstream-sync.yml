@@ -45,4 +45,4 @@ jobs:
           node --test tests/operational/elus-upstream-prepare.test.mjs
           node --test tests/operational/elus-upstream-reconcile.test.mjs
       - name: Benchmark AST de arvore real (read-only)
-        run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction
+        run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
