@@ -37,7 +37,12 @@ export function semanticContractSignals(path,before,after) {
     }
     const effects=[];
     for(const statement of ast.statements) {
-      const isDirectEffect=ts.isExpressionStatement(statement)||ts.isIfStatement(statement)||
+      const expression=ts.isExpressionStatement(statement)?statement.expression:null;
+      const isMutatingExpression=expression && (ts.isCallExpression(expression)||ts.isNewExpression(expression)||
+        ts.isAwaitExpression(expression)||ts.isPostfixUnaryExpression(expression)||
+        ts.isPrefixUnaryExpression(expression)||
+        (ts.isBinaryExpression(expression)&&ts.isAssignmentOperator(expression.operatorToken.kind)));
+      const isDirectEffect=isMutatingExpression||ts.isIfStatement(statement)||
         ts.isTryStatement(statement)||ts.isForStatement(statement)||ts.isForOfStatement(statement)||
         ts.isWhileStatement(statement)||ts.isDoStatement(statement);
       // A top-level initializer that calls external code can alter startup/runtime
