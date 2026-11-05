@@ -420,3 +420,32 @@ test("arquivo de teste excluido pelo tsconfig nao contamina grafo runtime",()=>{
     assert.equal(report.files.find(x=>x.path==="components/safe.tsx").status,"safe_to_prepare");
   }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
 });
+
+test("recursos CSS e JSON existentes no Git encerram aresta, sem mascarar module ausente",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",resolveJsonModule:true,paths:{"@/*":["./*"]}}});
+  const sources=[
+    {path:"app/layout.tsx",content:'import "./globals.css"; export const layout=1;'},
+    {path:"curso/receitas.ts",content:'import data from "./receitas.json"; export const x=data;'}
+  ];
+  const complete=dependencyGraph(sources,config,["app/globals.css","curso/receitas.json"]);
+  assert.equal(complete.complete,true,JSON.stringify(complete.unresolved));
+  const missing=dependencyGraph(sources,config,["app/globals.css"]);
+  assert.equal(missing.complete,false);
+  assert.ok(missing.unresolved.some(x=>x.specifier==="./receitas.json"));
+});
+test("entrypoints Sentry seguem dependencias TS protegidas, sem ignorar modulo ausente",async()=>{
+  const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}});
+  const sources=[
+    {path:"lib/auth/policy.ts",content:"export const policy=1;"},
+    {path:"sentry.server.config.ts",content:'import "@/lib/auth/policy";'},
+    {path:"instrumentation.ts",content:'export async function register(){return import("./sentry.server.config");}'}
+  ];
+  const graph=dependencyGraph(sources,config);
+  assert.equal(graph.complete,true,JSON.stringify(graph.unresolved));
+  assert.deepEqual(transitiveProtectedDependents(["lib/auth/policy.ts"],sources,graph).get("lib/auth/policy"),undefined);
+  const missing=dependencyGraph(sources.filter(x=>x.path!=="sentry.server.config.ts"),config);
+  assert.equal(missing.complete,false);
+  assert.ok(missing.unresolved.some(x=>x.specifier==="./sentry.server.config"));
+});
