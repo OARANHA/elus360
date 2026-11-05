@@ -12,6 +12,7 @@ function fixture() {
   git(cwd,"init","-q");git(cwd,"config","user.name","Tests");git(cwd,"config","user.email","test@example.invalid");
   function set(path, content) { const full=join(cwd,path);mkdirSync(dirname(full),{recursive:true});writeFileSync(full,content); }
   function commit(label){git(cwd,"add",".");git(cwd,"commit","-qm",label);return git(cwd,"rev-parse","HEAD");}
+  set("tsconfig.json",JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}}));
   set("components/a.tsx","old");set("components/permission.tsx","old");set("components/img.svg","old");set("app/admin/dashboard.tsx","old");set("app/(public)/login/page.tsx","old");set("components/safe.tsx","old");set("lib/auth/guard.ts","old");set("lib/elus360/policy.ts","old");set("app/app/p.tsx","old");set("app/app/delete.tsx","old");
   const base=commit("base");
   set("components/a.tsx","upstream");set("components/permission.tsx","provider model");set("components/img.svg","new");set("app/admin/dashboard.tsx","new");set("app/(public)/login/page.tsx","new");set("components/safe.tsx","upstream");set("lib/auth/guard.ts","upstream");set("lib/elus360/policy.ts","upstream");set("app/app/p.tsx","upstream");rmSync(join(cwd,"app/app/delete.tsx"));
@@ -309,4 +310,33 @@ test("modulos de autenticacao, acoes e MCP fazem parte dos consumidores protegid
   assert.deepEqual(transitiveProtectedDependents(["components/shared.ts"],sources).get("components/shared"),[
     "app/actions/example.ts","components/auth/example.ts","lib/mcp/example.ts"
   ]);
+});
+
+test("tsconfig paths, baseUrl e reexports encadeados preservam o consumidor protegido",async()=>{
+  const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const tsconfig=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",baseUrl:".",paths:{"#domain/*":["components/domain/*"],"@/*":["./*"]}}});
+  const sources=[
+    {path:"components/domain/index.ts",content:"export const value=1;"},
+    {path:"components/barrel.ts",content:'export {value} from "#domain/index";'},
+    {path:"lib/auth/guard.ts",content:'import {value} from "@/components/barrel";'},
+  ];
+  const graph=dependencyGraph(sources,tsconfig);
+  assert.equal(graph.complete,true,JSON.stringify(graph.unresolved));
+  assert.deepEqual(transitiveProtectedDependents(["components/domain/index.ts"],sources,graph).get("components/domain"),["lib/auth/guard.ts"]);
+});
+test("tsconfig invalido e import computado bloqueiam grafo com configuracao real",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const sources=[{path:"components/a.ts",content:'export async function fn(x){return import(x)}'}];
+  assert.equal(dependencyGraph(sources,"{INVALID_JSON").complete,false);
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}});
+  const result=dependencyGraph(sources,config);
+  assert.equal(result.complete,false);
+  assert.ok(result.unresolved.some(x=>x.reason==="computed_module_specifier"));
+});
+test("alias configurado mas nao resolvido exige revisao em vez de tratar como pacote",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"#secure/*":["lib/secure/*"]}}});
+  const result=dependencyGraph([{path:"components/a.ts",content:'import "#secure/missing";'}],config);
+  assert.equal(result.complete,false);
+  assert.ok(result.unresolved.some(x=>x.reason==="unresolved_configured_module"));
 });
