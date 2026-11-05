@@ -119,6 +119,18 @@ O conector Hindsight `Elus360` retornou `UNAVAILABLE` durante esta rodada. Este 
 
 **Estado de aceite:** esses commits foram publicados na branch da PR #20, mas o novo CI ainda não foi confirmado. A redução esperada pela inclusão de `hooks/` e exclusão de testes não constitui redução medida. Os testes adversariais publicados cobrem dependência protegida atravessando um hook e teste excluído que não altera a completude do grafo de runtime. Hindsight `Elus360`: indisponibilidade reportada anteriormente; checkpoint não confirmado na memória.
 
+## Gate real 42121748838 — redução comprovada e seis caminhos remanescentes
+
+O Gerente de IA informou GREEN para o HEAD `dc05993e6448a1dfe6ff81412e8e125cca25f3ac`. O job `contrato-upstream` do [run 42121748838](https://github.com/OARANHA/elus360/actions/runs/42121748838) foi confirmado: sintaxe PASS, preparo **12/12**, reconciliação **33/33**. Benchmark (checkout de merge `c002c9e2677bda0a6717bd07f410400982d6e838`) contabilizou **3.192 fontes, 3.870 ms, RSS 247,9 MiB, heap usado 134,6 MiB, delta de heap 113,2 MiB**, e 69 de 100 componentes com dependentes protegidos. Houve redução de **1.220 para 7** inconclusões (1.213, ou 99,43%). O resultado continua `complete:false`: **6** `unresolved_configured_module` relativos e **1** `computed_module_specifier`.
+
+A inspeção dos arquivos concretos identificou a causa dos seis relativos: `app/design/layout.tsx` importa `./showcase.css`; `app/layout.tsx` importa `./globals.css`; `curso/espanhol-demonstracao.ts` importa `./espanhol-demonstracao.json`; `curso/receitas-jornadas.ts` importa `./receitas-jornadas.json`; `instrumentation.ts` importa `./sentry.server.config` e `./sentry.edge.config`. **Todos os seis destinos foram verificados na árvore Git rastreada.** A implementação subsequente inclui ambos os módulos Sentry no inventário fonte e adiciona arquivos CSS/JSON rastreados como **folhas não executáveis**, exigindo correspondência exata no Git; recurso ausente permanece inconclusivo. Alterações upstream de CSS/JSON e dos layouts raiz continuam exigindo revisão, não viram candidatos seguros.
+
+A sétima inconclusão é legítima: `curso/semear-demonstracao.ts` utiliza `await import(arquivo)`, onde `arquivo` é construído em runtime a partir de `process.argv[2]`. **Não inferir nem liberar o destino**. O analisador continua falhando fechado para imports computados; nenhuma exceção especial foi criada para esse arquivo.
+
+O benchmark agora informa `verified_resource_imports` e `tracked_non_source_resources`, além de duas baselines distintas: a histórica `1220` e a última verificada `7`. A etapa CI `--require-reduction` exige redução **relativa a 7**, ou encerra com falha. O resultado esperado é menos de sete problemas, mas **não há nova medição verificada para os commits desta correção**. Novos testes adversariais cobrem CSS/JSON existente, recurso ausente, import dinâmico de Sentry, e classificação do layout raiz e dos assets como revisão obrigatória.
+
+**Limitação:** a comparação de número de fontes não é comparação de conjunto idêntico (escopo ajustado entre as versões); 69 dependentes protegidos não representa cobertura semântica de todas as arestas. O Gate AST permanece em desenvolvimento, sem aprovação funcional, merge, deploy ou alterações no banco.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
