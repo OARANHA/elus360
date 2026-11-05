@@ -754,3 +754,17 @@ test("simulacao DeskcommCRM v1-v2-v3 preserva correcoes ELUS no fork e aplica so
     rmSync(cwd,{recursive:true,force:true});
   }
 });
+
+test("bootstrap nao exportado que altera autorizacao ou inicializacao exige revisao sem novos imports",async()=>{
+  const {contractSignals}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  const rows=[
+    ["components/bootstrap.ts","registerRoutes({requiresRole:true});","registerRoutes({requiresRole:false});"],
+    ["components/auth-init.ts","const auth=initializeAuth({checkTenant:true});","const auth=initializeAuth({checkTenant:false});"],
+    ["components/ai-init.ts","if(allowAI) configureAgent({approvedOnly:true});","if(allowAI) configureAgent({approvedOnly:false});"],
+  ];
+  for(const [path,before,after] of rows){
+    const signals=contractSignals(path,before,after);
+    assert.ok(signals.includes("module_initialization_change"),path+" "+JSON.stringify(signals));
+  }
+  assert.deepEqual(contractSignals("components/plain.ts","const ordinary=1;","const ordinary=2;"),[]);
+});
