@@ -44,6 +44,28 @@ function astImports(content,path) {
   visit(tree);
   return {specifiers,unresolved};
 }
+/**
+ * A changed file can introduce a NEW edge to a protected contract.
+ * Inspect the target as well as the fork reverse graph.
+ */
+export function changedModuleSignals(path,before,after) {
+  if(!SOURCE.test(path)) return [];
+  const signals=new Set();
+  for(const content of [before,after]) {
+    const ast=astImports(content,path);
+    if(ast.unresolved.length) signals.add("dependency_analysis_incomplete");
+    for(const specifier of ast.specifiers) {
+      if(specifier.startsWith("~/")||specifier.startsWith("#")) {
+        signals.add("dependency_analysis_incomplete");continue;
+      }
+      const resolved=sourceModule(specifier,path);
+      if(resolved && isProtected(resolved+"/")) signals.add("protected_module_import_change");
+      if(resolved && PROTECTED.some(prefix=>resolved.startsWith(prefix))) signals.add("protected_module_import_change");
+      if(isLocal(specifier) && !resolved) signals.add("dependency_analysis_incomplete");
+    }
+  }
+  return [...signals];
+}
 export function importPaths(content,path) {
   const data=astImports(content,path);
   return [...new Set(data.specifiers.map(s=>sourceModule(s,path)).filter(Boolean))];
