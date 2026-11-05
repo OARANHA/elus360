@@ -21,7 +21,7 @@ for(const path of names) {
   sources.push({path,content:new TextDecoder("utf-8",{fatal:true}).decode(bytes)});
 }
 const config=readFileSync("tsconfig.json","utf8");
-const resources=execFileSync("git",["ls-files","-z"],{maxBuffer:32*1024*1024}).toString("utf8").split("\0").filter(path=>/\\.(?:css|scss|sass|json)$/.test(path));
+const resources=execFileSync("git",["ls-files","-z"],{maxBuffer:32*1024*1024}).toString("utf8").split("\0").filter(path=>/\.(?:css|scss|sass|json)$/.test(path));
 const graph=dependencyGraph(sources,config,resources);
 const reasonCounts={};
 for(const item of graph.unresolved) reasonCounts[item.reason]=(reasonCounts[item.reason]??0)+1;
