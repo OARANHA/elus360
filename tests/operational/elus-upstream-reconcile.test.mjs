@@ -340,3 +340,21 @@ test("alias configurado mas nao resolvido exige revisao em vez de tratar como pa
   assert.equal(result.complete,false);
   assert.ok(result.unresolved.some(x=>x.reason==="unresolved_configured_module"));
 });
+
+test("alias de tsconfig que aponta para auth e governanca e bloqueado na entrada upstream",async()=>{
+  const {changedModuleSignals}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",baseUrl:".",paths:{"$security/*":["lib/auth/*"],"$governance/*":["lib/elus360/ai-managed/*"]}}});
+  for(const spec of ["$security/guard","$governance/policy","lib/auth/server"]) {
+    const signals=changedModuleSignals("components/ordinary.tsx","export const a=1;",'import "'+spec+'";',config);
+    assert.ok(signals.includes("protected_module_import_change"),spec);
+  }
+});
+test("falha de parse e import computado preservam fail-closed",async()=>{
+  const {dependencyGraph,changedModuleSignals}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}});
+  const malformed=dependencyGraph([{path:"components/a.ts",content:"export function broken( {"}],config);
+  assert.equal(malformed.complete,false);
+  assert.ok(malformed.unresolved.some(e=>e.reason==="typescript_parse_failed"));
+  const computed=changedModuleSignals("components/a.ts","export const x=1;","export const y=import(target);",config);
+  assert.ok(computed.includes("dependency_analysis_incomplete"));
+});
