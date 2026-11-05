@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals } from "./elus-upstream-contract-risk.mjs";
-import { transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces } from "./elus-upstream-dependency-risk.mjs";
+import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -82,22 +82,38 @@ function parse(args) {
   }
   return {refs, mode, out: params[7]};
 }
-function inspectForkDependencies(fork, candidatePaths) {
-  if (!candidatePaths.length) return {dependents:new Map(), complete:true, count:0};
-  const buf=git(["ls-tree","-r","-z","--name-only",fork,"--","app/","lib/","components/","workers/"],{binary:true});
-  const sourcePaths=buf.toString("utf8").split("\0").filter(p=>/\.(?:[cm]?js|jsx|tsx?)$/.test(p));
-  // The scan is bounded. An incomplete scan MUST NOT silently greenlight a candidate.
-  if (sourcePaths.length>2400) return {dependents:new Map(),complete:false,count:sourcePaths.length};
+function inspectForkDependencies(fork,candidatePaths) {
+  if(!candidatePaths.length) return {dependents:new Map(),complete:true,count:0,unresolved:0};
+  // One Git tree read and one batch object read (rather than three processes per source).
+  const tree=git(["ls-tree","-r","-z",fork,"--","app/","lib/","components/","workers/"],{binary:true});
+  const entries=tree.toString("utf8").split("\0").filter(Boolean).map(line=>{
+    const tab=line.indexOf("\t"),metadata=line.slice(0,tab).split(" ");
+    return {path:line.slice(tab+1),mode:metadata[0],type:metadata[1],oid:metadata[2]};
+  }).filter(entry=>/\.(?:[cm]?[jt]s|[jt]sx)$/.test(entry.path));
+  if(entries.length>2400 || entries.some(e=>e.mode!=="100644"||e.type!=="blob"))
+    return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
+  if(!entries.length) return {dependents:new Map(),complete:false,count:0,unresolved:1};
+  const input=entries.map(e=>e.oid).join("\n")+"\n";
+  const blobs=git(["cat-file","--batch"],{input,binary:true});
   const sources=[];
-  for(const path of sourcePaths) {
-    const id=oid(fork,path);
-    if(!id || modeOf(fork,path)!=="100644")
-      return {dependents:new Map(),complete:false,count:sourcePaths.length};
-    const content=readSource(fork,path,id);
-    if(content===null) return {dependents:new Map(),complete:false,count:sourcePaths.length};
-    sources.push({path,content});
+  let offset=0;
+  const decoder=new TextDecoder("utf-8",{fatal:true});
+  for(const entry of entries) {
+    const nl=blobs.indexOf(10,offset);
+    if(nl<0) return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
+    const header=blobs.subarray(offset,nl).toString("ascii").split(" ");
+    const size=Number(header[2]);
+    if(header[0]!==entry.oid||header[1]!=="blob"||!Number.isSafeInteger(size)||size>524288||
+       size<0||nl+1+size>=blobs.length||blobs[nl+1+size]!==10)
+      return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
+    try {sources.push({path:entry.path,content:decoder.decode(blobs.subarray(nl+1,nl+1+size))});}
+    catch {return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};}
+    offset=nl+size+2;
   }
-  return {dependents:transitiveProtectedDependents(candidatePaths,sources),complete:true,count:sources.length};
+  if(offset!==blobs.length) return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
+  const graph=dependencyGraph(sources);
+  return {dependents:transitiveProtectedDependents(candidatePaths,sources),
+    complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length};
 }
 function inventoryFor(fork) {
   const path="docs/elus360/ai-governance-write-surfaces.json";
@@ -148,7 +164,7 @@ export function reconcile(base, target, fork) {
     fork: "OARANHA/elus360", upstream: "melgarafael/DeskcommCRM",
     refs: {base, target, fork}, totals: {changed: files.length, ...counts},
     gate: gated.length ? "manual_review_required" : "candidate_analysis_ready",
-    dependency_scan: {scope:"transitive_protected_imports",scanned:dependencyScan.count,complete:dependencyScan.complete},
+    dependency_scan: {scope:"typescript_ast_transitive_imports",scanned:dependencyScan.count,complete:dependencyScan.complete,unresolved_count:dependencyScan.unresolved},
     uninventoried_ai_paths: [...uninventoried].sort(),
     disclaimer: "Comparacao por blobs, nao prova equivalencia semantica. Nenhuma alteracao foi aplicada. Validar SHA oficial, testes e contratos antes da PR.",
     files
