@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals } from "./elus-upstream-contract-risk.mjs";
+import { PROTECTED_PATHS, directProtectedDependents, protectedConsumers, uninventoriedAiSurfaces } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -81,6 +82,34 @@ function parse(args) {
   }
   return {refs, mode, out: params[7]};
 }
+function inspectForkDependencies(fork, candidatePaths) {
+  if (!candidatePaths.length) return {dependents:new Map(), complete:true, count:0};
+  const buf=git(["ls-tree","-r","-z","--name-only",fork,"--",...PROTECTED_PATHS],{binary:true});
+  const sourcePaths=buf.toString("utf8").split("\0").filter(p=>/\.(?:[cm]?js|jsx|tsx?)$/.test(p));
+  // The scan is bounded. An incomplete scan MUST NOT silently greenlight a candidate.
+  if (sourcePaths.length>450) return {dependents:new Map(),complete:false,count:sourcePaths.length};
+  const sources=[];
+  for(const path of sourcePaths) {
+    const id=oid(fork,path);
+    if(!id || modeOf(fork,path)!=="100644")
+      return {dependents:new Map(),complete:false,count:sourcePaths.length};
+    const content=readSource(fork,path,id);
+    if(content===null) return {dependents:new Map(),complete:false,count:sourcePaths.length};
+    sources.push({path,content});
+  }
+  return {dependents:directProtectedDependents(candidatePaths,sources),complete:true,count:sources.length};
+}
+function inventoryFor(fork) {
+  const path="docs/elus360/ai-governance-write-surfaces.json";
+  const id=oid(fork,path);
+  if(!id) return null;
+  try {
+    const raw=readSource(fork,path,id);
+    if(raw===null) return null;
+    const parsed=JSON.parse(raw);
+    return parsed && Array.isArray(parsed.surfaces) ? parsed : null;
+  } catch {return null;}
+}
 export function reconcile(base, target, fork) {
   for (const ref of [base,target,fork]) {
     if (!SHA.test(ref)) throw Error("PIN_REQUIRED");
@@ -96,6 +125,21 @@ export function reconcile(base, target, fork) {
     ];
     return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags, suggested_checks: checksForSignals(flags)};
   });
+  const safe = files.filter(f=>f.status==="safe_to_prepare").map(f=>f.path);
+  const dependencyScan=inspectForkDependencies(fork,safe);
+  const uninventoried=new Set(uninventoriedAiSurfaces(paths,inventoryFor(fork)));
+  for(const file of files) {
+    if(file.status==="safe_to_prepare") {
+      const importers=protectedConsumers(file.path,dependencyScan.dependents);
+      file.protected_importers=importers;
+      if(importers.length) file.signals.push("protected_reverse_dependency");
+      if(!dependencyScan.complete) file.signals.push("dependency_analysis_incomplete");
+    }
+    if(uninventoried.has(file.path)) file.signals.push("uninventoried_ai_surface");
+    if(file.signals.length && file.status==="safe_to_prepare") file.status="contract_requires_review";
+    file.signals=[...new Set(file.signals)];
+    file.suggested_checks=checksForSignals(file.signals);
+  }
   const counts = {};
   for (const file of files) counts[file.status] = (counts[file.status] ?? 0) + 1;
   const gated = files.filter(f => !["already_integrated", "unchanged", "safe_to_prepare"].includes(f.status));
@@ -104,6 +148,8 @@ export function reconcile(base, target, fork) {
     fork: "OARANHA/elus360", upstream: "melgarafael/DeskcommCRM",
     refs: {base, target, fork}, totals: {changed: files.length, ...counts},
     gate: gated.length ? "manual_review_required" : "candidate_analysis_ready",
+    dependency_scan: {scope:"direct_protected_imports",scanned:dependencyScan.count,complete:dependencyScan.complete},
+    uninventoried_ai_paths: [...uninventoried].sort(),
     disclaimer: "Comparacao por blobs, nao prova equivalencia semantica. Nenhuma alteracao foi aplicada. Validar SHA oficial, testes e contratos antes da PR.",
     files
   };
