@@ -40,6 +40,7 @@ const CHECKS = {
   non_regular_git_object: ["symlink_executable_or_gitlink_manual_review"],
   test_change_requires_review: ["test_integrity_review"],
   protected_reverse_dependency: ["review_protected_importers", "cross_module_contract_review"],
+  protected_module_import_change: ["review_protected_importers", "cross_module_contract_review", "auth_rbac_mfa_negative"],
   uninventoried_ai_surface: ["review_ai_write_surface_inventory", "ai_managed_grants_negative"],
   dependency_analysis_incomplete: ["manual_dependency_review"],
 };
