@@ -227,3 +227,27 @@ test("reconciliacao falha fechada quando modulo local da arvore nao resolve",()=
     assert.ok(candidate.signals.includes("dependency_analysis_incomplete"));
   }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
 });
+
+test("AST bloqueia import protegido introduzido pelo upstream",async()=>{
+  const {changedModuleSignals}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const before="export const healthy = true;";
+  const after='import {guard} from "@/lib/auth/guard"; export const healthy=guard;';
+  assert.ok(changedModuleSignals("components/ordinary.tsx",before,after).includes("protected_module_import_change"));
+  const dynamic='export function f(spec) {return import(spec);}';
+  assert.ok(changedModuleSignals("components/ordinary.tsx",before,dynamic).includes("dependency_analysis_incomplete"));
+  assert.deepEqual(changedModuleSignals("components/ordinary.tsx",before,'// import "@/lib/auth/guard"; export const x=1;'),[]);
+});
+test("reconciliador nao prepara arquivo com novo import auth mesmo sem palavras-chave antigas",()=>{
+  const f=fixture(),old=process.cwd();
+  try{
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.target);
+    writeFileSync(join(f.cwd,"components/safe.tsx"),'import {guard} from "@/lib/auth/guard"; export const safe=guard;');
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","upstream-import-auth");
+    const changedTarget=git(f.cwd,"rev-parse","HEAD");
+    const report=reconcile(f.base,changedTarget,f.fork);
+    const candidate=report.files.find(v=>v.path==="components/safe.tsx");
+    assert.equal(candidate.status,"contract_requires_review");
+    assert.ok(candidate.signals.includes("protected_module_import_change"));
+  }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
