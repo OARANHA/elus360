@@ -214,6 +214,34 @@ Os nomes de arquivos `components/*` da matriz são **fixtures sintéticas** insp
 
 **Riscos residuais:** um AST sintático não detecta todas as mudanças indiretas possíveis, inclusive efeitos colaterais em módulos sem exports, chamadas remotas, aliases de runtime, mudanças ambientais ou semântica entre frameworks. Diferenças de imports só foram confrontadas em fixtures do `CompilerHost`; o inventário real ainda não foi integralmente comparado por um segundo compilador. O fail-closed do grafo permanece necessário.
 
+## Gate de compatibilidade operacional — simulação multiversão e preservação ELUS (05/11/2026)
+
+### Evidência confirmada do Gate 1 anterior
+
+O workflow [42131658615](https://github.com/OARANHA/elus360/actions/runs/42131658615), referente ao HEAD `63c595b8a4b6c1a8435517f64a52abe442a5daad`, apresentou `contrato-upstream: SUCCESS`, **12/12 testes de preparação PASS** e **47/47 testes operacionais PASS**. O log confirmou individualmente a matriz semântica (#41), a integração Git triádica contra mudança em export (#42), a comparação independente `TypeScript Program/CompilerHost` (#43), `prepare` em worktree destacada preservando contrato exportado (#44), helper com reexport nominal (#45), handler PATCH alterando autorização sem import novo (#46) e CommonJS (#47). O benchmark registrou 3.194 fontes, 15.290 arestas, 15.284/15.284 anteriores preservadas, zero perdidas, seis novas; 3.652 ms, RSS 297,5 MiB, heap usado 189,6 MiB e **uma inconclusão** (`computed_module_specifier` em `curso/semear-demonstracao.ts`); `complete:false`.
+
+### Cenários adicionais de atualização simulada (commits posteriores; CI pendente)
+
+Os testes da PR representam **revisões sintéticas** DeskcommCRM v1→v2→v3, criadas em repositório Git temporário, **não** releases oficiais nem patches do upstream remoto. Uma revisão upstream altera contratos de auth, tenant, IA e API; a versão seguinte modifica novamente um arquivo ordinário. Em paralelo, o fork ELUS adiciona uma correção em `components/fork-custom.ts` e mantém `lib/elus360/identity.ts` sob controle próprio. O `prepare` executa em worktree detached temporária, sem merge e sem alterar o checkout do fork. Matriz de asserções:
+
+| Caminho no fixture | Mudança | Status esperado | Exigência no worktree |
+| --- | --- | --- | --- |
+| `components/ordinary.ts` | Melhoria ordinária upstream v1→v3, sem export | `safe_to_prepare` | Aplicar apenas versão v3 |
+| `components/fork-custom.ts` | Correção própria ELUS divergente da base | `conflict_requires_review` | Manter literalmente `FIXED_BY_ELUS` |
+| `lib/elus360/identity.ts` | Contrato exclusivo ELUS modificado pelo upstream | `protected_requires_review` | Manter versão ELUS |
+| `lib/auth/require-role.ts` | Política de papel relaxada | `contract_requires_review` | Preservar exigência admin |
+| `lib/tenant/scope.ts` | Filtro de tenant removido | `contract_requires_review` | Preservar filtro |
+| `lib/ai/agent-policy.ts` | Grant de agente ignorado | `contract_requires_review` | Preservar validação |
+| `app/api/v1/ai/agents/route.ts` | Endpoint PATCH ignora recusa | `contract_requires_review` | Preservar resposta 403 |
+
+O teste exige **um único arquivo preparado**, relatório `.elus-upstream/report.json` coerente e `HEAD` e `git status --porcelain` do fork inalterados. As categorias representadas foram escolhidas a partir de superfícies existentes no repositório, mas os conteúdos do fixture não são implementações reais. Logo, esta simulação **não autoriza** substituição de correções reais na produção.
+
+**Outras lacunas sem imports:** o detector AST foi ampliado para mudanças em efeitos executáveis no topo de módulos sem exports, incluindo inicialização de auth, ativação de políticas de tenant e configuração de IA. O sinal `module_initialization_change` exige revisão. Declarações ordinárias sem export e sem efeito de inicialização continuam elegíveis quando todos os demais gates passam. Parsing inválido, TypeScript ausente e exports alterados permanecem fail-closed. Esta proteção não equivale a análise interprocedural completa ou verificação de chamadas remotas.
+
+**Validação em novo HEAD:** o código e os fixtures estão publicados, mas os novos testes e sinais **ainda não possuem CI confirmada**. O Gate 1 anterior não prova sucesso dos novos cenários. O próximo requisito é PASS da suíte e inspeção de que nenhuma correção local seja silenciosamente substituída. Mesmo com CI GREEN, aprovação funcional completa exige testes negativos de autenticação, RLS e governança de IA em ambiente apropriado e autorização específica para canário.
+
+**Hindsight `Elus360`:** `recall` retornou `UNAVAILABLE` antes da etapa. Não afirmar sincronização de memória concluída sem retorno explícito de `sync_retain`. Evidências versionadas neste documento e na discussão da PR.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
