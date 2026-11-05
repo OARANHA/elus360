@@ -153,6 +153,35 @@ A execução [42125199338](https://github.com/OARANHA/elus360/actions/runs/42125
 
 **Memória:** consultar o Hindsight `Elus360`; enquanto o serviço continuar `UNAVAILABLE`, este documento e o comentário de PR constituem checkpoint operacional versionado, sem afirmar gravação no banco da memória.
 
+## Gate 1 42127652555 — conservação de pares de arestas comprovada
+
+No workflow [42127652555](https://github.com/OARANHA/elus360/actions/runs/42127652555), o HEAD da PR `e2ebc60ba582b470823c102989cc08b7a5245ab3` foi verificado com job `contrato-upstream` **SUCCESS**, testes de preparação **12/12 PASS** e de reconciliação **40/40 PASS**. O benchmark do checkout de merge `570660923f4cf399e8ae6fb3d9320a58b0d28568` registrou:
+
+| Métrica | Evidência do runner |
+| --- | ---: |
+| Fontes históricas | 3.192 |
+| Fontes expandidas | 3.194 |
+| Arestas históricas (`prior_inventory_edges`) | 15.284 |
+| Arestas preservadas (`retained_prior_edges`) | 15.284 |
+| Arestas perdidas (`lost_prior_edges`) | **0** |
+| Arestas novas (`added_module_edges`) | **6** |
+| Arestas totais (`module_edges`) | **15.290** |
+| Recursos rastreados CSS/JSON | 239 |
+| Imports de recursos comprovados | 4 |
+| Componentes da amostra de 100 com importadores protegidos | 69 |
+| Tempo do benchmark | 6.314 ms |
+| RSS / heap usado / delta heap | 297,3 / 187,7 / 166,2 MiB |
+| Inconclusões | **1 — `computed_module_specifier`** |
+| Completude | **`false`** |
+
+A etapa do workflow executou `node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation`. O código compara **pares exatos** `[dependência, importador]` em conjuntos, faz `exitCode=3` se desaparecer qualquer aresta anterior ou se a contagem histórica deixar de ser 3.192, e o workflow falhou se o comando retornasse código não zero. Por isso, o GREEN do job demonstra que `lost_prior_edges=0` não foi somente apresentado: **a condição de falha foi avaliada**.
+
+Os testes adversariais relevantes estão explicitamente aprovados no log: `entrypoints Sentry seguem dependencias TS protegidas, sem ignorar modulo ausente` (#35); `scanner pinado reconhece CSS Git regular e bloqueia recurso removido` (#37); `import computado em fonte runtime bloqueia candidato ordinario e prepare` (#38); `cobertura reversa adicionada nao remove arestas ou consumidores protegidos` (#39); `comparacao exata do conjunto de arestas nao oculta regressao do grafo` (#40). O caso #40 remove propositalmente uma importação da fixture e exige detectar a perda do par de aresta. O caso #38 exige `complete:false`, sinal `dependency_analysis_incomplete` e `contract_requires_review`, nunca `safe_to_prepare`.
+
+**Limitação probatória:** os grafos de 3.192 e 3.194 fontes são reconstruídos com o **mesmo resolvedor da versão atual**, no mesmo checkout pinado, omitindo apenas os dois módulos Sentry do inventário histórico. Isso prova conservação de todas as arestas **que esse resolvedor reconhece** e complementa a comparação prévia de SHA de blobs. Não prova ausência de falsos negativos próprios do parser nem equivalência comportamental das rotas auth/RBAC/multi-tenant/IA em runtime. A inconclusão `curso/semear-demonstracao.ts` permanece porque o caminho de importação é calculado em runtime. A PR continua em Draft; Gate 1 GREEN não autoriza merge, deploy, modificação de banco ou aceite funcional final.
+
+**Memória:** Hindsight `Elus360` segue sujeito à verificação de conectividade. Não afirmar `sync_retain` bem-sucedido sem confirmação explícita do serviço.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
