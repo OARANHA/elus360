@@ -146,7 +146,8 @@ test("analisador puro reconhece imports alias e relativos e descarta pacotes ext
   assert.equal(sourceModule("react","lib/elus360/adapter.ts"),null);
   const imports=directProtectedDependents(["components/safe.tsx"],[
     {path:"lib/elus360/adapter.ts",content:'export { helper } from "@/components/safe";'},
-    {path:"components/other.tsx",content:'import X from "@/components/safe";'}
+    {path:"components/other.tsx",content:'import X from "@/components/safe";'},
+    {path:"components/safe.tsx",content:"export const helper = 1;"}
   ]);
   assert.deepEqual(imports.get("components/safe"),["lib/elus360/adapter.ts"]);
   assert.deepEqual(uninventoriedAiSurfaces(
@@ -168,7 +169,7 @@ test("cadeia transitiva protege arquivo comum mesmo com intermediario nao proteg
     assert.equal(file.status,"contract_requires_review");
     assert.deepEqual(file.protected_importers,["lib/elus360/adapter.ts"]);
     assert.ok(file.signals.includes("protected_reverse_dependency"));
-    assert.equal(report.dependency_scan.scope,"transitive_protected_imports");
+    assert.equal(report.dependency_scan.scope,"typescript_ast_transitive_imports");
   }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
 });
 test("ciclos de imports nao causam loop nem descartam consumidor protegido",async()=>{
@@ -177,7 +178,52 @@ test("ciclos de imports nao causam loop nem descartam consumidor protegido",asyn
     {path:"components/a.tsx",content:'import "@/components/b";'},
     {path:"components/b.tsx",content:'import "@/components/a"; import "@/components/safe";'},
     {path:"lib/elus360/core.ts",content:'import "@/components/a";'},
+    {path:"components/safe.tsx",content:"export const x=1;"},
   ];
   const map=transitiveProtectedDependents(["components/safe.tsx"],graph);
   assert.deepEqual(map.get("components/safe"),["lib/elus360/core.ts"]);
+});
+
+test("AST resolve reexport, require, import dinamico literal e arquivo index",async()=>{
+  const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const sources=[
+    {path:"components/shared/index.ts",content:"export const token=1;"},
+    {path:"components/middle.ts",content:'export {token} from "./shared";'},
+    {path:"lib/elus360/consumer.ts",content:'export async function load(){ return await import("@/components/middle"); }'},
+  ];
+  const graph=dependencyGraph(sources);
+  assert.equal(graph.complete,true,JSON.stringify(graph.unresolved));
+  assert.deepEqual(transitiveProtectedDependents(["components/shared/index.ts"],sources).get("components/shared"),["lib/elus360/consumer.ts"]);
+});
+test("imports locais ausentes e computados impedem declaracao de analise completa",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const cases=[
+    {path:"lib/elus360/a.ts",content:'import x from "@/components/not-present";'},
+    {path:"components/x.ts",content:'export async function x(mod){return import(mod);}'},
+    {path:"components/y.ts",content:'export * from "~/some-alias";'},
+  ];
+  const result=dependencyGraph(cases);
+  assert.equal(result.complete,false);
+  assert.ok(result.unresolved.some(e=>e.reason==="unresolved_local_module"));
+  assert.ok(result.unresolved.some(e=>e.reason==="computed_module_specifier"));
+});
+test("grafo AST ignora imports falsos em comentarios e strings",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const graph=dependencyGraph([
+    {path:"components/a.ts",content:'// import "@/missing";\nexport const x = "require(\\\"@/missing\\\")";'},
+  ]);
+  assert.equal(graph.complete,true,JSON.stringify(graph.unresolved));
+});
+test("reconciliacao falha fechada quando modulo local da arvore nao resolve",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    writeFileSync(join(f.cwd,"lib/elus360/adapter.ts"),'import "@/components/missing";');
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","unresolved path");
+    const report=reconcile(f.base,f.target,git(f.cwd,"rev-parse","HEAD"));
+    const candidate=report.files.find(file=>file.path==="components/safe.tsx");
+    assert.equal(report.dependency_scan.complete,false);
+    assert.equal(candidate.status,"contract_requires_review");
+    assert.ok(candidate.signals.includes("dependency_analysis_incomplete"));
+  }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
 });
