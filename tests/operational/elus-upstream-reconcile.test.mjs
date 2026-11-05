@@ -251,3 +251,39 @@ test("reconciliador nao prepara arquivo com novo import auth mesmo sem palavras-
     assert.ok(candidate.signals.includes("protected_module_import_change"));
   }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
 });
+
+test("arquivo e index coexistentes bloqueiam resolucao ambigua",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const graph=dependencyGraph([
+    {path:"components/widget.ts",content:"export const x=1;"},
+    {path:"components/widget/index.ts",content:"export const y=2;"},
+    {path:"lib/elus360/consumer.ts",content:'import "@/components/widget";'}
+  ]);
+  assert.equal(graph.complete,false);
+  assert.ok(graph.unresolved.some(x=>x.reason==="ambiguous_local_module"));
+});
+test("aliases locais desconhecidos nao sao tratados como packages externos",async()=>{
+  const {dependencyGraph}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const graph=dependencyGraph([
+    {path:"components/demo.ts",content:'import "~/internal/protected";'},
+    {path:"components/demo2.ts",content:'import "#private/helper";'}
+  ]);
+  assert.equal(graph.complete,false);
+  assert.equal(graph.unresolved.filter(x=>x.reason==="unresolved_local_module").length,2);
+});
+test("grafo longo preserva integridade de caminhos e ciclos dentro de limite",async()=>{
+  const {dependencyGraph,transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const sources=[{path:"components/start.ts",content:"export const start=1;"}];
+  for(let i=0;i<360;i++) sources.push({
+    path:"components/chain"+i+".ts",
+    content:'import "@/components/'+(i===0?"start":"chain"+(i-1))+'";'
+  });
+  sources.push({path:"lib/elus360/entry.ts",content:'import "@/components/chain359";'});
+  const begin=performance.now();
+  const graph=dependencyGraph(sources);
+  const dependents=transitiveProtectedDependents(["components/start.ts"],sources,graph);
+  const elapsed=performance.now()-begin;
+  assert.equal(graph.complete,true,JSON.stringify(graph.unresolved));
+  assert.deepEqual(dependents.get("components/start"),["lib/elus360/entry.ts"]);
+  assert.ok(elapsed<15000,"grafo sintetico excessivamente lento: "+elapsed.toFixed(0)+"ms");
+});
