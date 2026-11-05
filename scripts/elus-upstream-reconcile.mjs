@@ -112,7 +112,7 @@ function inspectForkDependencies(fork,candidatePaths) {
   }
   if(offset!==blobs.length) return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
   const graph=dependencyGraph(sources);
-  return {dependents:transitiveProtectedDependents(candidatePaths,sources),
+  return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
     complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length};
 }
 function inventoryFor(fork) {
