@@ -53,7 +53,28 @@ function astImports(content,path) {
  * A changed file can introduce a NEW edge to a protected contract.
  * Inspect the target as well as the fork reverse graph.
  */
-export function changedModuleSignals(path,before,after) {
+function mappedProtectedImport(specifier,rawConfig) {
+  if(typeof rawConfig!=="string") return false;
+  const {options}=compilerOptionsFromConfig(rawConfig);
+  if(!options) return false;
+  if(PROTECTED.some(prefix=>specifier.startsWith(prefix))) return true;
+  for(const [alias,targets] of Object.entries(options.paths??{})) {
+    const star=alias.indexOf("*");
+    let captured="";
+    if(star<0) {if(specifier!==alias) continue;}
+    else {
+      const before=alias.slice(0,star),after=alias.slice(star+1);
+      if(!specifier.startsWith(before)||!specifier.endsWith(after)) continue;
+      captured=specifier.slice(before.length,specifier.length-after.length);
+    }
+    for(const target of targets) {
+      const mapped=posix.normalize(target.replace("*",captured)).replace(/^\\.\\//,"");
+      if(PROTECTED.some(prefix=>mapped.startsWith(prefix))) return true;
+    }
+  }
+  return false;
+}
+export function changedModuleSignals(path,before,after,rawConfig=null) {
   if(!SOURCE.test(path)) return [];
   const signals=new Set();
   for(const content of [before,after]) {
@@ -63,6 +84,7 @@ export function changedModuleSignals(path,before,after) {
       if(specifier.startsWith("~/")||specifier.startsWith("#")) {
         signals.add("dependency_analysis_incomplete");continue;
       }
+      if(mappedProtectedImport(specifier,rawConfig)) signals.add("protected_module_import_change");
       const resolved=sourceModule(specifier,path);
       if(resolved && isProtected(resolved+"/")) signals.add("protected_module_import_change");
       if(resolved && PROTECTED.some(prefix=>resolved.startsWith(prefix))) signals.add("protected_module_import_change");
