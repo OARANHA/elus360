@@ -154,3 +154,30 @@ test("analisador puro reconhece imports alias e relativos e descarta pacotes ext
     {surfaces:[{path:"app/api/v1/ai/providers/route.ts"}]}
   ),["app/api/v1/ai/new/route.ts"]);
 });
+
+test("cadeia transitiva protege arquivo comum mesmo com intermediario nao protegido",()=>{
+  const f=fixture(),old=process.cwd();
+  try{
+    process.chdir(f.cwd);
+    const intermediary=join(f.cwd,"components/intermediary.tsx");
+    writeFileSync(intermediary,'import { helper } from "@/components/safe";\nexport const y=helper;\n');
+    writeFileSync(join(f.cwd,"lib/elus360/adapter.ts"),'import { y } from "@/components/intermediary";\nexport const x=y;\n');
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","protected via intermediary");
+    const report=reconcile(f.base,f.target,git(f.cwd,"rev-parse","HEAD"));
+    const file=report.files.find(v=>v.path==="components/safe.tsx");
+    assert.equal(file.status,"contract_requires_review");
+    assert.deepEqual(file.protected_importers,["lib/elus360/adapter.ts"]);
+    assert.ok(file.signals.includes("protected_reverse_dependency"));
+    assert.equal(report.dependency_scan.scope,"transitive_protected_imports");
+  }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
+test("ciclos de imports nao causam loop nem descartam consumidor protegido",async()=>{
+  const {transitiveProtectedDependents}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const graph=[
+    {path:"components/a.tsx",content:'import "@/components/b";'},
+    {path:"components/b.tsx",content:'import "@/components/a"; import "@/components/safe";'},
+    {path:"lib/elus360/core.ts",content:'import "@/components/a";'},
+  ];
+  const map=transitiveProtectedDependents(["components/safe.tsx"],graph);
+  assert.deepEqual(map.get("components/safe"),["lib/elus360/core.ts"]);
+});
