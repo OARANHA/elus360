@@ -26,6 +26,16 @@ const reasonCounts={};
 for(const item of graph.unresolved) reasonCounts[item.reason]=(reasonCounts[item.reason]??0)+1;
 const unresolvedSamples={};
 for(const item of graph.unresolved){if(!item.path) continue;const samples=unresolvedSamples[item.reason]??[];if(samples.length<5)samples.push(item.path);unresolvedSamples[item.reason]=samples;}
+const unresolvedBySpecifierClass={};
+const classify=specifier=>{
+  if(typeof specifier!=="string") return "parser_or_content";
+  if(/\\.(?:css|scss|sass|svg|png|jpe?g|webp|gif|woff2?|json)$/.test(specifier)) return "asset_or_json";
+  if(specifier.startsWith("@/")) return "root_alias";
+  if(specifier.startsWith("./")||specifier.startsWith("../")) return "relative";
+  if(specifier.startsWith("#")||specifier.startsWith("~/")) return "custom_alias";
+  return "package_or_baseurl";
+};
+for(const issue of graph.unresolved){const category=classify(issue.specifier);unresolvedBySpecifierClass[category]=(unresolvedBySpecifierClass[category]??0)+1;}
 const changed=names.filter(p=>p.startsWith("components/")).slice(0,100);
 const matched=transitiveProtectedDependents(changed,sources,graph);
-console.log(JSON.stringify({benchmark:"elus-real-tree-ast",head:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),sources:count,candidate_sample:changed.length,protected_dependents:matched.size,complete:graph.complete,unresolved_count:graph.unresolved.length,unresolved_counts:reasonCounts,unresolved_example_paths:unresolvedSamples,memory_rss_mib:Number((process.memoryUsage().rss/1048576).toFixed(1)),memory_heap_mib:Number((process.memoryUsage().heapUsed/1048576).toFixed(1)),memory_heap_delta_mib:Number(((process.memoryUsage().heapUsed-memoryStart.heapUsed)/1048576).toFixed(1)),unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort(),duration_ms:Math.round(performance.now()-started)}));
+console.log(JSON.stringify({benchmark:"elus-real-tree-ast",head:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),sources:count,candidate_sample:changed.length,protected_dependents:matched.size,complete:graph.complete,unresolved_count:graph.unresolved.length,unresolved_counts:reasonCounts,unresolved_specifier_categories:unresolvedBySpecifierClass,unresolved_example_paths:unresolvedSamples,memory_rss_mib:Number((process.memoryUsage().rss/1048576).toFixed(1)),memory_heap_mib:Number((process.memoryUsage().heapUsed/1048576).toFixed(1)),memory_heap_delta_mib:Number(((process.memoryUsage().heapUsed-memoryStart.heapUsed)/1048576).toFixed(1)),unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort(),duration_ms:Math.round(performance.now()-started)}));
