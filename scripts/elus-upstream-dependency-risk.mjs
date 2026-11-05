@@ -71,8 +71,8 @@ export function dependencyGraph(sources) {
   }
   return {reverse,unresolved,complete:unresolved.length===0,scanned:sources.length};
 }
-export function transitiveProtectedDependents(changedPaths,sources) {
-  const graph=dependencyGraph(sources),available=new Set(sources.map(s=>s.path)),result=new Map();
+export function transitiveProtectedDependents(changedPaths,sources,graph=dependencyGraph(sources)) {
+  const available=new Set(sources.map(s=>s.path)),result=new Map();
   for(const changed of changedPaths) {
     const start=available.has(changed)?changed:[changed,...EXTS.map(ext=>canonical(changed)+ext)].find(path=>available.has(path));
     if(!start) continue;
