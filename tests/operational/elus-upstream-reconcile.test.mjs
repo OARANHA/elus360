@@ -466,3 +466,23 @@ test("mudancas no layout raiz e recursos nao executaveis nunca sao safe_to_prepa
     assert.equal(report.files.find(v=>v.path==="app/layout.tsx").status,"contract_requires_review");
   }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
 });
+
+test("scanner pinado reconhece CSS Git regular e bloqueia recurso removido",()=>{
+  const f=fixture(),prior=process.cwd();
+  try{
+    process.chdir(f.cwd);
+    writeFileSync(join(f.cwd,"components/theme.ts"),'import "./theme.css"; export const theme=true;');
+    writeFileSync(join(f.cwd,"components/theme.css"),".theme { color: #fff; }");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","fork CSS resource");
+    const withResource=reconcile(f.base,f.target,git(f.cwd,"rev-parse","HEAD"));
+    assert.equal(withResource.dependency_scan.complete,true,JSON.stringify(withResource.dependency_scan));
+    assert.equal(withResource.files.find(x=>x.path==="components/safe.tsx").status,"safe_to_prepare");
+    git(f.cwd,"rm","-q","components/theme.css");
+    git(f.cwd,"commit","-qm","fork CSS missing");
+    const withoutResource=reconcile(f.base,f.target,git(f.cwd,"rev-parse","HEAD"));
+    assert.equal(withoutResource.dependency_scan.complete,false);
+    const candidate=withoutResource.files.find(x=>x.path==="components/safe.tsx");
+    assert.equal(candidate.status,"contract_requires_review");
+    assert.ok(candidate.signals.includes("dependency_analysis_incomplete"));
+  }finally{process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});}
+});
