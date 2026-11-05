@@ -12,9 +12,9 @@ function fixture() {
   git(cwd,"init","-q");git(cwd,"config","user.name","Tests");git(cwd,"config","user.email","test@example.invalid");
   function set(path, content) { const full=join(cwd,path);mkdirSync(dirname(full),{recursive:true});writeFileSync(full,content); }
   function commit(label){git(cwd,"add",".");git(cwd,"commit","-qm",label);return git(cwd,"rev-parse","HEAD");}
-  set("components/a.tsx","old");set("components/safe.tsx","old");set("lib/auth/guard.ts","old");set("lib/elus360/policy.ts","old");set("app/app/p.tsx","old");set("app/app/delete.tsx","old");
+  set("components/a.tsx","old");set("components/permission.tsx","old");set("components/img.svg","old");set("components/safe.tsx","old");set("lib/auth/guard.ts","old");set("lib/elus360/policy.ts","old");set("app/app/p.tsx","old");set("app/app/delete.tsx","old");
   const base=commit("base");
-  set("components/a.tsx","upstream");set("components/safe.tsx","upstream");set("lib/auth/guard.ts","upstream");set("lib/elus360/policy.ts","upstream");set("app/app/p.tsx","upstream");rmSync(join(cwd,"app/app/delete.tsx"));
+  set("components/a.tsx","upstream");set("components/permission.tsx","provider model");set("components/img.svg","new");set("components/safe.tsx","upstream");set("lib/auth/guard.ts","upstream");set("lib/elus360/policy.ts","upstream");set("app/app/p.tsx","upstream");rmSync(join(cwd,"app/app/delete.tsx"));
   const target=commit("target");
   git(cwd,"checkout","-q",base);set("components/a.tsx","upstream");set("app/app/p.tsx","elus-custom");const fork=commit("fork");
   return {cwd,base,target,fork};
@@ -27,12 +27,15 @@ test("tripla separa integrado, seguro, conflito, contrato, extensao e exclusao",
     const statuses=Object.fromEntries(p.files.map(x=>[x.path,x.status]));
     assert.equal(statuses["components/a.tsx"],"already_integrated");
     assert.equal(statuses["components/safe.tsx"],"safe_to_prepare");
+    assert.equal(statuses["components/permission.tsx"],"contract_requires_review");
+    assert.equal(statuses["components/img.svg"],"contract_requires_review");
+    assert.ok(p.files.find(x=>x.path==="components/permission.tsx").signals.includes("managed_ai"));
     assert.equal(statuses["lib/auth/guard.ts"],"contract_requires_review");
     assert.equal(statuses["lib/elus360/policy.ts"],"protected_requires_review");
     assert.equal(statuses["app/app/p.tsx"],"conflict_requires_review");
     assert.equal(statuses["app/app/delete.tsx"],"deletion_requires_review");
     assert.equal(p.gate,"manual_review_required");
-    assert.equal(p.totals.changed,6);
+    assert.equal(p.totals.changed,8);
   } finally {process.chdir(previous);rmSync(f.cwd,{recursive:true,force:true});}
 });
 test("caminho ordinario novo somente e seguro quando nao customizado",()=>{
@@ -60,4 +63,23 @@ test("prepare aplica apenas safe em detached worktree e preserva fork e contrato
     process.chdir(old);
     rmSync(f.cwd,{recursive:true,force:true});
   }
+});
+
+test("contratos ocultos em componentes aparentemente seguros exigem revisao",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    const plan=reconcile(f.base,f.target,f.fork);
+    assert.equal(plan.files.find(x=>x.path==="components/permission.tsx").status,"contract_requires_review");
+    assert.ok(plan.files.find(x=>x.path==="components/img.svg").signals.includes("non_source_asset"));
+  } finally {process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
+test("prepare rejeita checkout sujo antes de criar worktree",()=>{
+  const f=fixture(),old=process.cwd(),out=join(tmpdir(),"elus-dirty-"+process.pid+"-"+Date.now());
+  try {
+    process.chdir(f.cwd);
+    writeFileSync(join(f.cwd,"components/a.tsx"),"changed outside commit");
+    assert.throws(()=>prepare(f.base,f.target,f.fork,out),/WORKTREE_NOT_CLEAN/);
+    assert.equal(existsSync(out),false);
+  } finally {process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
 });
