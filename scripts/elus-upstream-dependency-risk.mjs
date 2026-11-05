@@ -92,16 +92,63 @@ function resolveLocal(specifier,importer,available) {
   if(isExplicit && !EXTS.some(ext=>specifier.endsWith(ext))) return {path:null,reason:"unsupported_local_extension"};
   return {path:matches[0],reason:null};
 }
+// TypeScript resolution is evaluated against the pinned Git inventory, never the local checkout.
+export function compilerOptionsFromConfig(raw) {
+  if(!ts || typeof raw!=="string") return {options:null,reason:"typescript_compiler_missing_or_tsconfig_unreadable"};
+  const parsed=ts.parseConfigFileTextToJson("tsconfig.json",raw);
+  if(parsed.error || !parsed.config?.compilerOptions) return {options:null,reason:"invalid_tsconfig"};
+  const config=parsed.config.compilerOptions;
+  if(config.extends || parsed.config.extends) return {options:null,reason:"unsupported_tsconfig_extends"};
+  const converted=ts.convertCompilerOptionsFromJson(config,".");
+  if(converted.errors.length) return {options:null,reason:"invalid_tsconfig_options"};
+  const options={...converted.options,baseUrl:converted.options.baseUrl??".",moduleResolution:converted.options.moduleResolution??ts.ModuleResolutionKind.Bundler};
+  return {options,reason:null};
+}
+function normalizedFile(path) {return posix.normalize(path.replace(/\\\\/g,"/")).replace(/^\\.\\//,"");}
+function configuredResolver(sources,rawConfig) {
+  const config=compilerOptionsFromConfig(rawConfig);
+  const available=new Set(sources.map(s=>normalizedFile(s.path)));
+  const dirs=new Set(["."]);
+  for(const path of available) {let dir=posix.dirname(path);while(dir!=="."&&!dirs.has(dir)){dirs.add(dir);dir=posix.dirname(dir);}}
+  const host={
+    fileExists:path=>available.has(normalizedFile(path)),
+    directoryExists:path=>dirs.has(normalizedFile(path))||path===".",
+    readFile:path=>sources.find(s=>s.path===normalizedFile(path))?.content,
+    getCurrentDirectory:()=>".",
+    realpath:path=>path,
+    getDirectories:()=>[]
+  };
+  const aliases=Object.keys(config.options?.paths??{});
+  const matchesAlias=specifier=>aliases.some(alias=>{
+    const star=alias.indexOf("*");
+    return star<0 ? specifier===alias : specifier.startsWith(alias.slice(0,star))&&specifier.endsWith(alias.slice(star+1));
+  });
+  return {config,resolve(specifier,importer){
+    const isRelative=specifier.startsWith("./")||specifier.startsWith("../");
+    const local=isRelative||matchesAlias(specifier)||isLocal(specifier);
+    if(!config.options) return {local:true,path:null,reason:config.reason};
+    const result=ts.resolveModuleName(specifier,importer,config.options,host);
+    const resolved=normalizedFile(result.resolvedModule?.resolvedFileName??"");
+    if(resolved && available.has(resolved)) return {local:true,path:resolved,reason:null};
+    // A configured alias or relative import must never fall back to a package.
+    if(local) return {local:true,path:null,reason:"unresolved_configured_module"};
+    // baseUrl can resolve unprefixed local modules. If not found, treat as external.
+    return {local:false,path:null,reason:null};
+  }};
+}
 /** Missing local module, syntax error or computed import blocks automatic preparation. */
-export function dependencyGraph(sources) {
+export function dependencyGraph(sources,rawConfig=null) {
   const available=new Set(sources.map(s=>s.path)),reverse=new Map(),unresolved=[];
+  const configured=rawConfig===null?null:configuredResolver(sources,rawConfig);
+  if(configured?.config.reason) unresolved.push({reason:configured.config.reason});
   if(!ts) unresolved.push({reason:"typescript_compiler_missing"});
   for(const {path,content} of sources){
     const ast=astImports(content,path);
     for(const reason of ast.unresolved) unresolved.push({path,reason});
     for(const specifier of ast.specifiers) {
-      if(!isLocal(specifier)) continue;
-      const resolved=resolveLocal(specifier,path,available);
+      if(!configured && !isLocal(specifier)) continue;
+      const resolved=configured?configured.resolve(specifier,path):resolveLocal(specifier,path,available);
+      if(configured && !resolved.local) continue;
       if(!resolved.path){unresolved.push({path,reason:resolved.reason});continue;}
       const consumers=reverse.get(resolved.path)??new Set();consumers.add(path);reverse.set(resolved.path,consumers);
     }
