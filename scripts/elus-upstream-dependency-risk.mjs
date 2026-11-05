@@ -174,7 +174,7 @@ export function dependencyGraph(sources,rawConfig=null) {
       if(!configured && !isLocal(specifier)) continue;
       const resolved=configured?configured.resolve(specifier,path):resolveLocal(specifier,path,available);
       if(configured && !resolved.local) continue;
-      if(!resolved.path){unresolved.push({path,reason:resolved.reason});continue;}
+      if(!resolved.path){unresolved.push({path,reason:resolved.reason,specifier});continue;}
       const consumers=reverse.get(resolved.path)??new Set();consumers.add(path);reverse.set(resolved.path,consumers);
     }
   }
