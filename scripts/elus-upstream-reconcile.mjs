@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals } from "./elus-upstream-contract-risk.mjs";
-import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces } from "./elus-upstream-dependency-risk.mjs";
+import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -135,9 +135,12 @@ export function reconcile(base, target, fork) {
   const paths = change ? change.split("\0").filter(Boolean) : [];
   const files = paths.map(path => {
     const before = oid(base, path), after = oid(target, path), local = oid(fork, path);
+    const original = before === after || after === local ? "" : readSource(base,path,before);
+    const incoming = before === after || after === local ? "" : readSource(target,path,after);
     const flags = before === after || after === local ? [] : [
       ...auditPath(path, modeOf(target,path)),
-      ...contractSignals(path, readSource(base,path,before), readSource(target,path,after)),
+      ...contractSignals(path, original, incoming),
+      ...changedModuleSignals(path, original, incoming),
     ];
     return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags, suggested_checks: checksForSignals(flags)};
   });
