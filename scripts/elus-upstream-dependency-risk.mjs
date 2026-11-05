@@ -82,10 +82,10 @@ export function changedModuleSignals(path,before,after,rawConfig=null) {
     const ast=astImports(content,path);
     if(ast.unresolved.length) signals.add("dependency_analysis_incomplete");
     for(const specifier of ast.specifiers) {
+      if(mappedProtectedImport(specifier,rawConfig)) signals.add("protected_module_import_change");
       if(specifier.startsWith("~/")||specifier.startsWith("#")) {
         signals.add("dependency_analysis_incomplete");continue;
       }
-      if(mappedProtectedImport(specifier,rawConfig)) signals.add("protected_module_import_change");
       const resolved=sourceModule(specifier,path);
       if(resolved && isProtected(resolved+"/")) signals.add("protected_module_import_change");
       if(resolved && PROTECTED.some(prefix=>resolved.startsWith(prefix))) signals.add("protected_module_import_change");
