@@ -101,3 +101,56 @@ test("arquivos executaveis ou nao codigo nunca sao preparaveis automaticamente",
   assert.deepEqual(auditPath("components/x.tsx","120000"),["non_regular_git_object"]);
   assert.deepEqual(auditPath("components/photo.svg","100644"),["non_source_asset"]);
 });
+
+test("dependencia protegida impede promover componente genericamente seguro",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    const adapter=join(f.cwd,"lib/elus360/adapter.ts");
+    writeFileSync(adapter,'import { helper } from "@/components/safe";\nexport const x=helper;\n');
+    git(f.cwd,"add","lib/elus360/adapter.ts");
+    git(f.cwd,"commit","-qm","fork uses upstream helper");
+    const fork=git(f.cwd,"rev-parse","HEAD");
+    const report=reconcile(f.base,f.target,fork);
+    const file=report.files.find(item=>item.path==="components/safe.tsx");
+    assert.equal(file.status,"contract_requires_review");
+    assert.ok(file.signals.includes("protected_reverse_dependency"));
+    assert.deepEqual(file.protected_importers,["lib/elus360/adapter.ts"]);
+    assert.ok(file.suggested_checks.includes("review_protected_importers"));
+  }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
+test("nova rota mutavel de IA ausente do inventario e sempre sinalizada",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.target);
+    const path="app/api/v1/ai/unstable/route.ts";
+    const full=join(f.cwd,path);
+    mkdirSync(dirname(full),{recursive:true});
+    writeFileSync(full,'export async function PATCH() { return Response.json({ok:true}); }\n');
+    git(f.cwd,"add",path);
+    git(f.cwd,"commit","-qm","upstream adds route");
+    const target=git(f.cwd,"rev-parse","HEAD");
+    const report=reconcile(f.base,target,f.fork);
+    const file=report.files.find(item=>item.path===path);
+    assert.equal(file.status,"contract_requires_review");
+    assert.ok(file.signals.includes("uninventoried_ai_surface"));
+    assert.ok(report.uninventoried_ai_paths.includes(path));
+    assert.ok(file.suggested_checks.includes("review_ai_write_surface_inventory"));
+  }finally{process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
+test("analisador puro reconhece imports alias e relativos e descarta pacotes externos",async()=>{
+  const {sourceModule, directProtectedDependents, uninventoriedAiSurfaces}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  assert.equal(sourceModule("@/components/safe","lib/elus360/adapter.ts"),"components/safe");
+  assert.equal(sourceModule("../../components/safe","lib/elus360/adapter.ts"),"components/safe");
+  assert.equal(sourceModule("react","lib/elus360/adapter.ts"),null);
+  const imports=directProtectedDependents(["components/safe.tsx"],[
+    {path:"lib/elus360/adapter.ts",content:'export { helper } from "@/components/safe";'},
+    {path:"components/other.tsx",content:'import X from "@/components/safe";'}
+  ]);
+  assert.deepEqual(imports.get("components/safe"),["lib/elus360/adapter.ts"]);
+  assert.deepEqual(uninventoriedAiSurfaces(
+    ["app/api/v1/ai/providers/route.ts","app/api/v1/ai/new/route.ts"],
+    {surfaces:[{path:"app/api/v1/ai/providers/route.ts"}]}
+  ),["app/api/v1/ai/new/route.ts"]);
+});
