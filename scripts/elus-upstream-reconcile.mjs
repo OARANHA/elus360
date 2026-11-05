@@ -85,11 +85,12 @@ function parse(args) {
 function inspectForkDependencies(fork,candidatePaths) {
   if(!candidatePaths.length) return {dependents:new Map(),complete:true,count:0,unresolved:0};
   // One Git tree read and one batch object read (rather than three processes per source).
-  const tree=git(["ls-tree","-r","-z",fork,"--","app/","lib/","components/","workers/","hooks/","types/","curso/","proxy.ts","instrumentation.ts","instrumentation-client.ts"],{binary:true});
+  const tree=git(["ls-tree","-r","-z",fork,"--","app/","lib/","components/","workers/","hooks/","types/","curso/","proxy.ts","instrumentation.ts","instrumentation-client.ts","sentry.edge.config.ts","sentry.server.config.ts"],{binary:true});
   const entries=tree.toString("utf8").split("\0").filter(Boolean).map(line=>{
     const tab=line.indexOf("\t"),metadata=line.slice(0,tab).split(" ");
     return {path:line.slice(tab+1),mode:metadata[0],type:metadata[1],oid:metadata[2]};
   }).filter(entry=>/\.(?:[cm]?[jt]s|[jt]sx)$/.test(entry.path) && !/\.test\.[jt]sx?$/.test(entry.path));
+  const resourcePaths=tree.toString("utf8").split("\0").filter(Boolean).map(line=>line.slice(line.indexOf("\t")+1)).filter(path=>/\\.(?:css|scss|sass|json)$/.test(path));
   if(entries.length>5000 || entries.some(e=>e.mode!=="100644"||e.type!=="blob"))
     return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
   if(!entries.length) return {dependents:new Map(),complete:false,count:0,unresolved:1};
@@ -114,7 +115,7 @@ function inspectForkDependencies(fork,candidatePaths) {
   if(offset!==blobs.length) return {dependents:new Map(),complete:false,count:entries.length,unresolved:1};
   const configId=oid(fork,"tsconfig.json");
   const config=configId?readSource(fork,"tsconfig.json",configId):null;
-  const graph=dependencyGraph(sources,config??"");
+  const graph=dependencyGraph(sources,config??"",resourcePaths);
   return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
     complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length,unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort()};
 }
