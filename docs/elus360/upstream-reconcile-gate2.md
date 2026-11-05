@@ -45,7 +45,7 @@ A classificação é **por identidade de blobs e caminhos**, não equivalência 
 
 A análise agora inclui um inventário estático **transitivo de importações locais** na árvore do fork. Ela consulta a árvore Git do SHA ELUS360 fornecido, procura imports/exports de módulos locais (`@/`, `./`, `../`) em `app/`, `lib/`, `components/` e `workers/`, percorre cadeias de dependências com proteção contra ciclos e sinaliza `protected_reverse_dependency` quando um arquivo previamente classificado como `safe_to_prepare` é consumido, diretamente ou por intermediários, por módulos de autenticação, IA, administração, onboarding, workers ou extensões ELUS.
 
-Nesse caso, o candidato passa a `contract_requires_review`, e o JSON passa a incluir `protected_importers` e o check `review_protected_importers`. O campo `dependency_scan` indica quantos arquivos foram lidos e se a inspeção ficou completa **dentro do escopo estático definido**. Se houver mais de 2400 arquivos-fonte no escopo, imports locais não resolvidos, conteúdo não inspecionável ou objeto não regular, a análise sinaliza `dependency_analysis_incomplete` para impedir que candidatos ordinários sejam aceitos sem revisão.
+Nesse caso, o candidato passa a `contract_requires_review`, e o JSON passa a incluir `protected_importers` e o check `review_protected_importers`. O campo `dependency_scan` indica quantos arquivos foram lidos e se a inspeção ficou completa **dentro do escopo estático definido**. Se houver mais de 5000 arquivos-fonte no escopo, imports locais não resolvidos, conteúdo não inspecionável ou objeto não regular, a análise sinaliza `dependency_analysis_incomplete` para impedir que candidatos ordinários sejam aceitos sem revisão.
 
 O analisador também compara os caminhos de rotas de IA e ações de onboarding alterados pelo upstream com o inventário `docs/elus360/ai-governance-write-surfaces.json` do fork pinado. Qualquer rota identificada fora desse inventário recebe `uninventoried_ai_surface` e o check `review_ai_write_surface_inventory`. **A ausência de uma rota do inventário não prova que a rota seja insegura; sua presença não prova que esteja protegida.** O inventário é explicitamente inicial.
 
@@ -55,7 +55,7 @@ Limites: não há análise de AST/TypeScript, resolução de aliases além do pa
 
 O reconciliador usa agora o parser oficial **TypeScript** (`typescript@^6.0.3`) para obter dependências por `import`, `export ... from`, `import()` com string literal, `require()` com string literal e `import = require()`. O resolvedor cobre `@/*` (alias configurado em `tsconfig.json`), caminhos relativos, extensões TS/JS e `index.ts(x)`/JS. O scanner percorre o grafo reverso até encontrar consumidores protegidos; ciclos são rastreados com conjunto de visitados.
 
-O inventário é lido do **SHA do fork**, não da working tree. Uma leitura `git ls-tree` e uma execução `git cat-file --batch` substituem milhares de subprocessos por arquivo. O grafo é processado uma única vez por execução. O limite segue em 2400 fontes UTF-8 de até 512 KiB cada; objetos não regulares e arquivos grandes impedem conclusão automática.
+O inventário é lido do **SHA do fork**, não da working tree. Uma leitura `git ls-tree` e uma execução `git cat-file --batch` substituem milhares de subprocessos por arquivo. O grafo é processado uma única vez por execução. O limite segue em 5000 fontes UTF-8 de até 2 MiB cada; objetos não regulares e arquivos grandes impedem conclusão automática.
 
 O AST também examina as importações do **arquivo upstream alterado**, antes e depois da mudança. Um novo import direto para um módulo protegido gera `protected_module_import_change` e exige revisão; sintaxe não analisável ou import computado gera `dependency_analysis_incomplete`. Esse controle complementa o grafo reverso do fork, que por si só não enxerga novas arestas introduzidas pelo upstream.
 
@@ -83,11 +83,17 @@ O grafo tem agora um modo configurado baseado em `ts.resolveModuleName`, com as 
 
 A análise das importações introduzidas pelo upstream usa o mesmo `tsconfig` pinado para detectar aliases como `$security/* → lib/auth/*` e `$governance/* → lib/elus360/ai-managed/*`. Os destinos protegidos sinalizam `protected_module_import_change`. Essa detecção é conservadora e não substitui um `TypeChecker` completo.
 
-Um benchmark **somente leitura** foi acrescentado ao workflow em `scripts/elus-upstream-real-tree-benchmark.mjs`. Ele inspeciona arquivos reais *rastreados* em `app/`, `lib/`, `components/` e `workers/`, informa SHA, quantidade de fontes, completude, categorias de módulos sem resolução, número de consumidores protegidos numa amostra de 100 componentes e `duration_ms`. Se exceder o limite de 2400 fontes ou 512 KiB por fonte, registra `complete:false`; **não reduz arbitrariamente a amostra para declarar segurança**. O benchmark não grava arquivos, não faz rede e não executa SQL.
+Um benchmark **somente leitura** foi acrescentado ao workflow em `scripts/elus-upstream-real-tree-benchmark.mjs`. Ele inspeciona arquivos reais *rastreados* em `app/`, `lib/`, `components/` e `workers/`, informa SHA, quantidade de fontes, completude, categorias de módulos sem resolução, número de consumidores protegidos numa amostra de 100 componentes e `duration_ms`. Se exceder o limite de 5000 fontes ou 2 MiB por fonte, registra `complete:false`; **não reduz arbitrariamente a amostra para declarar segurança**. O benchmark não grava arquivos, não faz rede e não executa SQL.
 
 **Status de evidência:** o workflow antigo foi reportado GREEN pelo Gerente de IA para o HEAD `05543453e83511062454ec974d36ad45a7ad5379` (run `42111557936`). Os novos testes de aliases complexos e o benchmark real foram **publicados em commits posteriores**, mas seus resultados ainda precisam da CI do novo HEAD. Não utilizar o verde antigo como validação dos novos arquivos.
 
 Limitações: módulos externos/package exports, `extends` de tsconfig, dependências fora do inventário inspecionado e importações cujo destino depende do runtime não podem ser declarados seguros. O benchmark da árvore real fornece métricas de execução quando o runner executar o novo HEAD, mas não é prova de cobertura semântica total.
+
+### Inventário Git real verificado em 05/11/2026
+
+A consulta read-only ao Git Trees API para o SHA `0472d4545ec546136e35ebc447a6c0e897db08b9` retornou `truncated=false`, 11.073 entradas e **3.914 fontes** no escopo: `app/` 1.450, `lib/` 2.035, `components/` 394, `workers/` 35, totalizando **32.952.480 bytes**. As duas maiores fontes são `lib/i18n/dicionario.ts` (1.437.443 bytes) e `lib/database.types.ts` (530.189 bytes). Portanto os limites históricos (2.400 arquivos e 512 KiB) impediam a execução do scanner completo, sempre retornando análise incompleta nessa árvore.
+
+O limite atualizado é **5.000 arquivos**, **2 MiB por arquivo** e **48 MiB de saída Git batched**, preservando fail-closed acima do orçamento; leitura por subprocesso segue com timeout de 30 segundos e `maxBuffer` 64 MiB. A resolução TypeScript usa cache de módulos e índice de conteúdo por caminho. Estas quantidades descrevem o inventário de arquivos **e não são medições de tempo de AST na árvore real**. O cronômetro da execução real será exibido pela etapa `Benchmark AST de arvore real (read-only)` da CI do novo HEAD.
 
 ## Preparação isolada
 
