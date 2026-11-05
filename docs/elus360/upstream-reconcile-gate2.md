@@ -77,6 +77,18 @@ O mesmo log comprovou que a fixture de 360 imports transitivos passou em **12,57
 
 Foram acrescentados testes para `type T = import("@/components/domain").Domain` (import type AST com consumidores em `app/api/`) e imports indiretos de `app/actions/`, `components/auth/` e `lib/mcp/`. A cobertura protegida também foi ampliada nesses domínios. Os novos testes estão publicados e exigem a CI do HEAD subsequente antes de declaração de PASS.
 
+## Gate TS resolver oficial e benchmark da árvore real (05/11/2026)
+
+O grafo tem agora um modo configurado baseado em `ts.resolveModuleName`, com as opções lidas por `ts.parseConfigFileTextToJson` e `ts.convertCompilerOptionsFromJson` do **`tsconfig.json` presente no SHA pinado do fork**. Esse modo considera `paths`, `baseUrl`, extensões e módulos `index`, mantendo o inventário de arquivos vindo exclusivamente do Git; o host de resolução **não acessa o checkout real**. Com `paths` não resolvidos, imports computados, configuração inválida ou `extends` não implementado, a análise é incompleta e nenhum candidato ordinário pode ser promovido automaticamente.
+
+A análise das importações introduzidas pelo upstream usa o mesmo `tsconfig` pinado para detectar aliases como `$security/* → lib/auth/*` e `$governance/* → lib/elus360/ai-managed/*`. Os destinos protegidos sinalizam `protected_module_import_change`. Essa detecção é conservadora e não substitui um `TypeChecker` completo.
+
+Um benchmark **somente leitura** foi acrescentado ao workflow em `scripts/elus-upstream-real-tree-benchmark.mjs`. Ele inspeciona arquivos reais *rastreados* em `app/`, `lib/`, `components/` e `workers/`, informa SHA, quantidade de fontes, completude, categorias de módulos sem resolução, número de consumidores protegidos numa amostra de 100 componentes e `duration_ms`. Se exceder o limite de 2400 fontes ou 512 KiB por fonte, registra `complete:false`; **não reduz arbitrariamente a amostra para declarar segurança**. O benchmark não grava arquivos, não faz rede e não executa SQL.
+
+**Status de evidência:** o workflow antigo foi reportado GREEN pelo Gerente de IA para o HEAD `05543453e83511062454ec974d36ad45a7ad5379` (run `42111557936`). Os novos testes de aliases complexos e o benchmark real foram **publicados em commits posteriores**, mas seus resultados ainda precisam da CI do novo HEAD. Não utilizar o verde antigo como validação dos novos arquivos.
+
+Limitações: módulos externos/package exports, `extends` de tsconfig, dependências fora do inventário inspecionado e importações cujo destino depende do runtime não podem ser declarados seguros. O benchmark da árvore real fornece métricas de execução quando o runner executar o novo HEAD, mas não é prova de cobertura semântica total.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
