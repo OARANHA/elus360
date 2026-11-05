@@ -11,7 +11,8 @@ const PROTECTED = [
   "lib/ai/","lib/agent-engine/","lib/api/","lib/instalacao/",
   "app/api/v1/ai/","app/api/v1/admin/tenants/","app/actions/onboarding/",
   "app/admin/","app/app/ai/","app/onboarding/","workers/","app/(public)/login/",
-  "lib/rbac/","lib/permissions/","lib/audit/","app/api/v1/auth/"
+  "lib/rbac/","lib/permissions/","lib/audit/","lib/mcp/",
+  "app/api/","app/actions/","app/auth/","components/auth/","components/ai/"
 ];
 export const PROTECTED_PATHS = PROTECTED;
 const isProtected = path=>PROTECTED.some(prefix=>path.startsWith(prefix));
@@ -38,6 +39,10 @@ function astImports(content,path) {
   const visit=node=>{
     if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)) collect(node.moduleSpecifier);
     if(ts.isImportEqualsDeclaration(node)&&ts.isExternalModuleReference(node.moduleReference)) collect(node.moduleReference.expression);
+    if(ts.isImportTypeNode(node)) {
+      if(ts.isLiteralTypeNode(node.argument)) collect(node.argument.literal);
+      else unresolved.push("computed_import_type");
+    }
     if(ts.isCallExpression(node)&&(node.expression.kind===ts.SyntaxKind.ImportKeyword||(ts.isIdentifier(node.expression)&&node.expression.text==="require"))) collect(node.arguments[0]);
     ts.forEachChild(node,visit);
   };
