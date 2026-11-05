@@ -159,7 +159,7 @@ function configuredResolver(sources,rawConfig,resourcePaths=[]) {
     if(resolved && resources.has(resolved)) return {local:true,path:null,resource:true,reason:null};
     // CSS and JSON are non-executable leaves: only an exact tracked path is accepted.
     // Missing assets must still block, never silently suppress the import.
-    if(isRelative && /\\.(?:css|scss|sass|json)$/.test(specifier)) {
+    if(isRelative && /\.(?:css|scss|sass|json)$/.test(specifier)) {
       const leaf=normalizedFile(posix.join(posix.dirname(importer),specifier));
       if(resources.has(leaf)) return {local:true,path:null,resource:true,reason:null};
     }
