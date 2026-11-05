@@ -72,10 +72,20 @@ export function importPaths(content,path) {
 }
 function resolveLocal(specifier,importer,available) {
   const path=sourceModule(specifier,importer);
-  if(!path) return null;
-  const choices=[path,...EXTS.map(ext=>path+ext),...EXTS.map(ext=>path+"/index"+ext)];
-  for(const candidate of choices) if(available.has(candidate)) return candidate;
-  return null;
+  if(!path) return {path:null,reason:"unsupported_local_specifier"};
+  const normalized=specifier.replace(/\\.(?:[cm]?[jt]s|[jt]sx)$/,"");
+  const isExplicit=normalized!==specifier;
+  // Module aliases are supported only when mapped by the documented @/* root.
+  const exact=available.has(path)?[path]:[];
+  const file=EXTS.map(ext=>path+ext).filter(candidate=>available.has(candidate));
+  const directory=EXTS.map(ext=>path+"/index"+ext).filter(candidate=>available.has(candidate));
+  const matches=[...exact,...file,...directory];
+  if(!matches.length) return {path:null,reason:"unresolved_local_module"};
+  // Multiple valid candidates are ambiguous under unknown TS resolution options.
+  // Do not pick a file or index arbitrarily.
+  if(matches.length>1) return {path:null,reason:"ambiguous_local_module"};
+  if(isExplicit && !EXTS.some(ext=>specifier.endsWith(ext))) return {path:null,reason:"unsupported_local_extension"};
+  return {path:matches[0],reason:null};
 }
 /** Missing local module, syntax error or computed import blocks automatic preparation. */
 export function dependencyGraph(sources) {
@@ -86,9 +96,9 @@ export function dependencyGraph(sources) {
     for(const reason of ast.unresolved) unresolved.push({path,reason});
     for(const specifier of ast.specifiers) {
       if(!isLocal(specifier)) continue;
-      const imported=resolveLocal(specifier,path,available);
-      if(!imported){unresolved.push({path,reason:"unresolved_local_module"});continue;}
-      const consumers=reverse.get(imported)??new Set();consumers.add(path);reverse.set(imported,consumers);
+      const resolved=resolveLocal(specifier,path,available);
+      if(!resolved.path){unresolved.push({path,reason:resolved.reason});continue;}
+      const consumers=reverse.get(resolved.path)??new Set();consumers.add(path);reverse.set(resolved.path,consumers);
     }
   }
   return {reverse,unresolved,complete:unresolved.length===0,scanned:sources.length};
