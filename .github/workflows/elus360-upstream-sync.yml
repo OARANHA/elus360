@@ -9,6 +9,8 @@ on:
       - "scripts/elus-upstream-reconcile.mjs"
       - "scripts/elus-upstream-contract-risk.mjs"
       - "scripts/elus-upstream-dependency-risk.mjs"
+      - "scripts/elus-upstream-real-tree-benchmark.mjs"
+      - "docs/elus360/upstream-reconcile-gate2.md"
       - "tests/operational/elus-upstream-prepare.test.mjs"
       - "tests/operational/elus-upstream-reconcile.test.mjs"
       - ".github/workflows/elus360-upstream-sync.yml"
@@ -37,7 +39,10 @@ jobs:
           node --check scripts/elus-upstream-reconcile.mjs
           node --check scripts/elus-upstream-contract-risk.mjs
           node --check scripts/elus-upstream-dependency-risk.mjs
+          node --check scripts/elus-upstream-real-tree-benchmark.mjs
       - name: Gates sem rede externa, banco ou Docker
         run: |
           node --test tests/operational/elus-upstream-prepare.test.mjs
           node --test tests/operational/elus-upstream-reconcile.test.mjs
+      - name: Benchmark AST de arvore real (read-only)
+        run: node scripts/elus-upstream-real-tree-benchmark.mjs
