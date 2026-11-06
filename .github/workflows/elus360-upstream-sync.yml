@@ -158,15 +158,18 @@ jobs:
           const cell=x=>'"'+String(x??'').replaceAll('"','""')+'"';
           const csv=[['path','impact','preliminary_status','status','signals','suggested_checks',
             'source_contract_scan','lexical_retained','lexical_introduced','lexical_removed',
+            'protected_imports_retained','protected_imports_introduced',
             'graph_executed','graph_complete','present_in_fork','protected_importers_count',
             'unsafe_neighbors_count'].map(cell).join(',')];
           for(const f of r.files) {
-            const a=f.candidate_analysis,lex=a?.lexical_signal_provenance,graph=a?.dependency_graph;
+            const a=f.candidate_analysis,lex=a?.lexical_signal_provenance,
+              imports=a?.protected_import_provenance,graph=a?.dependency_graph;
             csv.push([
               f.path,f.impact,f.preliminary_status,f.status,(f.signals||[]).join('|'),
               (f.suggested_checks||[]).join('|'),a?.source_contract_scan??'',
               (lex?.retained||[]).join('|'),(lex?.introduced||[]).join('|'),
-              (lex?.removed||[]).join('|'),graph?.executed??'',
+              (lex?.removed||[]).join('|'),(imports?.retained||[]).join('|'),
+              (imports?.introduced||[]).join('|'),graph?.executed??'',
               graph?.complete??'',graph?.present_in_fork??'',
               graph?.protected_importers_count??'',graph?.unsafe_changed_neighbors_count??''
             ].map(cell).join(','));
@@ -215,6 +218,8 @@ jobs:
             '- Candidatos presentes na arvore do fork: '+r.candidate_coverage.candidates_present_in_fork_graph,
             '- Candidatos ausentes na arvore do fork: '+r.candidate_coverage.candidates_absent_in_fork_graph,
             '- Candidatos com consumidores protegidos: '+r.candidate_coverage.candidates_with_protected_importers,
+            '- Candidatos com importacoes protegidas retidas: '+r.candidate_coverage.candidates_with_retained_protected_imports,
+            '- Candidatos com importacoes protegidas novas: '+r.candidate_coverage.candidates_with_introduced_protected_imports,
             '- Candidatos ligados a lote inseguro: '+r.candidate_coverage.candidates_coupled_to_unsafe_changes,
             '- A cobertura e diagnostica; nenhum numero acima autoriza prepare.',
             '',
