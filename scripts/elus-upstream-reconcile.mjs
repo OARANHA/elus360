@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals, heuristicSignalProvenance } from "./elus-upstream-contract-risk.mjs";
-import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals } from "./elus-upstream-dependency-risk.mjs";
+import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals, protectedImportProvenance } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -163,6 +163,7 @@ export function reconcile(base, target, fork) {
       // Diagnostic only. These fields never affect the production statusFor gate.
       source_contract_scan: flags.includes("uninspectable_content")||flags.includes("semantic_analysis_incomplete") ? "incomplete" : "evaluated",
       lexical_signal_provenance: heuristicSignalProvenance(original,incoming),
+      protected_import_provenance: protectedImportProvenance(path,original,incoming,configuredTs),
       blocked_by_initial_signals: flags.length>0
     } : null;
     return {path, impact: impact(path), preliminary_status:preliminary,
@@ -235,6 +236,8 @@ export function reconcile(base, target, fork) {
     candidates_present_in_fork_graph:dependencyScan.seenCandidates?.size??0,
     candidates_absent_in_fork_graph:initialFiles.length-(dependencyScan.seenCandidates?.size??0),
     candidates_with_protected_importers:initialFiles.filter(f=>f.candidate_analysis.dependency_graph.protected_importers_count>0).length,
+    candidates_with_retained_protected_imports:initialFiles.filter(f=>f.candidate_analysis.protected_import_provenance.retained.length>0).length,
+    candidates_with_introduced_protected_imports:initialFiles.filter(f=>f.candidate_analysis.protected_import_provenance.introduced.length>0).length,
     candidates_coupled_to_unsafe_changes:initialFiles.filter(f=>f.candidate_analysis.dependency_graph.unsafe_changed_neighbors_count>0).length,
     final_statuses:candidateFinalStatuses,
     authorization:"not_an_approval"
