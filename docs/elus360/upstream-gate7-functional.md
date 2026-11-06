@@ -14,6 +14,8 @@
 
 Teste: `tests/operational/elus-upstream-gate7-functional-compare.test.mjs`. Ele **não copia** arquivos do target para a árvore ELUS. Lê os objetos do Git temporário do ensaio oficial, exige SHA de commit e **blob exato**, transpila os dois módulos TypeScript e executa cada versão em contexto `node:vm` separado, com somente os imports expressamente simulados. Não tem acesso a rede, Supabase ou ambiente de produção. O dublê das RPCs não constitui medição de comportamento transacional do PostgreSQL.
 
+Antes do comparador, o job de regressão do fork também passa a solicitar seis suítes negativas preexistentes: `lib/api/auth-dual.test.ts` (auth/RBAC/token e escopo), `tests/unit/versao-do-agente-referencias-da-org.test.ts` (isolamento de credencial/canal), `lib/elus360/ai-managed/authorize-version-write.test.ts` e `server.test.ts` (grant e bypass de IA), `lib/messaging/remetente-de-grupo.test.ts` (identidade de remetente) e `lib/automation/actions/send-ai-message-restricao-comercial.test.ts` (negação de envio e fail-closed). Os resultados dessas seis suítes **no HEAD novo** ainda dependem do CI e não são equivalência funcional do target.
+
 O workflow `.github/workflows/elus360-upstream-sync.yml` executa o comparador **depois** da geração do `gate6-evidence.json`, no mesmo repositório Git temporário com tags e trees fixadas. O teste recusa refs ou blobs divergentes; o comando CI é:
 
 ```bash
@@ -53,7 +55,7 @@ O log TAP é publicado como `gate7-functional-compare.tap` no artefato `elus360-
 | `lib/contacts/cliente-pela-agenda.ts` | `063a727f` → `0a8e9254` | Defaults e `organizations.settings` equivalentes ao helper `lerRegrasDeCliente`; falta/erro e separação de tenant |
 | `lib/crm-b2b/import-process.ts` | `d146f4cd` → `075465ad` | Associação por `contact_phones`, conflitos de pessoa, deduplicação, reimportação e isolamento organizacional |
 
-**Resultado deste checkpoint:** as cinco diferenças de blob foram verificadas diretamente nas duas árvores; os dez cenários de contrato acima são critérios de aceite **pendentes**, não testes funcionais executados. O ensaio automatizado verifica individualmente que permanecem `requires_adaptation` e `authorization:none`.
+**Resultado deste checkpoint:** as cinco diferenças de blob foram verificadas diretamente nas duas árvores; os dez cenários de contrato acima são critérios de aceite **pendentes**, não testes funcionais executados. O ensaio automatizado verifica individualmente que permanecem `requires_adaptation` e `authorization:none`, e compara os IDs de blob completos em fork e target com as árvores pinadas.
 
 ## Separação de revisão: cinco candidatos bloqueados
 
@@ -65,7 +67,7 @@ O log TAP é publicado como `gate7-functional-compare.tap` no artefato `elus360-
 | `lib/messaging/presenca.ts` | `25f807d3` → `0398186a` | Destinatário de presença: último endereço da conversa, sender canônico, LID/grupos, telefone extra e tenant |
 | `lib/wacalls/events-bridge.ts` | `fd372795` → `9addc48c` | Query SQL por telefone extra: filtro de organização, contato mesclado, ambiguidade de número, parâmetros e ausência de associação cross-tenant |
 
-**Resultado deste checkpoint:** divergência de blobs comprovada; todos permanecem `blocked_pending_contract_proof` e `authorization:none`. Os testes de autenticação, RBAC, mensageria, LGPD, cobrança e integrações **contra comportamento target real** ainda não foram executados. A verificação automatizada das dez classificações **não** é teste funcional.
+**Resultado deste checkpoint:** divergência de blobs comprovada; todos permanecem `blocked_pending_contract_proof` e `authorization:none`. Os testes de autenticação, RBAC, mensageria, LGPD, cobrança e integrações **contra comportamento target real** ainda não foram executados. A verificação automatizada das dez classificações e dos blobs completos **não** é teste funcional.
 
 ## Imports computados — hipótese delimitada, sem promover segurança
 

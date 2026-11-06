@@ -226,6 +226,19 @@ const HEADERS = [
   ["lib/wacalls/events-bridge.ts", "blocked_pending_contract_proof"],
 ];
 
+const REVIEW_BLOBS = Object.freeze({
+  "lib/automation/texto-do-followup.ts": ["d58eda4a78b7e1e3dab111c69d4eae171c0935f3", "3f0925575c1f9ef375e844bbba70d090c"],
+  "lib/channels/pos-entrada.ts": ["791b6f8c21c532b0e493af7c4adb3243a87de22a", "1d72ac029edf1d91b423e00fc128b69118a8b8fa"],
+  "lib/channels/zernio/ingest.ts": ["7a5b53011693aa4b56cf0e87e137af8d32d8e54f", "9c8f7cda445e3e08c236fb2e66ef791380afb447"],
+  "lib/contacts/cliente-pela-agenda.ts": ["063a727f88ccca6e4f10e84c7a9b91ef3f7641f0", "0a8e92546de7bcc80b888941ed384b526be00d4f"],
+  "lib/crm-b2b/import-process.ts": ["d146f4cd01c27a8ba7058819047c01431a023d94", "075465ad563b41c6a2fe87115139e8ef6840cc56"],
+  "lib/channels/adapters/meta-cloud.ts": ["41bf1b9398826764cd1f8be451f062a0da5174d6", "8553e6442f39363412347c13718339c10b4b7dd1"],
+  "lib/cobranca/uso.ts": ["84b28c88287871062a6cd8b1b78c7375319a021b", "c0fef9a317fb55073255a9a784546b9576655e65"],
+  "lib/lgpd/pdf-renderer.tsx": ["ba4b467c0e5d072124235fd1610cf2ecfa6135d5", "120e8b7ba24048566191abd289dc64e6dc7dcc98"],
+  "lib/messaging/presenca.ts": ["25f807d3ea50636469466f20ceddb43b1ed3a1e7", "0398186aa36ba6ab367e9c16aff8469c1e93cf1b"],
+  "lib/wacalls/events-bridge.ts": ["fd37279503e11068dcc69ab6a0be598fcf3faec3", "9addc48c7f69a03d599006f88bdb17139dc81544"],
+});
+
 test("proveniência fixa: objetos Git da base, target e fork verificados (sem checkout de target)", () => {
   for (const kind of ["tags", "billing"]) {
     assert.equal(gitFile(kind, "base"), gitFile(kind, "fork"));
@@ -387,6 +400,10 @@ for (const [path, decision] of HEADERS) {
     assert.equal(matches[0].acceptance, "no_functional_proof_no_prepare");
     assert.ok(matches[0].tests.length >= 3);
     assert.ok(matches[0].reason.length > 30);
+    const [forkBlob, targetBlob] = REVIEW_BLOBS[path];
+    assert.equal(git("rev-parse", PIN.fork + ":" + path), forkBlob);
+    assert.equal(git("rev-parse", PIN.target + ":" + path), targetBlob);
+    assert.notEqual(forkBlob, targetBlob);
   });
 }
 test("imports computados demonstrativos continuam inconclusivos, não resolvidos por suposição", () => {
