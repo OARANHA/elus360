@@ -290,6 +290,35 @@ O benchmark desse run: checkout de merge `f03e87dd0cf12ba880a1d13519160f86ed53e6
 
 **Limites de cobertura:** a conectividade transitiva do lote é intencionalmente conservadora e pode bloquear candidatos legítimos em grandes componentes compartilhados (falso positivo). Não detecta todas as ligações de runtime, reflection, chamadas remotas ou efeitos sem imports estáticos; o segundo gate para imports novos do target reduz, mas não elimina, falsos negativos. Os testes usam Git temporário com SHAs pinados e não substituem validações negativas de auth/RLS/IA ou um release oficial. A PR permanece Draft, sem merge, deploy ou mudanças de banco. Hindsight `Elus360` permanece com sincronização pendente se as tentativas continuarem `UNAVAILABLE`.
 
+## Gate distribuído GREEN e casos de exclusão/renomeação (06/11/2026 UTC)
+
+A execução [42135722415](https://github.com/OARANHA/elus360/actions/runs/42135722415) no HEAD `cde978cdb9dc094437dc70976ceed4f0a86f5814` concluiu **SUCCESS** no job `contrato-upstream`: **12/12 testes de preparação PASS**, **53/53 operacionais PASS**. Evidência individual: #51 `mudancas perigosas distribuidas por arquivos e importacao transitiva bloqueiam candidato ligado, mas nao independente` **PASS**; #52 `import novo somente no upstream aponta a arquivo perigoso e impede a promocao do consumidor` **PASS**; #53 `alias configurado novo aponta para arquivo modificado e perigoso, sem depender do grafo anterior` **PASS**. Esses testes demonstram, em fixtures, os sinais `unsafe_changed_dependency_chain` e `unsafe_changed_import_edge` e a elegibilidade do candidato independente. Benchmark do merge `7d69ae2aaafe3b77c3a37962bb020a67ef24bb7c`: 3.194 fontes, 15.290 arestas, 15.284 anteriores preservadas, zero perdidas, seis adicionadas, 6.456 ms, RSS 297,2 MiB, heap 190,0 MiB, `complete:false` com um import computado.
+
+### Cobertura adicional: dependência compartilhada, exclusão e renomeação
+
+Após esse GREEN, foram publicados **dois novos testes de integração em repositórios Git temporários**, ainda **sem execução confirmada na CI**:
+
+| Alteração upstream | Candidato relacionado | Esperado na worktree detached | Independente |
+| --- | --- | --- | --- |
+| Exclusão de `hooks/shared.ts`, antes importado pelo componente | `components/safe.tsx` → `unsafe_changed_dependency_chain` / `contract_requires_review` | Preservar o hook e a versão anterior do componente; não aplicar exclusão | `components/independent.ts` continua `safe_to_prepare` |
+| Renomeação `components/old-policy.ts`→`components/new-policy.ts` com relaxamento de autorização | `components/safe.tsx` introduz import para o novo arquivo → `unsafe_changed_import_edge` / `contract_requires_review` | Preservar política antiga; não introduzir nova implementação sem revisão | `components/ordinary.ts` continua `safe_to_prepare` |
+
+Ambos exigem `preparedFiles=1`, conteúdo protegido intacto e `git status --porcelain` vazio na origem. Renomeações são tratadas por `git diff --no-renames` como exclusão + adição, não como identidade implicitamente preservada. **Não foram atualizadas versões reais do DeskcommCRM.**
+
+### Matriz consolidada de riscos
+
+| Categoria | Mecanismo | Evidência | Limite |
+| --- | --- | --- | --- |
+| Falso negativo: nova aresta para módulo inseguro | `newUnsafeImportSignals` | #52 e #53 PASS | Imports computados e efeitos de runtime exigem bloqueio separado |
+| Falso negativo: regressão distribuída via hook compartilhado | `changedRiskCouplings` | #51 PASS | Conectividade é baseada em grafo AST pinado |
+| Falso negativo: módulo compartilhado excluído | `deletion_requires_review` + cadeia de risco | Fixture publicada, CI pendente | Mudança pode exigir migração manual de importadores |
+| Falso negativo: módulo renomeado e autorização relaxada | Exclusão + adição + import novo inseguro | Fixture publicada, CI pendente | Renomeações legítimas também são revisadas conservadoramente |
+| Falso positivo: grande componente conectado do grafo | Bloqueio conservador bidirecional | Possibilidade arquitetural; não quantificada | Exige avaliação de taxa de bloqueios legítimos em lotes reais |
+| Falso positivo: módulo exportado muda apenas formatação | Comparação textual AST | Possibilidade; não quantificada | Não autoriza promoção só por equivalência aparente |
+| Falso negativo: autorização, RLS, IA fora da análise estática | Testes negativos de runtime ainda necessários | Não verificado em release real | Gate funcional permanece bloqueado |
+
+**Aceite atual:** Gate 1 GREEN para os testes até #53; os novos cenários de exclusão/renomeação exigem confirmação própria de CI. Nem o GREEN anterior nem a preservação de arestas autorizam merge/deploy/banco. Hindsight `Elus360` segue com sincronização pendente enquanto o conector retornar `UNAVAILABLE`.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
