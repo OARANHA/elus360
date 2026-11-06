@@ -980,3 +980,107 @@ test("renomeacao de modulo nao autoriza import novo para destino de contrato sob
     process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});
   }
 });
+
+
+test("gate real diagnostica AST de candidatos ja bloqueados, sem promover nenhum",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.target);
+    writeFileSync(join(f.cwd,"components/safe.tsx"),"export const provider = 'managed';\n");
+    git(f.cwd,"add","components/safe.tsx");
+    git(f.cwd,"commit","-qm","upstream contract flag in formerly safe candidate");
+    const target=git(f.cwd,"rev-parse","HEAD");
+    const plan=reconcile(f.base,target,f.fork);
+    const candidate=plan.files.find(x=>x.path==="components/safe.tsx");
+
+    assert.equal(plan.totals.safe_to_prepare??0,0);
+    assert.equal(candidate.preliminary_status,"safe_to_prepare");
+    assert.equal(candidate.status,"contract_requires_review");
+    assert.ok(candidate.signals.includes("managed_ai"));
+    assert.equal(candidate.candidate_analysis.source_contract_scan,"evaluated");
+    assert.equal(candidate.candidate_analysis.lexical_signal_provenance.inspected,true);
+    assert.ok(candidate.candidate_analysis.lexical_signal_provenance.introduced.includes("managed_ai"));
+    assert.equal(candidate.candidate_analysis.dependency_graph.executed,true);
+    assert.equal(candidate.candidate_analysis.dependency_graph.present_in_fork,true);
+    assert.equal(plan.candidate_coverage.preliminary_ordinary>0,true);
+    assert.equal(plan.candidate_coverage.signal_blocked_before_graph,plan.candidate_coverage.preliminary_ordinary);
+    assert.equal(plan.candidate_coverage.graph_executed,true);
+    assert.ok(plan.dependency_scan.scanned>0);
+    assert.equal(plan.dependency_scan.executed,true);
+    assert.equal(plan.dependency_scan.complete,true,JSON.stringify(plan.dependency_scan));
+    assert.equal(plan.candidate_coverage.final_statuses.safe_to_prepare??0,0);
+  } finally {
+    process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});
+  }
+});
+
+test("AST diagnostico de candidatos bloqueados registra import computado e continua fail-closed",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.target);
+    writeFileSync(join(f.cwd,"components/safe.tsx"),"export const provider = 'managed';\n");
+    git(f.cwd,"add","components/safe.tsx");
+    git(f.cwd,"commit","-qm","upstream blocked candidate");
+    const target=git(f.cwd,"rev-parse","HEAD");
+
+    git(f.cwd,"checkout","-q",f.fork);
+    writeFileSync(join(f.cwd,"components/computed.ts"),"export function load(name: string) { return import(name); }\n");
+    git(f.cwd,"add","components/computed.ts");
+    git(f.cwd,"commit","-qm","fork runtime import computed");
+    const fork=git(f.cwd,"rev-parse","HEAD");
+
+    const plan=reconcile(f.base,target,fork);
+    assert.equal(plan.totals.safe_to_prepare??0,0);
+    assert.equal(plan.dependency_scan.executed,true);
+    assert.ok(plan.dependency_scan.scanned>0);
+    assert.equal(plan.dependency_scan.complete,false);
+    assert.ok(plan.dependency_scan.unresolved_reasons.includes("computed_module_specifier"));
+    assert.equal(plan.candidate_coverage.graph_complete,false);
+    assert.equal(plan.candidate_coverage.final_statuses.contract_requires_review>0,true);
+  } finally {
+    process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});
+  }
+});
+
+test("sem candidato inicial o grafo e NOT_RUN e complete nunca equivale a true",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.base);
+    writeFileSync(join(f.cwd,"lib/elus360/policy.ts"),"export const RULE = 'modified';\n");
+    git(f.cwd,"add","lib/elus360/policy.ts");
+    git(f.cwd,"commit","-qm","upstream only protected file");
+    const target=git(f.cwd,"rev-parse","HEAD");
+
+    const plan=reconcile(f.base,target,f.base);
+    assert.equal(plan.files.length,1);
+    assert.equal(plan.files[0].status,"protected_requires_review");
+    assert.equal(plan.dependency_scan.executed,false);
+    assert.equal(plan.dependency_scan.complete,null);
+    assert.equal(plan.dependency_scan.scanned,0);
+    assert.equal(plan.dependency_scan.not_run_reason,"no_preliminary_candidates");
+    assert.equal(plan.candidate_coverage.preliminary_ordinary,0);
+    assert.equal(plan.candidate_coverage.graph_executed,false);
+    assert.equal(plan.candidate_coverage.graph_complete,null);
+    assert.equal(plan.totals.safe_to_prepare??0,0);
+  } finally {
+    process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});
+  }
+});
+
+test("proveniencia lexical distingue sinal herdado de introduzido, sem baixar bloqueio",async()=>{
+  const {contractSignals,heuristicSignalProvenance}=await import("../../scripts/elus-upstream-contract-risk.mjs");
+  const old='export const provider = "openai";';
+  const next='export const provider = "chutes";\nconst organization_id = "unused";';
+  const p=heuristicSignalProvenance(old,next);
+  assert.equal(p.inspected,true);
+  assert.ok(p.retained.includes("managed_ai"));
+  assert.ok(p.introduced.includes("tenant_isolation"));
+  assert.deepEqual(p.removed,[]);
+  const flags=contractSignals("components/ordinary.ts",old,next);
+  assert.ok(flags.includes("managed_ai"));
+  assert.ok(flags.includes("tenant_isolation"));
+  assert.ok(flags.includes("exported_contract_change"));
+});
