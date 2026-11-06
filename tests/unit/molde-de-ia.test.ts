@@ -152,8 +152,13 @@ function listasDeProvedor(corpo: string): string[][] {
 
 describe("o gatilho do banco escreve a mesma lista", () => {
   const baseline = readFileSync(join(RAIZ, "supabase", "baseline.sql"), "utf8");
-  const arquivo = readdirSync(join(RAIZ, "supabase", "migrations")).find((f) => /_9096_molde_de_ia/.test(f));
-  const migration = readFileSync(join(RAIZ, "supabase", "migrations", arquivo ?? "inexistente"), "utf8");
+  const historica = readdirSync(join(RAIZ, "supabase", "migrations")).find((f) => /_9096_molde_de_ia/.test(f));
+  const migracoes = readdirSync(join(RAIZ, "supabase", "migrations"))
+    .filter((f) => f.endsWith(".sql")).sort();
+  const migration = migracoes
+    .map((f) => readFileSync(join(RAIZ, "supabase", "migrations", f), "utf8"))
+    .join("\n");
+  const original9096 = readFileSync(join(RAIZ, "supabase", "migrations", historica ?? "inexistente"), "utf8");
   const esperado = [...PROVEDORES_DO_MOLDE].sort();
 
   it.each([
@@ -166,6 +171,20 @@ describe("o gatilho do banco escreve a mesma lista", () => {
     // Controle: sem achar as listas, "todas iguais" seria verdade vazia.
     expect(listas.length).toBe(vezes);
     for (const l of listas) expect(l).toEqual(esperado);
+  });
+
+  it("preserva a migration histórica 9096 e testa a última definição efetiva da cadeia", () => {
+    const historicos = ["anthropic", "openai", "openrouter"];
+    for (const [fn, vezes] of [
+      ["fn_molde_de_ia_na_org_nova", 2],
+      ["fn_llm_do_molde_de_ia", 1],
+    ] as const) {
+      const listasOriginais = listasDeProvedor(ultimaDefinicao(original9096, fn));
+      expect(listasOriginais.length).toBe(vezes);
+      for (const lista of listasOriginais) expect(lista).toEqual(historicos);
+      const efetivas = listasDeProvedor(ultimaDefinicao(migration, fn));
+      for (const lista of efetivas) expect(lista).toEqual(esperado);
+    }
   });
 
   it("o padrão de quem nasce passa pelo molde na definição que vale", () => {
