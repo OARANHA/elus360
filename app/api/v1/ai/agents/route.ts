@@ -322,6 +322,23 @@ export async function POST(req: NextRequest): Promise<Response> {
   const records = mcpAgentDraftRecords({ orgId: organizationId, userId: authUserId ?? "" }, input);
   // O banco serializa a revogação de grants e cria agente + versão em
   // uma única transação; nunca pode restar agente órfão após falha.
+  // Bypass administrativo exige usuário de sessão, escopo full e MFA atual.
+  // Nunca converter uma recusa MFA nomeada em booleano false silencioso.
+  let platformBypass = false;
+  if (authz.via === "session") {
+    const { loadAuthUser } = await import("@/lib/auth/server");
+    const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+    const usuario = await loadAuthUser();
+    if (usuario?.id === authUserId && podeGerenciarIaDaPlataforma(usuario)) {
+      const { requirePlatformAdminEscrita, falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      try {
+        await requirePlatformAdminEscrita();
+        platformBypass = true;
+      } catch (e) {
+        return falhaDaEscritaDePlatformAdmin(e, requestId);
+      }
+    }
+  }
   const { data: criado, error: erroCriacao } = await admin.rpc("fn_elus_ai_agent_create_guarded", {
     p_org: organizationId,
     // Tenant, agent FK, version_number and status are server-derived by the SQL
@@ -339,17 +356,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       created_by: authUserId,
     },
     p_version: { id: records.version.id, ...input.version, created_by: authUserId },
-    p_platform_bypass: authz.via === "session" && (await (async () => {
-      const { loadAuthUser } = await import("@/lib/auth/server");
-      const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
-      const usuario = await loadAuthUser();
-      if (!usuario || usuario.id !== authUserId || !podeGerenciarIaDaPlataforma(usuario)) return false;
-      try {
-        const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
-        await requirePlatformAdminEscrita();
-        return true;
-      } catch { return false; }
-    })()),
+    p_platform_bypass: platformBypass,
   });
   if (ehNomeDeAgenteRepetido(erroCriacao))
     return fail(CODIGO_NOME_DE_AGENTE_EM_USO, t(NOME_DE_AGENTE_EM_USO), 409, { requestId });
