@@ -526,6 +526,15 @@ Criado `scripts/elus-upstream-precision-diagnostics.mjs`, que usa o parser TypeS
 
 Os resultados novos agrupam a natureza dos 171 e 156 sinais anteriores, mas **não são contagens novas ainda verificadas por CI**. A análise não executa o código, não usa TypeChecker completo e não prova equivalência de efeitos assíncronos, imports, getters, side effects, tipagem inferida ou mutações de banco. Declarações com forma idêntica podem executar comportamentos diferentes.
 
+### Dois exemplos de revisão humana focal obtidos no artefato Gate 3
+
+Uma triagem **mais restritiva que o Gate 4** do `ast-coverage-354.json` anterior (excluindo testes, novos indicadores lexicais, novos imports protegidos e qualquer arquivo com sinais `exported_contract_change`, `module_initialization_change`, `exported_module_internal_change`, `uninspectable_content` ou `dependency_analysis_incomplete`) deixou **dois arquivos para inspeção humana inicial**, não `safe_to_prepare`:
+
+1. `lib/automation/start-conversation.ts`: comparação textual direta de base e target encontrou **apenas alterações em comentário de documentação**; a porção não comentada dos dois blobs é idêntica após remover comentários de bloco para essa verificação específica. Pode representar uma melhoria documental de baixo impacto técnico, mas não permite aplicar automaticamente sem verificar o contexto do lote.
+2. `lib/automation/actions/add-tag.ts`: há **mudança de código**, não só comentário: `p_metadata: { caused_by_rule: ctx.ruleId }` passou a construir objeto `metadata` e acrescentar `caused_by_rule` somente se `ctx.ruleId` estiver presente. A mudança pode evitar metadado vazio ou inválido no evento, mas requer análise do contrato de `emit_event`, loops de automação e idempotência antes de incorporação.
+
+Os dois arquivos foram consultados diretamente nas duas versões oficiais e no SHA pinado do fork; os blobs do fork correspondem à base. A seleção de dois arquivos é **uma amostra exploratória derivada da matriz antiga**, não contagem oficial de compatibilidade futura. O Gate 4 produzirá grupos diagnósticos novos no próximo artefato, sem substituir os testes e a revisão manual.
+
 ### Matriz para revisão humana e novos testes de precisão
 
 O `reconcile plan` inclui agora `candidate_analysis.review_bucket` para separar `potential_compatibility_manual_review` (sem novos indicadores prioritários e com AST analisável) de `requires_targeted_contract_review`. Ambos são **indicadores de prioridade de revisão humana**: o campo `authorization` é sempre `none`, nunca altera `status`, não faz `prepare` e nunca autoriza merge. Bloqueios em código de segurança, testes, imports novos protegidos, exportações de forma alterada, inicialização imediata e conteúdo não analisável continuam sinalizados.
