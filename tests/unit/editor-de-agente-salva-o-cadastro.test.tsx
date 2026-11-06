@@ -73,6 +73,10 @@ vi.mock("@/lib/auth/server", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
+  // A política de acesso é testada separadamente; aqui medimos o cadastro.
+  podeAlterarTecnicaDeVersao: vi.fn(async () => true),
+}));
 vi.mock("@/lib/ai/agents/escopo", () => ({
   validarEscopoDaVersao: vi.fn(async () => cena.escopo),
   mensagemDoEscopo: () => "Escopo inválido.",
@@ -365,7 +369,7 @@ describe("editor de agente — ver as fotos que o cliente envia (9108)", () => {
 
 interface Gravacoes {
   cadastro: Record<string, unknown> | null;
-  filtros: Array<[string, unknown]>;
+  rpcArgs: Record<string, unknown> | null;
   versao: Record<string, unknown> | null;
 }
 
@@ -373,60 +377,51 @@ let gravado: Gravacoes;
 
 function adminDuble(agente: Record<string, unknown>) {
   return {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      expect(name).toBe("fn_elus_ai_draft_save_guarded");
+      expect(args).toMatchObject({
+        p_org: ORG,
+        p_agent: AGENTE,
+        p_mode: "create",
+        p_version: null,
+        p_platform_bypass: false,
+      });
+      gravado.rpcArgs = args;
+      const cadastro = args.p_agent_patch as Record<string, unknown>;
+      gravado.cadastro = Object.keys(cadastro).length ? cadastro : null;
+      gravado.versao = args.p_version_payload as Record<string, unknown>;
+      return { data: { id: "v2", version_number: 2 }, error: null };
+    },
     from: (tabela: string) => {
       if (tabela === "ai_agents") {
-        const sel: Record<string, unknown> = {
-          eq: () => sel,
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
           maybeSingle: async () => ({ data: agente, error: null }),
         };
-        const upd = {
-          eq: (col: string, val: unknown) => {
-            gravado.filtros.push([col, val]);
-            return upd;
-          },
-          then: (r: (v: { error: null }) => unknown) => r({ error: null }),
-        };
-        return {
-          select: () => sel,
-          update: (payload: Record<string, unknown>) => {
-            gravado.cadastro = payload;
-            return upd;
-          },
-        };
+        return chain;
       }
-      // ai_agent_versions. As DUAS consultas da action passam por aqui e se
-      // distinguem pela FORMA de terminar: a LISTA de versões — de onde
-      // `escolherVersoesDaTela` tira o rascunho vigente — é aguardada direto,
-      // sem `.maybeSingle()`; a do maior número termina em `.maybeSingle()`.
-      // Aqui a lista é VAZIA ("nenhuma versão ainda"), o que manda a action pelo
-      // ramo da criação. Um dublê que devolvesse rascunho na lista a mandaria
-      // pelo PATCH, e este arquivo mediria o caminho errado.
-      //
-      // O `then` é obrigatório e não enfeite: sem ele o `await` da lista devolve
-      // o próprio objeto, `data` vem `undefined`, e o vazio acontece por
-      // acidente — verde que não mede nada.
-      const selDe = () => {
-        const sel: Record<string, unknown> = {
-          eq: () => sel,
-          order: () => sel,
-          limit: () => sel,
-          maybeSingle: async () => ({ data: { version_number: 1 }, error: null }),
-          then: (r: (v: { data: unknown[]; error: null }) => unknown) =>
-            r({ data: [], error: null }),
-        };
-        return sel;
+      if (tabela !== "ai_agent_versions") throw new Error("Tabela inesperada " + tabela);
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        order: () => chain,
+        limit: () => chain,
+        maybeSingle: async () => ({
+          data: {
+            version_number: 1,
+            provider: VERSAO.provider,
+            model: VERSAO.model,
+            credential_id: VERSAO.credential_id,
+            operator_model: VERSAO.operator_model,
+          },
+          error: null,
+        }),
+        then: (resolve: (v: unknown) => unknown) =>
+          Promise.resolve({ data: [], error: null }).then(resolve),
+        insert: () => { throw new Error("INSERT direto de versão não permitido"); },
       };
-      return {
-        select: () => selDe(),
-        insert: (payload: Record<string, unknown>) => {
-          gravado.versao = payload;
-          return {
-            select: () => ({
-              single: async () => ({ data: { id: "v2", version_number: 2 }, error: null }),
-            }),
-          };
-        },
-      };
+      return chain;
     },
   };
 }
@@ -477,7 +472,7 @@ describe("saveAgentDraftAction — o cadastro do agente", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     cena.escopo = { ok: true };
-    gravado = { cadastro: null, filtros: [], versao: null };
+    gravado = { cadastro: null, rpcArgs: null, versao: null };
   });
 
   it("grava nome, descrição e ordem em ai_agents, filtrando a organização", async () => {
@@ -494,12 +489,14 @@ describe("saveAgentDraftAction — o cadastro do agente", () => {
       description: "primeiro contato",
       priority: 700,
     });
-    // Service role não tem RLS: o filtro de organização é manual e obrigatório.
-    expect(
-      gravado.filtros,
-      "UPDATE em ai_agents sem filtro de organização — service role bypassa RLS",
-    ).toContainEqual(["organization_id", ORG]);
-    expect(gravado.filtros).toContainEqual(["id", AGENTE]);
+    // O RPC transacional recebe org + agente do contexto confiável e não
+    // faz UPDATE direto sob service_role; o SQL reaplica o isolamento.
+    expect(gravado.rpcArgs).toMatchObject({
+      p_org: ORG,
+      p_agent: AGENTE,
+      p_agent_patch: { name: "Vitória", description: "primeiro contato", priority: 700 },
+      p_platform_bypass: false,
+    });
     expect(vi.mocked(audit).mock.calls.map((c) => (c[0] as { action: string }).action)).toContain(
       "ai_agent.updated",
     );
