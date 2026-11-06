@@ -35,7 +35,7 @@ import { publishAgentVersion } from "@/lib/ai/agents/publish";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
 import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
 import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
-import { requirePlatformAdminEscrita } from "@/lib/auth/requirePlatformAdmin";
+import { escritaDeAdminOuRecusa } from "@/lib/auth/escritaDeAdminOuRecusa";
 import { toolIdAceito } from "@/lib/mcp/servidor-externo/ids";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools";
 
@@ -146,12 +146,9 @@ export async function saveAgentDraftAction(
   // com MFA validado neste request. Suporte/impersonação nunca herdam bypass.
   let platformBypass = false;
   if (podeGerenciarIaDaPlataforma(authUser)) {
-    try {
-      await requirePlatformAdminEscrita();
-      platformBypass = true;
-    } catch {
-      return { ok: false, error: "forbidden_platform_ai" };
-    }
+    const autorizado = await escritaDeAdminOuRecusa();
+    if (!autorizado.ok) return { ok: false, error: autorizado.error };
+    platformBypass = true;
   }
 
 
@@ -734,11 +731,8 @@ export async function createMcpAgentAction(
       p_platform_bypass: await (async () => {
         const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
         if (!podeGerenciarIaDaPlataforma(authUser)) return false;
-        try {
-          const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
-          await requirePlatformAdminEscrita();
-          return true;
-        } catch { return false; }
+        const escrita = await escritaDeAdminOuRecusa();
+        return escrita.ok;
       })(),
     },
   );
