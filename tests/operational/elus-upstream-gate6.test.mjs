@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildGate6, REVIEW12 } from "../../scripts/elus-upstream-gate6-evidence.mjs";
 
-const refs={
+const refs=Object.freeze({
   base:"ba24d4d366b7caf056b88553e0ed434cb0fb46de",
   target:"ca37cb7f2a35c1a0f6abc968139dd263b20ccb36",
   fork:"749aaf8fbb25b46dddd9138219e2ac032cc83336"
-};
+});
 function fixture(){
  const modules=Array.from({length:45},(_,i)=>{
    const path="lib/new-upstream-"+i+".ts";
@@ -28,11 +28,11 @@ function fixture(){
  const comparisons=REVIEW12.map(x=>({
    path:x.path,approval:"none",fork_distance:2,target_distance:3,
    target_first_hop_directions:["imports"]}));
- const plan={refs,mode:"read_only",gate:"manual_review_required",
+ const plan={refs:{...refs},mode:"read_only",gate:"manual_review_required",
    totals:{changed:787,contract_requires_review:545,protected_requires_review:235,conflict_requires_review:7},
    dependency_scan:{complete:false,unresolved_count:1},
    files:modules.map(x=>({path:x.path,status:x.original_status}))};
- const gate5={refs,mode:"read_only",authorization:"none",
+ const gate5={refs:{...refs},mode:"read_only",authorization:"none",
    triad12:{candidates},target_graph:{
      modules,distance_comparison_12:comparisons,
      target_graph:{sources:3279,module_edges:15702,
@@ -69,6 +69,10 @@ test("Gate6 preserva inconclusões de imports computados sem promover candidatos
 });
 test("Gate6 reprova autorização inserida no plano e referências divergentes",()=>{
  const {plan,gate5}=fixture();
+ const other=fixture();
+ assert.notStrictEqual(plan.refs,gate5.refs);
+ assert.notStrictEqual(plan.refs,other.plan.refs);
+ assert.notStrictEqual(gate5.refs,other.gate5.refs);
  plan.totals.safe_to_prepare=1;
  assert.throws(()=>buildGate6(plan,gate5),/GATE6_FAIL_CLOSED_INPUT/);
  plan.totals.safe_to_prepare=0;
@@ -76,6 +80,9 @@ test("Gate6 reprova autorização inserida no plano e referências divergentes",
  assert.throws(()=>buildGate6(plan,gate5),/GATE6_FAIL_CLOSED_INPUT/);
  plan.files[0].status="contract_requires_review";
  gate5.refs.target="0".repeat(40);
+ assert.equal(plan.refs.target,refs.target);
+ assert.equal(other.plan.refs.target,refs.target);
+ assert.equal(other.gate5.refs.target,refs.target);
  assert.throws(()=>buildGate6(plan,gate5),/GATE6_REF_MISMATCH/);
 });
 test("Gate6 reprova 12 candidatos com fork divergente, aprovação ou diff vazio",()=>{

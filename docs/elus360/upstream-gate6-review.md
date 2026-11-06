@@ -85,6 +85,17 @@ O workflow passou a solicitar Vitest para **nove arquivos de teste existentes** 
 
 ## Testes e aceite
 
+### Incidente Gate 6 — RED no HEAD `51312e821b540250152b8e03caff57ed46242ded` (06/11/2026)
+
+- Evidência gerencial: [workflow #42155757269](https://github.com/OARANHA/elus360/actions/runs/42155757269), 3/6 testes do Gate 6 passaram e 3/6 falharam por `GATE6_REF_MISMATCH:target`. Preparação 12/12, reconciliação 64/64 e Gate 5 5/5 foram relatados verdes **apenas nesse HEAD anterior**; suites funcionais direcionadas e ensaio de reconciliação ficaram `SKIPPED`.
+- Causa reproduzida a partir dos arquivos originais do SHA: `fixture()` atribuía o mesmo objeto global `refs` a `plan.refs` e `gate5.refs`; o teste 3 modificava `gate5.refs.target` e contaminava os testes 4–6, que falhavam antes dos cenários adversariais.
+- Correção limitada aos testes: referência-base congelada (`Object.freeze`), cópias independentes de `refs` para `plan` e `gate5` em cada fixture, asserções de não-compartilhamento entre fixtures e checagem de que adulterar uma referência não modifica as demais. `scripts/elus-upstream-gate6-evidence.mjs` permanece intacto; nenhuma política foi relaxada.
+- Validação preliminar: executor JavaScript isolado alimentado pelo código real `buildGate6` e pelos seis casos de `node:test`, adaptados apenas para execução no harness; baseline 3 PASS/3 FAIL, após correção 6/6 PASS em ordem original, inversa e embaralhada. Sabotagem controlada da cópia de `gate5.refs` rejeitada pelo teste 3. **Não equivale a execução nativa com Node.js nem ao workflow GitHub**.
+- Aceite pendente no novo HEAD: 12/12 preparação, 64/64 reconciliação, 5/5 Gate 5, 6/6 Gate 6, testes funcionais direcionados e ensaio oficial read-only. Não transportar sucesso da execução anterior; o proprietário sinaliza GREEN/RED sem polling.
+- Hindsight `Elus360`: consulta `recall` retornou `UNAVAILABLE`; sincronização de checkpoint permanece pendente. Evidências preservadas aqui e na PR #20.
+- Decisão gerencial vigente: Gate 6 `RED`, evolução funcional `NO-GO`, sem `prepare`, merge, deploy, alterações de banco ou incorporação da v1.95.0. A distribuição 2/5/5 é triagem humana **não validada funcionalmente**.
+
+
 Publicado `scripts/elus-upstream-gate6-evidence.mjs`: recebe `plan.json` e `gate5-evidence.json`, confere SHAs oficiais, contagens, triades e status bloqueados, registra razões e propõe prioridades. **Não faz integração e não possui comando de preparo.**
 
 Publicado `tests/operational/elus-upstream-gate6.test.mjs` com **seis testes adversariais**: 57 arquivos sem autorização, incompletude computada, refs/status maliciosos, candidato com fork divergente, modulo novo de origem incorreta e grafo `complete:true` com unresolved. Modificado o workflow para gerar `gate6-evidence.json` e `gate6-review.md` no runner isolado, SHA256SUMS, sem alterar o reconciliador original.
