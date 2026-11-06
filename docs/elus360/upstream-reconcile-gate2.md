@@ -329,6 +329,54 @@ Ambos exigem `preparedFiles=1`, conteúdo protegido intacto e `git status --porc
 
 **Validação pendente:** a CI do novo HEAD ainda não foi confirmada. Para aceite deste RED específico, são necessários os **55/55 operacionais** e **12/12 de preparação** PASS no mesmo HEAD, além do benchmark. Não atribuir GREEN ao commit corretivo antes da execução. A sincronização Hindsight `Elus360` deve permanecer marcada como pendente enquanto a ferramenta retornar `UNAVAILABLE`.
 
+## Ensaio com tags oficiais DeskcommCRM v1.94.0 → v1.95.0 (06/11/2026 UTC)
+
+**Escopo real, somente leitura.** Fonte oficial: `melgarafael/DeskcommCRM`. A tag Git anotada `v1.94.0` aponta para o commit `ba24d4d366b7caf056b88553e0ed434cb0fb46de` (tagger 27/10/2026); `v1.95.0` aponta para `ca37cb7f2a35c1a0f6abc968139dd263b20ccb36` (tagger 30/10/2026). Referência do fork: HEAD da PR #20 `306af520be45689388b293128c0d7d4ebb7f717b`. Todas as referências foram consultadas por objetos/árvores da API GitHub, sem inferir SHA de changelog ou memória. As três consultas `git/trees/<SHA>?recursive=1` retornaram `truncated:false`.
+
+**Resultado da reconciliação triádica de blobs (base, target, fork):**
+
+| Medida | Contagem |
+| --- | ---: |
+| Caminhos alterados entre releases oficiais | **787** |
+| Modificados / adicionados / excluídos no upstream | **470 / 315 / 2** |
+| Blob do fork idêntico ao da base histórica nos caminhos alterados | **777** |
+| Caminhos com divergência local frente à base histórica | **10** |
+| Arquivos já iguais ao target, nos caminhos alterados | **0** |
+| `protected_requires_review` por domínio/caminho (preliminar) | **235** |
+| `contract_requires_review` por domínio/caminho (preliminar) | **191** |
+| `conflict_requires_review` por SHA local divergente (preliminar) | **7** |
+| Caminhos ordinários ainda exigindo AST, sinais, dependências e análise de lote | **354** |
+| Arquivos autorizados para `safe_to_prepare` | **0 comprovados** |
+
+As quatro últimas categorias são uma **pré-classificação conservadora por SHA e domínio**, equivalente à precedência conhecida de `impact`/`statusFor`, mas **não representam uma execução do `reconcile plan` completo**. Os 354 candidatos potenciais **não** foram autorizados: é necessário analisar seus conteúdos, contratos, imports novos, consumidores protegidos e interação com outras alterações. O grafo do fork reportado pelo Gate 1 ainda possui `complete:false`, por um `computed_module_specifier` em `curso/semear-demonstracao.ts`; portanto, no estado comprovado, não há base para preparar arquivo algum automaticamente.
+
+**Dez divergências locais que exigem proteção explícita** (todos os três blobs consultados são diferentes, salvo onde a versão do fork não contém o arquivo):
+
+| Caminho | Classificação preliminar | Risco |
+| --- | --- | --- |
+| `.env.example` | `protected_requires_review` | Configuração local distinta |
+| `.github/workflows/e2e.yml` | `protected_requires_review` | Workflow ausente do fork; não reintroduzir sem revisão |
+| `app/api/v1/cron/sync-model-catalog/route.ts` | `conflict_requires_review` | Catálogo de modelos e runtime |
+| `app/app/ai/agents/[id]/_components/AgentForm.tsx` | `conflict_requires_review` | Configuração de agente / UI ELUS |
+| `lib/agent-engine/edge/llm/providers.ts` | `conflict_requires_review` | Provedores de IA |
+| `lib/ai/credenciais/guardar.ts` | `conflict_requires_review` | Proteção de credenciais |
+| `lib/ai/credenciais/login-codex.ts` | `conflict_requires_review` | Fluxo de autenticação de credenciais |
+| `lib/ai/runtime/agent.ts` | `conflict_requires_review` | Execução dos agentes |
+| `lib/audit/actions.ts` | `conflict_requires_review` | Auditoria |
+| `supabase/baseline.sql` | `protected_requires_review` | Divergência de esquema; operações no banco proibidas |
+
+**Outras superfícies upstream a revisar antes da preparação:** arquivos modificados em autenticação Google e senha, MFA, `app/actions/settings/updateTenant.ts`, rotas administrativas de tenant, `app/api/v1/ai/providers/[provider]/models/route.ts`, `app/api/v1/ai/routers/[id]/route.ts` e Inbox. Seus blobs do fork ainda correspondem à base, mas isso não significa compatibilidade de comportamento, governança de IA ou isolamento. A comparação oficial via API de commits informa 431 commits, porém retorna somente 300 entradas de arquivo; **o inventário de 787 deriva da diferença das árvores Git completas**, não do limite da resposta de compare.
+
+**Reprodução autorizável em checkout local descartável que disponha de todos os objetos dos três SHAs** (comando a executar, **não executado neste ambiente**):
+
+```bash
+node scripts/elus-upstream-reconcile.mjs plan --base ba24d4d366b7caf056b88553e0ed434cb0fb46de --target ca37cb7f2a35c1a0f6abc968139dd263b20ccb36 --fork 306af520be45689388b293128c0d7d4ebb7f717b
+```
+
+O ambiente de execução atual não consegue clonar GitHub (sem DNS externo) e não possui o repositório íntegro com esses objetos. Por isso, **não se alegou execução do programa `plan`, do AST sobre 787 mudanças, nem criação de worktree**. A operação realizada foi comparação real **read-only** dos inventários completos de objetos Git via conector GitHub. **Decisão de segurança:** sem candidatos comprovados, `prepare` não foi executado; nenhum arquivo do DeskcommCRM foi aplicado. Essa distinção impede que um relatório parcial seja confundido com aceite funcional.
+
+**Próximo bloqueio a resolver:** executar `plan` em checkout efêmero que contenha os três commits, capturar `totals`, `files[]`, sinais semânticos, `dependency_scan` e evidência de ausência de sobrescrita de customizações. Somente se houver `safe_to_prepare` após todos os gates será admissível criar worktree descartável. Ainda são pendentes testes negativos em runtime para auth, RBAC, multi-tenancy, agentes e credenciais. PR #20 continua Draft; nenhum merge, deploy ou operação no banco foi feito. A sincronização no Hindsight `Elus360` continua pendente enquanto indisponível.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
