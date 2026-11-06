@@ -832,10 +832,14 @@ test("mudancas perigosas distribuidas por arquivos e importacao transitiva bloqu
     set("hooks/useFlag.ts",'export {flag} from "@/components/shared";');
     set("components/feature.ts",'import {flag} from "@/hooks/useFlag";const ui=1;');
     set("components/unsafe.ts",'import {flag} from "@/hooks/useFlag";export function authorize(role:string){return role==="admin"&&flag;}');
+    set("components/tenant-policy.ts",'import {flag} from "@/hooks/useFlag";export const tenantAllowed=(org:string,row:{org:string})=>flag&&row.org===org;');
+    set("components/ai-policy.ts",'import {flag} from "@/hooks/useFlag";export const allowModel=(grant:boolean)=>grant&&flag;');
     set("components/ordinary.ts","const unrelated=1;");
     const base=commit("DeskcommCRM baseline shared hook");
     set("components/feature.ts",'import {flag} from "@/hooks/useFlag";const ui=2;');
     set("components/unsafe.ts",'import {flag} from "@/hooks/useFlag";export function authorize(role:string){return true;}');
+    set("components/tenant-policy.ts",'import {flag} from "@/hooks/useFlag";export const tenantAllowed=(org:string,row:{org:string})=>true;');
+    set("components/ai-policy.ts",'import {flag} from "@/hooks/useFlag";export const allowModel=(grant:boolean)=>true;');
     set("components/ordinary.ts","const unrelated=2;");
     const target=commit("DeskcommCRM legit component plus indirect RBAC bypass");
     git(cwd,"checkout","-q",base);
@@ -847,7 +851,8 @@ test("mudancas perigosas distribuidas por arquivos e importacao transitiva bloqu
     assert.ok(byPath["components/unsafe.ts"].signals.includes("exported_contract_change"));
     assert.equal(byPath["components/feature.ts"].status,"contract_requires_review");
     assert.ok(byPath["components/feature.ts"].signals.includes("unsafe_changed_dependency_chain"));
-    assert.deepEqual(byPath["components/feature.ts"].unsafe_changed_neighbors,["components/unsafe.ts"]);
+    assert.deepEqual(byPath["components/feature.ts"].unsafe_changed_neighbors,["components/ai-policy.ts","components/tenant-policy.ts","components/unsafe.ts"]);
+    for(const path of ["components/ai-policy.ts","components/tenant-policy.ts"]) assert.equal(byPath[path].status,"contract_requires_review",path);
     assert.equal(byPath["components/ordinary.ts"].status,"safe_to_prepare");
     const originalHead=git(cwd,"rev-parse","HEAD");
     const prepared=prepare(base,target,base,out);
@@ -855,6 +860,8 @@ test("mudancas perigosas distribuidas por arquivos e importacao transitiva bloqu
     assert.equal(readFileSync(join(out,"components/ordinary.ts"),"utf8"),"const unrelated=2;");
     assert.equal(readFileSync(join(out,"components/feature.ts"),"utf8"),'import {flag} from "@/hooks/useFlag";const ui=1;');
     assert.equal(readFileSync(join(out,"components/unsafe.ts"),"utf8"),'import {flag} from "@/hooks/useFlag";export function authorize(role:string){return role==="admin"&&flag;}');
+    assert.equal(readFileSync(join(out,"components/tenant-policy.ts"),"utf8"),'import {flag} from "@/hooks/useFlag";export const tenantAllowed=(org:string,row:{org:string})=>flag&&row.org===org;');
+    assert.equal(readFileSync(join(out,"components/ai-policy.ts"),"utf8"),'import {flag} from "@/hooks/useFlag";export const allowModel=(grant:boolean)=>grant&&flag;');
     assert.equal(git(cwd,"rev-parse","HEAD"),originalHead);
     assert.equal(git(cwd,"status","--porcelain"),"");
   }finally {
