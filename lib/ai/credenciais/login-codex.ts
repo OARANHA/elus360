@@ -237,12 +237,16 @@ export async function renovarComTravaDeBanco(p: {
 
   const { data: atual } = await p.admin
     .from("ai_provider_credentials")
-    .select("api_key_encrypted, api_key_iv, api_key_tag, validated_at, updated_at")
+    .select("label, api_key_encrypted, api_key_iv, api_key_tag, validated_at, updated_at")
     .eq("id", p.credentialId)
     .eq("organization_id", p.orgId)
     .eq("provider", PROVEDOR_POR_ASSINATURA)
     .maybeSingle();
   if (!atual) return { ok: false, motivo: "nao_encontrada" };
+
+  if (typeof atual.label !== "string" || atual.label.trim().length === 0) {
+    return { ok: false, motivo: "falha", motivoDetalhe: "credential_nao_gravada" };
+  }
 
   const atualizadoEm = typeof atual.updated_at === "string" ? atual.updated_at : null;
   const limite = new Date(Date.now() - JANELA_DA_TRAVA_MS).toISOString();
@@ -342,9 +346,11 @@ export async function renovarComTravaDeBanco(p: {
     credentialId: p.credentialId,
     provider: PROVEDOR_POR_ASSINATURA,
     apiKey: JSON.stringify(renovados),
-    label: ROTULO_DO_LOGIN_CODEX,
-
-    automatedRenewal: true,    manterModelos: true,
+    // A RPC refresh_login proíbe renomear uma credencial já autorizada.
+    // A conta legada pode ter outro rótulo: preservar o valor lido do banco.
+    label: atual.label,
+    automatedRenewal: true,
+    manterModelos: true,
   });
   if (!gravado.ok) {
     // A troca com o provedor deu certo e a gravação não: o motivo tem nome
