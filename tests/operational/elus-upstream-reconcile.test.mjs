@@ -1165,3 +1165,35 @@ test("diagnostico mantem bloqueio quando risco de efeito ou assinatura permanece
     assert.ok(plan.candidate_coverage.manual_review_buckets);
   }finally {process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
 });
+
+test("novos modulos e testes nao sao confundidos com falhas do grafo",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.target);
+    const module="components/novidade.ts";
+    const unit="tests/unit/novidade.test.ts";
+    mkdirSync(dirname(join(f.cwd,module)),{recursive:true});
+    mkdirSync(dirname(join(f.cwd,unit)),{recursive:true});
+    writeFileSync(join(f.cwd,module),'export const novo = 1;\n');
+    writeFileSync(join(f.cwd,unit),'export const testCode = 1;\n');
+    git(f.cwd,"add",".");
+    git(f.cwd,"commit","-qm","upstream adds modules");
+    const target=git(f.cwd,"rev-parse","HEAD");
+    const plan=reconcile(f.base,target,f.fork);
+    const by=Object.fromEntries(plan.files.map(v=>[v.path,v]));
+    assert.equal(by[module].preliminary_status,"safe_to_prepare");
+    assert.equal(by[unit].preliminary_status,"safe_to_prepare");
+    assert.equal(by[module].candidate_analysis.fork_graph_absence_reason,
+      "new_upstream_source_not_in_fork");
+    assert.equal(by[unit].candidate_analysis.fork_graph_absence_reason,
+      "new_upstream_test_excluded");
+    assert.equal(by[module].candidate_analysis.dependency_graph.present_in_fork,false);
+    assert.equal(by[unit].candidate_analysis.dependency_graph.present_in_fork,false);
+    assert.equal(by[module].candidate_analysis.authorization,"none");
+    assert.equal(by[unit].candidate_analysis.authorization,"none");
+    assert.equal(by[unit].status,"contract_requires_review");
+    assert.equal(plan.dependency_scan.executed,true);
+    assert.ok(plan.dependency_scan.scanned>0);
+  }finally {process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
