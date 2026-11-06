@@ -94,6 +94,27 @@ export function changedModuleSignals(path,before,after,rawConfig=null) {
   }
   return [...signals];
 }
+/** Read-only diagnostic: distinguish protected imports already present from
+ * actual new imports. Does not influence changedModuleSignals or promotion.
+ */
+export function protectedImportProvenance(path,before,after,rawConfig=null) {
+  if(!SOURCE.test(path)||typeof before!=="string"||typeof after!=="string")
+    return {inspected:false,reason:"source_not_inspectable",retained:[],introduced:[],removed:[]};
+  const original=astImports(before,path),incoming=astImports(after,path);
+  if(original.unresolved.length||incoming.unresolved.length)
+    return {inspected:false,reason:"imports_not_fully_parsed",retained:[],introduced:[],removed:[]};
+  const protectedSpecifier=specifier=>{
+    if(mappedProtectedImport(specifier,rawConfig)) return true;
+    const resolved=sourceModule(specifier,path);
+    return !!resolved && PROTECTED.some(prefix=>resolved.startsWith(prefix));
+  };
+  const old=new Set(original.specifiers.filter(protectedSpecifier));
+  const next=new Set(incoming.specifiers.filter(protectedSpecifier));
+  return {inspected:true,reason:null,
+    retained:[...next].filter(x=>old.has(x)).sort(),
+    introduced:[...next].filter(x=>!old.has(x)).sort(),
+    removed:[...old].filter(x=>!next.has(x)).sort()};
+}
 /** Detect edges introduced only in the upstream target to another unsafe
  * changed file. The fork reverse graph cannot contain an edge not yet imported.
  */
