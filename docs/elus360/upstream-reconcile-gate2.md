@@ -400,3 +400,25 @@ O destino absoluto não deve existir e deve estar **fora do checkout atual**. O 
 ## Próxima capacidade
 
 A classificação já está acoplada a um preparador em worktree isolada. Faltam a criação automatizada da PR com revisão dos patches, a detecção semântica profunda baseada em AST, resolução TypeScript abrangente e análise de fluxo e a execução/validação dos testes por contrato. O mapeamento atual de sinais a `suggested_checks` não executa testes. Essas capacidades ainda não são entregues pelo Gate 2. O executor da PR #71 do repositório histórico pode ser usado como referência de implementação, **não** como origem operacional nem migrado sem revisão.
+
+## Ensaio independente de referências oficiais — 06/11/2026 UTC
+
+**Checkpoint verificado:** PR #20 Draft, HEAD `d470ff5695b76198c2187a775b7ab30b87745ea0` antes desta atualização documental, base `main` `749aaf8fbb25b46dddd9138219e2ac032cc83336`. O workflow [Gate 1 #42138997558](https://github.com/OARANHA/elus360/actions/runs/42138997558) concluiu `completed/success` **nesse HEAD**, job `contrato-upstream` `success`. São **12 testes de preparação e 55 operacionais PASS**; nenhum check posterior é inferido após a edição deste documento.
+
+**Proveniência Git:** tag anotada oficial `v1.94.0` (objeto `9b20e5983de83dadadd62cb43d68ff55c5336247`) aponta para commit `ba24d4d366b7caf056b88553e0ed434cb0fb46de` (tree `a337f7a1ea64c9bbe4d13cb82a25f17401f03616`); tag `v1.95.0` (objeto `317229a9f5e25a310fafc7e9f42e93e14d2bd7fe`) aponta para `ca37cb7f2a35c1a0f6abc968139dd263b20ccb36` (tree `8253470b44c82323912e352615ea385e69965012`). Fork `main` usa tree `d5691861a3c39668dcabc4ed62046fd13259936b`. Três Git Trees recursivas retornaram `truncated=false`. A API de comparação verificou `ahead_by=431`, `behind_by=0`.
+
+**Inventário integral independente:** 787 caminhos alterados entre releases; pré-classificação de `impact/statusFor`: 235 `protected_requires_review`, 191 `contract_requires_review`, 7 `conflict_requires_review`, 354 candidatos à análise AST e **zero `safe_to_prepare` comprovado**. A matriz nominal completa, com 787 caminhos e legenda, está no [comentário auditável da PR #20](https://github.com/OARANHA/elus360/pull/20#issuecomment-6673810443). É uma comparação de blobs/caminhos; **não foi executado o `reconcile plan` completo** e não se atribui aos 354 arquivos aprovação semântica.
+
+**Dez divergências locais observadas:** `.env.example`, `.github/workflows/e2e.yml`, `supabase/baseline.sql`, `app/api/v1/cron/sync-model-catalog/route.ts`, `app/app/ai/agents/[id]/_components/AgentForm.tsx`, `lib/agent-engine/edge/llm/providers.ts`, `lib/ai/credenciais/guardar.ts`, `lib/ai/credenciais/login-codex.ts`, `lib/ai/runtime/agent.ts` e `lib/audit/actions.ts`. Nenhum pode ser substituído automaticamente. Preservar catálogo Chutes, controle de providers/modelos e credenciais no backend, RPC guardada, autonomia de IA, callbacks/runtime, eventos de auditoria próprios, SQL e workflows do fork.
+
+**AST real do Gate 1:** benchmark no merge sintético `cc1ca4cb93bb6664ae30a057e8c83a722dcfbe6c`: 3.194 fontes, 15.290 arestas, zero arestas anteriores perdidas, `complete:false` com um `computed_module_specifier` em `curso/semear-demonstracao.ts`. Pelo reconciliador, incompletude significa `dependency_analysis_incomplete` e bloqueia promoção automática de todos os candidatos ordinários. Corrigir ou delimitar de modo comprovado a causa antes de `prepare`.
+
+**Mudanças v1.95.0 para avaliação manual:** anexos arrastados com prévia/guardrails no Inbox; ferramentas MCP externas configuráveis por agente; descoberta Models.dev; preservação dos modelos disponíveis na renovação Codex; eventos de auditoria ampliados; seleção de endereço WhatsApp por última mensagem. Não há aceite de incorporação: testes negativos de auth, RBAC, RLS multi-tenant, governança de IA, mensageria e schema ainda faltam.
+
+**Reprodução pendente com todos os objetos Git presentes localmente** (não executada neste ambiente sem DNS para clone):
+
+```bash
+node scripts/elus-upstream-reconcile.mjs plan --base ba24d4d366b7caf056b88553e0ed434cb0fb46de --target ca37cb7f2a35c1a0f6abc968139dd263b20ccb36 --fork 749aaf8fbb25b46dddd9138219e2ac032cc83336
+```
+
+O retorno esperado a capturar é `totals`, `files[]`, `signals`, `suggested_checks`, `dependency_scan`, `protected_importers` e impacto de lote. Não houve checkout completo, CLI `plan`, `prepare`, merge, deploy ou escrita no Supabase. Consulta de branch protection de `main` retornou **403** (`Resource not accessible by integration`); rulesets `[]` não comprova ausência de checks obrigatórios. Hindsight `Elus360` retornou **UNAVAILABLE** em `recall` e `search_knowledge_base`; nenhuma gravação nele foi alegada. **Estado funcional: NO-GO.**
