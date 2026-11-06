@@ -68,6 +68,7 @@ function abrirCriacao() {
     <QueryClientProvider client={qc}>
       <AgentForm
         mode="create"
+        autonomiaTecnica={{ provider: true, model: true, credentials: true, operator_model: true }}
         provedorPadrao="anthropic"
         credentials={
           [
