@@ -201,7 +201,22 @@ jobs:
           node-version: "22"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:db
+      - name: Resolve and prove official DeskcommCRM release tags (no mutable latest API)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 \
+            https://github.com/melgarafael/DeskcommCRM.git \
+            +refs/tags/v1.102.0:refs/tags/v1.102.0 \
+            +refs/tags/v1.63.0:refs/tags/v1.63.0
+          pinned="$(git rev-parse 'refs/tags/v1.102.0^{commit}')"
+          test "$pinned" = "4b5815721710c9b1e99078322593838fda1ee740"
+          git cat-file -e 'refs/tags/v1.63.0^{commit}'
+          echo "official_release=v1.102.0 official_commit=$pinned"
+      - name: PostgreSQL install/update/RLS with pinned official release compatibility
+        env:
+          CONFERENCIA_KIT_RELEASE: "v1.102.0"
+        run: pnpm test:db
 
   db-update:
     name: PostgreSQL disposable schema update with seeded data
