@@ -11,11 +11,14 @@ on:
       - "scripts/elus-upstream-dependency-risk.mjs"
       - "scripts/elus-upstream-precision-diagnostics.mjs"
       - "scripts/elus-upstream-gate5-evidence.mjs"
+      - "scripts/elus-upstream-gate6-evidence.mjs"
       - "scripts/elus-upstream-real-tree-benchmark.mjs"
       - "docs/elus360/upstream-reconcile-gate2.md"
       - "tests/operational/elus-upstream-prepare.test.mjs"
       - "tests/operational/elus-upstream-reconcile.test.mjs"
       - "tests/operational/elus-upstream-gate5.test.mjs"
+      - "tests/operational/elus-upstream-gate6.test.mjs"
+      - "docs/elus360/upstream-gate6-review.md"
       - "docs/elus360/upstream-gate5-review.md"
       - ".github/workflows/elus360-upstream-sync.yml"
   workflow_dispatch:
@@ -45,12 +48,14 @@ jobs:
           node --check scripts/elus-upstream-dependency-risk.mjs
           node --check scripts/elus-upstream-precision-diagnostics.mjs
           node --check scripts/elus-upstream-gate5-evidence.mjs
+          node --check scripts/elus-upstream-gate6-evidence.mjs
           node --check scripts/elus-upstream-real-tree-benchmark.mjs
       - name: Gates sem rede externa, banco ou Docker
         run: |
           node --test tests/operational/elus-upstream-prepare.test.mjs
           node --test tests/operational/elus-upstream-reconcile.test.mjs
           node --test tests/operational/elus-upstream-gate5.test.mjs
+          node --test tests/operational/elus-upstream-gate6.test.mjs
       - name: Benchmark AST de arvore real (read-only)
         run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
 
@@ -393,6 +398,70 @@ jobs:
           (cd "$ARTIFACT_DIR" && sha256sum plan.json matrix-787.csv ast-coverage-354.json \
             manual-compatibility-review.json summary.md provenance.txt \
             gate5-evidence.json gate5-target-matrix.md gate5-triad12.md > SHA256SUMS)
+      - name: Gate 6 - matriz de revisao fail-closed sem preparar upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/elus-upstream-gate6-evidence.mjs \
+            "$ARTIFACT_DIR/plan.json" \
+            "$ARTIFACT_DIR/gate5-evidence.json" > "$ARTIFACT_DIR/gate6-evidence.json"
+          node --input-type=module - "$ARTIFACT_DIR/gate6-evidence.json" "$ARTIFACT_DIR" <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const r=JSON.parse(fs.readFileSync(process.argv[2],"utf8")),dir=process.argv[3];
+          if(r.mode!=="read_only"||r.authorization!=="none"||
+             r.status!=="manual_review_required"||
+             r.counts?.reviewed12!==12||r.counts?.new_modules!==45||
+             r.counts?.safe_to_prepare!==0||
+             r.counts?.decisions?.compatible_for_human_review!==2||
+             r.counts?.decisions?.requires_adaptation!==5||
+             r.counts?.decisions?.blocked_pending_contract_proof!==5||
+             r.graph_complete!==false)
+             throw Error("GATE6_UNVERIFIED_OR_UNSAFE");
+          if(r.review12.some(x=>x.authorization!=="none"||x.tests.length<2)||
+             r.review45.some(x=>x.authorization!=="none"||!x.required_tests?.length))
+             throw Error("GATE6_EVIDENCE_MISSING");
+          const q=String.fromCharCode(96);
+          const header=[
+            "# Gate 6 - revisao individual dos 12 e priorizacao dos 45",
+            "",
+            "Somente revisao humana, NAO autorizacao de incorporacao.",
+            "- Base: "+r.refs.base,
+            "- Target: "+r.refs.target,
+            "- Fork: "+r.refs.fork,
+            "- Grafo completo: "+r.graph_complete,
+            "- Imports dinamicos inconclusivos no target: "+r.computed_imports.target_unresolved,
+            "- Aprovados para prepare: "+r.counts.safe_to_prepare,
+            "",
+            "## Doze candidatos",
+            "| Arquivo | Decisao | Risco confirmado no diff | Testes requeridos |",
+            "| --- | --- | --- | --- |",
+            ...r.review12.map(x=>"| "+q+x.path+q+" | "+x.decision+" | "+
+              x.reason.replaceAll("|","/")+" | "+x.tests.join(", ")+" |"),
+            "",
+            "## Novos modulos do target (45)",
+            "| Arquivo | Prioridade | Consumidores protegidos diretos | Transitivos | Imports protegidos |",
+            "| --- | --- | ---: | ---: | ---: |",
+            ...r.review45.map(x=>"| "+q+x.path+q+" | "+x.risk_tier+" | "+
+              x.graph_evidence.direct_protected_consumers+" | "+
+              x.graph_evidence.transitive_protected_consumer_count+" | "+
+              x.graph_evidence.imports_protected+" |"),
+            "",
+            "## Evidencias nao executadas",
+            ...r.limitations.map(x=>"- "+x),
+            "",
+            "Nenhuma categoria diagnostica promove safe_to_prepare ou dispensa revisao humana."
+          ].join("\n");
+          fs.writeFileSync(path.join(dir,"gate6-review.md"),header+"\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,header.slice(0,15000));
+          console.log(JSON.stringify({gate:"gate6_diagnostic_only",
+            counts:r.counts,graph_complete:r.graph_complete,
+            computed_imports:r.computed_imports,authorization:r.authorization}));
+          NODE
+          (cd "$ARTIFACT_DIR" && sha256sum plan.json matrix-787.csv ast-coverage-354.json \
+            manual-compatibility-review.json summary.md provenance.txt \
+            gate5-evidence.json gate5-target-matrix.md gate5-triad12.md \
+            gate6-evidence.json gate6-review.md > SHA256SUMS)
       - name: Publicar plano real e matriz nominal como artefato
         if: always()
         uses: actions/upload-artifact@v4
