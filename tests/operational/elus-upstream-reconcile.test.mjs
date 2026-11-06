@@ -819,3 +819,48 @@ test("mesmo arquivo mistura melhoria legitima e enfraquecimento RBAC: bloqueio a
     rmSync(cwd,{recursive:true,force:true});
   }
 });
+
+test("mudancas perigosas distribuidas por arquivos e importacao transitiva bloqueiam candidato ligado, mas nao independente",()=>{
+  const cwd=mkdtempSync(join(tmpdir(),"elus-upstream-batch-risk-"));
+  const prior=process.cwd(),out=join(tmpdir(),"elus-upstream-batch-out-"+process.pid+"-"+Date.now());
+  const set=(path,body)=>{const full=join(cwd,path);mkdirSync(dirname(full),{recursive:true});writeFileSync(full,body);};
+  const commit=title=>{git(cwd,"add",".");git(cwd,"commit","-qm",title);return git(cwd,"rev-parse","HEAD");};
+  try{
+    git(cwd,"init","-q");git(cwd,"config","user.name","ELUS Tests");git(cwd,"config","user.email","tests@example.invalid");
+    set("tsconfig.json",JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}}));
+    set("components/shared.ts","export const flag=true;");
+    set("hooks/useFlag.ts",'export {flag} from "@/components/shared";');
+    set("components/feature.ts",'import {flag} from "@/hooks/useFlag";const ui=1;');
+    set("components/unsafe.ts",'import {flag} from "@/hooks/useFlag";export function authorize(role:string){return role==="admin"&&flag;}');
+    set("components/ordinary.ts","const unrelated=1;");
+    const base=commit("DeskcommCRM baseline shared hook");
+    set("components/feature.ts",'import {flag} from "@/hooks/useFlag";const ui=2;');
+    set("components/unsafe.ts",'import {flag} from "@/hooks/useFlag";export function authorize(role:string){return true;}');
+    set("components/ordinary.ts","const unrelated=2;");
+    const target=commit("DeskcommCRM legit component plus indirect RBAC bypass");
+    git(cwd,"checkout","-q",base);
+    process.chdir(cwd);
+    const report=reconcile(base,target,base);
+    const byPath=Object.fromEntries(report.files.map(x=>[x.path,x]));
+    assert.equal(report.dependency_scan.complete,true,JSON.stringify(report.dependency_scan));
+    assert.equal(byPath["components/unsafe.ts"].status,"contract_requires_review");
+    assert.ok(byPath["components/unsafe.ts"].signals.includes("exported_contract_change"));
+    assert.equal(byPath["components/feature.ts"].status,"contract_requires_review");
+    assert.ok(byPath["components/feature.ts"].signals.includes("unsafe_changed_dependency_chain"));
+    assert.deepEqual(byPath["components/feature.ts"].unsafe_changed_neighbors,["components/unsafe.ts"]);
+    assert.equal(byPath["components/ordinary.ts"].status,"safe_to_prepare");
+    const originalHead=git(cwd,"rev-parse","HEAD");
+    const prepared=prepare(base,target,base,out);
+    assert.equal(prepared.preparedFiles,1);
+    assert.equal(readFileSync(join(out,"components/ordinary.ts"),"utf8"),"const unrelated=2;");
+    assert.equal(readFileSync(join(out,"components/feature.ts"),"utf8"),'import {flag} from "@/hooks/useFlag";const ui=1;');
+    assert.equal(readFileSync(join(out,"components/unsafe.ts"),"utf8"),'import {flag} from "@/hooks/useFlag";export function authorize(role:string){return role==="admin"&&flag;}');
+    assert.equal(git(cwd,"rev-parse","HEAD"),originalHead);
+    assert.equal(git(cwd,"status","--porcelain"),"");
+  }finally {
+    process.chdir(cwd);
+    if(existsSync(out))git(cwd,"worktree","remove","--force",out);
+    process.chdir(prior);
+    rmSync(cwd,{recursive:true,force:true});
+  }
+});
