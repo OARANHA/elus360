@@ -42,7 +42,7 @@ Gate 7 GREEN confirmado para o SHA anterior, workflows [Upstream Sync 4216162974
 
 ## 3. Execução real planejada no CI descartável
 
-Novo arquivo: `tests/invariants/elus-upstream-gate8-contratos-sql.test.ts`, 10 casos com identidades/organizações sintéticas, sem PII real.
+Novo arquivo: `tests/invariants/elus-upstream-gate8-contratos-sql.test.ts`, 12 casos com identidades/organizações sintéticas, sem PII real.
 
 Workflow `.github/workflows/elus360-upstream-sync.yml` ganhou job `gate8-contratos-postgresql-descartavel`, dependente de `contrato-upstream`. A infraestrutura reaproveitada é `scripts/test-db.sh`: imagem `pgvector/pgvector:pg15`, Docker isolado, baseline do fork aplicado duas vezes (instalação e atualização), banco dedicado por arquivo de teste e remoção de container/volume por trap.
 
@@ -56,7 +56,7 @@ pnpm test:db \
   tests/invariants/cobranca-isolamento.test.ts
 ~~~
 
-Os três testes existentes verificam concorrência em transações reais, predicado/ACL da reconciliação e RLS por tenant. O arquivo novo acrescenta assinaturas (`pg_proc`), grants, execução negativa, valores nulos, persistência de eventos, isolamento e idempotência da junção. **Nenhum SQL ou migration do produto foi alterado.**
+Os três testes existentes verificam concorrência em transações reais, predicado/ACL da reconciliação e RLS por tenant. O arquivo novo acrescenta assinaturas (`pg_proc`), grants, execução negativa, valores nulos, persistência de eventos com metadata presente/vazia, isolamento, idempotência da junção e rejeição SQLSTATE `22023` de lista vazia sem efeito colateral. **Nenhum SQL ou migration do produto foi alterado.**
 
 **Validação local nesta sessão:** Node/TypeScript estão disponíveis, mas Docker e `psql` não foram encontrados. Assim não há execução nativa PostgreSQL local para afirmar PASS. O workflow verifica o teste em ambiente descartável; **o resultado do novo HEAD será classificado PENDENTE até verificação independente**, sem polling.
 

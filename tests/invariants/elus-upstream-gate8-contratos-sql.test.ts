@@ -171,6 +171,18 @@ describe("Gate 8 — evento, autorização e idempotência no banco", () => {
     expect(row.status).toBe("pending");
   });
 
+  it("metadata sem caused_by_rule permanece objeto vazio (contrato do target)", () => {
+    const eventId = valor(comoServidor(
+      "select public.emit_event('lead.tag_added','crm_lead','" + ENTIDADE +
+      "'::uuid,'{}'::jsonb,'{}'::jsonb,'" + A + "'::uuid);"
+    ));
+    const metadata = JSON.parse(valor(comoServidor(
+      "select metadata::text from public.event_log where id='" + eventId + "'::uuid;"
+    ))) as Record<string, unknown>;
+    expect(metadata).toEqual({});
+    expect(Object.hasOwn(metadata, "caused_by_rule")).toBe(false);
+  });
+
   it("A não pode forjar evento de B via RPC (nem como anon); nenhuma linha inserida", () => {
     const before = numero(comoServidor(
       "select count(*) from public.event_log where entity_id='" + ENTIDADE +
@@ -187,6 +199,24 @@ describe("Gate 8 — evento, autorização e idempotência no banco", () => {
       "select count(*) from public.event_log where entity_id='" + ENTIDADE +
       "'::uuid and organization_id='" + B + "'::uuid;"
     ))).toBe(before);
+  });
+
+  it("falha RPC real de etiquetas vazias: SQLSTATE 22023, sem escrita ou evento", () => {
+    const antes = valor(comoServidor(
+      "select coalesce(array_length(tags,1),0)::text from public.crm_leads where id='" + LEAD + "'::uuid;"
+    ));
+    const error = erroDe(comoServidor(
+      "select public.fn_lead_adicionar_etiquetas('" + A + "'::uuid,'" +
+      LEAD + "'::uuid,ARRAY[]::text[])"
+    ));
+    expect(error).toContain("22023");
+    expect(valor(comoServidor(
+      "select coalesce(array_length(tags,1),0)::text from public.crm_leads where id='" + LEAD + "'::uuid;"
+    ))).toBe(antes);
+    expect(numero(comoServidor(
+      "select count(*) from public.event_log where entity_id='" + LEAD + "'::uuid " +
+      "and event_type='lead.tag_added';"
+    ))).toBe(0);
   });
 
   it("RPC de etiquetas: idempotência local e filtro org A/B mesmo como service_role", () => {
