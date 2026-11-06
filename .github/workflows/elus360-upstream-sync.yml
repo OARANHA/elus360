@@ -25,6 +25,10 @@ on:
       - "docs/elus360/upstream-gate10-event-hardening-proposal.md"
       - "scripts/elus-upstream-gate10-inventory.mjs"
       - "tests/operational/elus-upstream-gate10-inventory.test.mjs"
+      - "scripts/elus-upstream-gate10-classify.mjs"
+      - "tests/operational/elus-upstream-gate10-classify.test.mjs"
+      - "tests/invariants/elus-upstream-gate10-http-jwt.test.ts"
+      - "docs/elus360/upstream-gate10-classification-http.md"
       - "docs/elus360/upstream-gate8-contracts.md"
       - "docs/elus360/upstream-gate7-functional.md"
       - "docs/elus360/upstream-gate6-review.md"
@@ -72,15 +76,20 @@ jobs:
         run: |
           node --check scripts/elus-upstream-gate10-inventory.mjs
           node --check tests/operational/elus-upstream-gate10-inventory.test.mjs
-          node --test tests/operational/elus-upstream-gate10-inventory.test.mjs
+          node --check scripts/elus-upstream-gate10-classify.mjs
+          node --check tests/operational/elus-upstream-gate10-classify.test.mjs
+          node --test tests/operational/elus-upstream-gate10-inventory.test.mjs tests/operational/elus-upstream-gate10-classify.test.mjs
           mkdir -p gate10-evidence
           node scripts/elus-upstream-gate10-inventory.mjs --output gate10-evidence/inventory.json
+          node scripts/elus-upstream-gate10-classify.mjs --output gate10-evidence/inventory-classified.json
       - name: Gate 10 - artefato de candidatos, nao aceite de seguranca
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: elus360-gate10-inventory
-          path: gate10-evidence/inventory.json
+          path: |
+            gate10-evidence/inventory.json
+            gate10-evidence/inventory-classified.json
           if-no-files-found: warn
           retention-days: 14
       - name: Gate 6 - testes direcionados do fork sem atualizacao upstream
@@ -162,6 +171,7 @@ jobs:
           pnpm test:db \
             tests/invariants/elus-upstream-gate8-contratos-sql.test.ts \
             tests/invariants/elus-upstream-gate9-emit-event-boundaries.test.ts \
+            tests/invariants/elus-upstream-gate10-http-jwt.test.ts \
             tests/invariants/add-tag-concorrente-nao-apaga.test.ts \
             tests/invariants/cobranca-reconciliacao.test.ts \
             tests/invariants/cobranca-isolamento.test.ts
