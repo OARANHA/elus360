@@ -1097,3 +1097,71 @@ test("proveniencia AST distingue import protegido retido de novo sem autorizar p
   assert.ok(changedModuleSignals("components/example.ts",before,after).includes("protected_module_import_change"));
   assert.equal(protectedImportProvenance("components/example.ts",null,after).inspected,false);
 });
+
+test("precisao AST separa assinatura, corpo e chamada adiada sem aprovar nenhum arquivo",async()=>{
+  const {diagnoseAstPrecision}=await import("../../scripts/elus-upstream-precision-diagnostics.mjs");
+  const before="export function total(v: number): number { return v + 1; }\n";
+  const body="export function total(v: number): number { return v + 2; }\n";
+  const signature="export function total(v: number): boolean { return v > 1; }\n";
+  const changedBody=diagnoseAstPrecision("components/total.ts",before,body);
+  assert.equal(changedBody.executed,true);
+  assert.equal(changedBody.export_relation,"declared_shape_equal_export_body_or_initializer_changed");
+  assert.equal(changedBody.evidence_only,true);
+  assert.equal(changedBody.normalized_syntax_equal,false);
+  const changedSignature=diagnoseAstPrecision("components/total.ts",before,signature);
+  assert.equal(changedSignature.export_relation,"export_declaration_shape_changed");
+
+  const oldDeferred='const task = () => send("old");';
+  const newDeferred='const task = () => send("new");';
+  const deferred=diagnoseAstPrecision("components/task.ts",oldDeferred,newDeferred);
+  assert.equal(deferred.initialization_relation,"deferred_function_expression_changed");
+  assert.equal(deferred.eager_effects_before,0);
+  assert.equal(deferred.eager_effects_after,0);
+  const eager=diagnoseAstPrecision("components/task.ts",
+    'const task = send("old");','const task = send("new");');
+  assert.equal(eager.initialization_relation,"eager_effect_expression_changed");
+  assert.equal(diagnoseAstPrecision("components/bad.ts","export {","export {}").executed,false);
+});
+
+test("evidencia de risco mede distancia e direcao sem alterar gate de componente",async()=>{
+  const {changedRiskCouplings,nearestUnsafeRiskEvidence}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const graph={reverse:new Map([
+    ["components/shared.ts",new Set(["components/candidate.ts","components/middle.ts"])],
+    ["lib/auth/guard.ts",new Set(["components/middle.ts"])],
+    ["components/isolated.ts",new Set(["components/other.ts"])]
+  ])};
+  const preliminary=["components/candidate.ts","components/middle.ts","components/isolated.ts"];
+  const hard=["lib/auth/guard.ts"];
+  const detailed=nearestUnsafeRiskEvidence(preliminary,hard,graph);
+  assert.equal(detailed.get("components/candidate.ts").nearest_distance,3);
+  assert.equal(detailed.get("components/candidate.ts").classification,"indirect_three_or_more");
+  assert.ok(detailed.get("components/candidate.ts").first_hop_directions.includes("imports"));
+  assert.equal(detailed.get("components/middle.ts").nearest_distance,1);
+  assert.equal(detailed.get("components/middle.ts").classification,"direct");
+  assert.equal(detailed.get("components/isolated.ts").nearest_distance,null);
+  const coupled=changedRiskCouplings(preliminary,hard,graph);
+  assert.ok(coupled.get("components/candidate.ts").includes("lib/auth/guard.ts"));
+  assert.equal(coupled.has("components/isolated.ts"),false);
+});
+
+test("diagnostico mantem bloqueio quando risco de efeito ou assinatura permanece",()=>{
+  const f=fixture(),old=process.cwd();
+  try {
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.target);
+    writeFileSync(join(f.cwd,"components/safe.tsx"),
+      'export function total(v: number): number { return v + 2; }\n');
+    git(f.cwd,"add","components/safe.tsx");
+    git(f.cwd,"commit","-qm","upstream alters export");
+    const target=git(f.cwd,"rev-parse","HEAD");
+    const plan=reconcile(f.base,target,f.fork);
+    const c=plan.files.find(x=>x.path==="components/safe.tsx");
+    assert.equal(c.preliminary_status,"safe_to_prepare");
+    assert.equal(c.status,"contract_requires_review");
+    assert.equal(c.candidate_analysis.authorization,"none");
+    assert.ok(["requires_targeted_contract_review","potential_compatibility_manual_review"].includes(
+      c.candidate_analysis.review_bucket));
+    assert.equal(plan.totals.safe_to_prepare??0,0);
+    assert.ok(plan.candidate_coverage.manual_review_buckets);
+  }finally {process.chdir(old);rmSync(f.cwd,{recursive:true,force:true});}
+});
