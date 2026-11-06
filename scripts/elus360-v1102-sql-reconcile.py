@@ -72,6 +72,9 @@ def main() -> None:
     number_paths: dict[str, list[str]] = {}
     timestamp_paths: dict[str, list[str]] = {}
     for migration in Path("supabase/migrations").glob("*.sql"):
+        # Preserved upstream legacy bootstrap name predates timestamp_NNNN convention.
+        if migration.name == "00001_initial_schema.sql":
+            continue
         match = re.fullmatch(r"(\d{14})_(\d{4})_.+\.sql", migration.name)
         require(match is not None, "migration name violates timestamp_NNNN convention: " + migration.name)
         timestamp_paths.setdefault(match[1], []).append(migration.name)
