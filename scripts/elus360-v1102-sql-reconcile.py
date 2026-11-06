@@ -19,6 +19,10 @@ FILE = "supabase/baseline.sql"
 ORIGINAL_MIGRATION = "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql"
 RENAMED_MIGRATION = "supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql"
 FORWARD_MIGRATION = "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql"
+FORWARD_9902 = "supabase/migrations/20261106160000_9902_elus_molde_chutes_pt409.sql"
+FORWARD_9903 = "supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql"
+MARKER_9902 = b"-- 20261106160000_9902_elus_molde_chutes_pt409\n"
+MARKER_9903 = b"-- 20261106170000_9903_elus_agent_version_columns\n"
 GUARDS = (
     b"fn_elus_ai_version_patch_guarded",
     b"fn_elus_ai_version_create_guarded",
@@ -65,6 +69,17 @@ def main() -> None:
     upstream = read(TARGET, FILE)
     elus_migration = read(FORK, ORIGINAL_MIGRATION)
     forward_migration = Path(FORWARD_MIGRATION).read_bytes()
+    forward_9902 = Path(FORWARD_9902).read_bytes()
+    forward_9903 = Path(FORWARD_9903).read_bytes()
+    require(forward_9902.startswith(b"-- manifest:") and
+            b"fn_llm_do_molde_de_ia" in forward_9902 and
+            b"errcode=\x27PT409\x27" in forward_9902,
+            "9902 must preserve the Chutes template and non-retry conflict")
+    require(forward_9903.startswith(b"-- manifest:") and
+            b"fn_elus_ai_version_patch_guarded" in forward_9903 and
+            b"fn_elus_ai_agent_create_guarded" in forward_9903 and
+            b"to service_role;" in forward_9903,
+            "9903 must preserve service-only guarded RPCs")
     require(b"fn_elus_ai_agent_create_guarded" in forward_migration and
             b"security invoker" in forward_migration and
             b"to service_role;" in forward_migration,
@@ -111,9 +126,10 @@ def main() -> None:
     scan = upstream[scan_start:scan_end]
     require(b"revoke" in scan.lower() and b"anon" in scan.lower(),
             "official anon sweep has unexpected content")
-    expected = upstream[:scan_start] + upstream[scan_end:] + appendix + forward_migration + scan
+    expected = (upstream[:scan_start] + upstream[scan_end:] + appendix + forward_migration
+                + MARKER_9902 + forward_9902 + b"\n" + MARKER_9903 + forward_9903 + scan)
     require(committed == expected,
-            "committed baseline must preserve upstream, untouched 9900 and byte-exact 9901 before final anon ACL sweep")
+            "baseline must preserve upstream, untouched 9900 and forward 9901/9902/9903 before final anon ACL sweep")
     after_sweep = committed[committed.find(scan_start_marker):]
     require(not re.search(rb"^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?function", after_sweep, re.I | re.M),
             "functions created after final anon sweep")
@@ -139,6 +155,7 @@ def main() -> None:
         "migration_byte_exact": True,
         "migration_filename": RENAMED_MIGRATION,
         "forward_migration": FORWARD_MIGRATION,
+        "forward_migrations": [FORWARD_MIGRATION, FORWARD_9902, FORWARD_9903],
         "migration_timestamp_unchanged": True,
         "guards_present": len(GUARDS),
         **hashes,
