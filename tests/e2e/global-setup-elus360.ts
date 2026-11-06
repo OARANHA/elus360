@@ -51,8 +51,18 @@ export default async function prepararAutonomiaE2E(config: FullConfig): Promise<
     const context = await browser.newContext({ baseURL, serviceWorkers: "block" });
     try {
       const page = await context.newPage();
-      await loginComoDono(page, creds); // autenticação real e TOTP, não bypass
-      const endpoint = `/api/v1/admin/tenants/${creds.org_id}/ai-permissions`;
+      // O login pode renovar o TOTP e reexecutar o seed quando outra sessão
+      // rotacionou o fator; a fixture em memória deve acompanhar o retorno.
+      const autenticadas = (await loginComoDono(page, creds)) as CredsLocais;
+      if (
+        autenticadas.org_id !== creds.org_id ||
+        autenticadas.org_slug !== creds.org_slug ||
+        autenticadas.supabase_url !== supabaseUrl ||
+        autenticadas.users?.dono?.email !== creds.users.dono.email
+      ) {
+        throw new Error("Credenciais E2E mudaram de organização ou ambiente após MFA.");
+      }
+      const endpoint = `/api/v1/admin/tenants/${autenticadas.org_id}/ai-permissions`;
       const antes = await page.request.get(endpoint);
       if (!antes.ok()) {
         throw new Error(`Leitura administrativa da autonomia falhou: HTTP ${antes.status()}`);

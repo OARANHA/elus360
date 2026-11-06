@@ -47,7 +47,15 @@ const org = "11111111-1111-4111-8111-111111111111";
 const id = "22222222-2222-4222-8222-222222222222";
 
 type Resposta = { data?: unknown; error?: unknown };
-type Fake = { from: (table: string) => unknown };
+type Fake = {
+  from: (table: string) => unknown;
+  rpc: (name: string, args: {
+    p_org: string;
+    p_op: string;
+    p_id: string;
+    p_platform_bypass: boolean;
+  }) => Promise<Resposta>;
+};
 
 /** Um `.from(tabela)` feito pela rota — com o que ele filtrou de verdade. */
 interface Registro {
