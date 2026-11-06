@@ -15,6 +15,25 @@ const rules = [
   ["messaging_events", /\b(?:event_log|WAHA|whatsapp|dispatch|webhook|Idempotency-Key|audit_log)\b/i],
   ["sensitive_import", /(?:from\s*["']|import\s*\(["']|require\s*\(["'])(?:@\/|\.\.?\/)(?:[^"']*\/)?(?:elus360|auth|supabase|ai-managed|agent-engine|governanca|mcp|permissions|credentials|rbac|audit)(?:\/|["'])/i],
 ];
+/**
+ * Diagnostic-only provenance for the broad lexical contract signals.
+ * The production classifier intentionally checks BEFORE + AFTER; a retained
+ * keyword may still matter, so this function never changes authorization.
+ */
+export function heuristicSignalProvenance(before,after) {
+  if(typeof before!=="string" || typeof after!=="string" ||
+     before.length>524288 || after.length>524288 ||
+     before.includes("\0") || after.includes("\0"))
+    return {inspected:false,retained:[],introduced:[],removed:[]};
+  const retained=[],introduced=[],removed=[];
+  for(const [signal,pattern] of rules){
+    const old=pattern.test(before),next=pattern.test(after);
+    if(old&&next) retained.push(signal);
+    else if(next) introduced.push(signal);
+    else if(old) removed.push(signal);
+  }
+  return {inspected:true,retained,introduced,removed};
+}
 /** Conservative AST guard for export contracts modified without any import change. */
 export function semanticContractSignals(path,before,after) {
   if(!/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path) || before===after) return [];
