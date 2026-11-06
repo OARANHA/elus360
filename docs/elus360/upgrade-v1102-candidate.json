@@ -1,0 +1,47 @@
+{
+  "status": "INTEGRATED_CODE_UNVALIDATED",
+  "base_tag": "v1.94.0",
+  "base_commit": "ba24d4d366b7caf056b88553e0ed434cb0fb46de",
+  "target_tag": "v1.102.0",
+  "target_commit": "4b5815721710c9b1e99078322593838fda1ee740",
+  "fork_main": "749aaf8fbb25b46dddd9138219e2ac032cc83336",
+  "initial_candidate_commit": "b41a9647106e9ae0801c586dc54232897836fc10",
+  "upstream_only_applied": 2150,
+  "fork_only_preserved": 67,
+  "auto_merged": 13,
+  "already_equivalent": 0,
+  "merged_paths": [
+    ".env.example",
+    "app/actions/onboarding/acceptWelcome.ts",
+    "app/api/v1/ai/credentials/route.ts",
+    "app/api/v1/ai/providers/route.ts",
+    "app/app/ai/agents/[id]/_components/AgentForm.tsx",
+    "app/app/ai/agents/[id]/_components/AgentTabs.tsx",
+    "app/app/ai/agents/[id]/_components/VersionDiff.tsx",
+    "lib/agent-engine/edge/llm/credentials.ts",
+    "lib/agent-engine/edge/llm/providers.ts",
+    "lib/agent-engine/env.ts",
+    "lib/ai/credenciais/guardar.ts",
+    "lib/ai/runtime/agent.ts",
+    "lib/env.ts"
+  ],
+  "unresolved": [
+    "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
+    "app/api/v1/ai/agents/[id]/versions/route.ts",
+    "app/api/v1/ai/agents/route.ts",
+    "app/api/v1/cron/sync-model-catalog/route.ts",
+    "app/app/ai/agents/[id]/_actions.ts",
+    "app/app/ai/agents/[id]/page.tsx",
+    "app/app/ai/agents/new/page.tsx",
+    "lib/ai/credenciais/login-codex.ts",
+    "lib/ai/provider-validators.ts",
+    "lib/audit/actions.ts",
+    "supabase/baseline.sql"
+  ],
+  "upstream_workflows_pending_review": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/e2e.yml"
+  ],
+  "production_changed": false,
+  "tests": "PENDING"
+}

@@ -58,10 +58,12 @@ import { entradaDoInboxDeclarada } from "@/lib/leads/entrada-do-inbox";
 import { logger } from "@/lib/logger";
 import { ORIGEM_DO_WHATSAPP } from "@/lib/channels/origem-do-negocio";
 
-import { lerClientePelaAgenda } from "@/lib/contacts/cliente-pela-agenda";
+import { lerRegrasDeCliente } from "@/lib/contacts/regras-de-cliente";
 import { ehContatoInterno, lerTagsInternas } from "@/lib/contacts/tags-internas";
+import { ehContatoDaEquipe, lerTagsDaEquipe } from "@/lib/contacts/tags-da-equipe";
 import { ehIdentificadorTecnico, rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
 
+import { decidirPelaVenda, lerVendaAnterior } from "./cliente-pela-venda";
 import { emitLeadActivity } from "./activity-emitter";
 import { removerProvaMetaLeadSubmitted } from "./prova-meta-lead-submitted";
 
@@ -112,8 +114,10 @@ export type MotivoSemLead =
   | "contato_bloqueado" // pediu para sair; criar oportunidade seria desrespeito registrado
   | "contato_pessoal" // marcado como pessoal (spec 21): não é oportunidade, nunca nasce
   | "contato_interno" // #2353: equipe/sócio/família/fornecedor — tag interna, não é negócio
+  | "contato_da_equipe" // #3534: equipe que CONTINUA sendo atendida — não é captação
   | "sem_funil_de_entrada" // a organização não tem funil padrão — falha de configuração, visível
   | "sem_etapa" // o funil existe e não tem etapa utilizável
+  | "pos_venda" // #3644: comprou dentro da janela de pós-venda — a conversa não é demanda
   | "erro"; // qualquer falha de escrita
 
 export type NascimentoDoLead =
@@ -252,9 +256,12 @@ export async function funilDeEntrada(
    *
    * O destino é declarado por `crm_pipelines.is_client_pipeline`, irmão
    * exclusivo de `is_default` — nenhum NOME de funil aparece aqui, que é a
-   * mesma regra do cabeçalho deste arquivo. E só vale com
-   * `settings.crm.cliente_pela_agenda` ligado: quem decide isso é o chamador,
-   * que só passa `true` com a regra ligada.
+   * mesma regra do cabeçalho deste arquivo. E só vale quando o chamador diz que
+   * a pessoa é cliente: quem passa `true` é `garantirLeadDaConversa`, com a
+   * regra da agenda (`settings.crm.cliente_pela_agenda`, migration 0262) OU a
+   * da venda (`settings.crm.cliente_pela_venda`, #3644) ligada. Este arquivo não
+   * lê chave nenhuma — são duas regras, e quem sabe qual delas vale é quem tem
+   * o contato na mão.
    *
    * ⚠️ TODA FALHA CAI NO FUNIL DE ENTRADA, e isso é o desenho, não descuido.
    * Sem funil de clientes marcado (o estado de toda instalação nova), ou com um
@@ -386,6 +393,15 @@ export async function garantirLeadDaConversa(
     const tagsInternas = await lerTagsInternas(db, organizationId);
     if (ehContatoInterno(tagsDoContato, tagsInternas))
       return { criado: false, motivo: "contato_interno" };
+    // 1c · #3534 · contato da EQUIPE (lista separada: `team_contact_tags`)
+    // também não vira card — o sócio que testa o agente não é oportunidade de
+    // captação. A DIFERENÇA para o interno é o que acontece depois: aqui a IA
+    // atende e a conversa segue o turno normal; lá a IA é vetada. Mesma leitura
+    // condicional do bloco acima (só quem tem etiqueta paga a consulta) e o
+    // mesmo fail-open: falha de leitura → lista vazia → o card nasce.
+    const tagsDaEquipe = await lerTagsDaEquipe(db, organizationId);
+    if (ehContatoDaEquipe(tagsDoContato, tagsDaEquipe))
+      return { criado: false, motivo: "contato_da_equipe" };
   }
 
   // 2 · já existe demanda aberta?
@@ -403,19 +419,54 @@ export async function garantirLeadDaConversa(
   // 3 · onde entra
   //
   // Cliente que volta a escrever não é captação: ele tem histórico, e o funil de
-  // entrada existe para medir quem é novo. Quem decide é `first_service_at` (a
-  // COLUNA, carimbada pelo agendamento), nunca a tag `cliente` — a tag é
-  // removível à mão e pelo PATCH de contatos, e âncora removível faria alguém
-  // voltar a ser lead por descuido de quem editou etiquetas.
+  // entrada existe para medir quem é novo. Duas coisas fazem alguém ser cliente:
   //
-  // ⚠️ E SÓ COM A REGRA LIGADA NA ORGANIZAÇÃO (migration 0262). Desligada, a
-  // coluna fica congelada no que era quando a regra estava ligada, e rotear por
-  // ela seria decidir o funil com um fato vencido. A leitura do interruptor só
-  // acontece quando o contato TEM a data — o caso comum (contato sem data) não
-  // paga consulta a mais — e falha de leitura cai no funil de entrada, que é a
-  // regra que o cabeçalho deste arquivo já declara.
+  //   a) `first_service_at` (a COLUNA, carimbada pelo agendamento), e só com a
+  //      regra `settings.crm.cliente_pela_agenda` ligada (migration 0262).
+  //      Desligada, a coluna fica congelada no que era quando a regra estava
+  //      ligada, e rotear por ela seria decidir o funil com um fato vencido.
+  //   b) TER COMPRADO — negócio `won` e nenhum aberto (o aberto já saiu no passo
+  //      2) —, com `settings.crm.cliente_pela_venda` ligada (#3644). É o caso que
+  //      faltava: quem comprou sem nunca agendar nada tem a coluna nula e caía no
+  //      funil de captação, como lead frio.
+  //
+  // Nunca a tag `cliente`: ela é removível à mão e pelo PATCH de contatos, e
+  // âncora removível faria alguém voltar a ser lead por descuido de quem editou
+  // etiquetas.
+  //
+  // ⚠️ AS TRÊS CHAVES DE `settings.crm` SÃO LIDAS DE UMA VEZ. Uma consulta por
+  // chave seriam três `select` na mesma linha de `organizations`, no caminho
+  // quente da ingestão. E a leitura da VENDA só acontece com a chave ligada.
+  // A leitura das regras, porém, roda em todo nascimento de card, com a opção
+  // desligada também: antes, o contato sem `first_service_at` não lia
+  // `organizations` aqui; agora lê uma vez. É uma consulta por card que nasce
+  // (o passo 2 já saiu quando há demanda aberta), não por mensagem.
+  const regras = await lerRegrasDeCliente(db, organizationId);
+  const venda = regras.pelaVenda ? await lerVendaAnterior(db, organizationId, contactId) : null;
+  const pelaVenda = decidirPelaVenda({
+    pelaVenda: regras.pelaVenda,
+    posVendaDias: regras.posVendaDias,
+    venda,
+  });
+
+  // 3b · pós-venda: quem comprou ontem e escreve hoje não abre demanda nova — é
+  // o "chegou certinho?". Sem isso, a janela de `pos_venda_dias` prometeria na
+  // tela o que o nascimento ignoraria. Só vale COM a chave ligada (o `decidir`
+  // já devolve `posVenda: false` desligada).
+  if (pelaVenda.posVenda) {
+    logger.info("[nascimento-do-lead] pós-venda: a conversa não abre negócio", {
+      organization_id: organizationId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      venda_anterior_id: venda?.leadId,
+      dias_desde_a_venda: pelaVenda.diasDesdeAVenda,
+      pos_venda_dias: regras.posVendaDias,
+    });
+    return { criado: false, motivo: "pos_venda", detalhe: pelaVenda.motivo ?? undefined };
+  }
+
   const ehCliente =
-    contato?.first_service_at != null && (await lerClientePelaAgenda(db, organizationId));
+    (contato?.first_service_at != null && regras.pelaAgenda) || pelaVenda.cliente;
   // A CAMPANHA ganha do padrão quando declara funil (migration 0378): é a
   // escolha mais específica, e quem montou a campanha sabe onde quer medir o
   // resultado dela. Campanha sem funil declarado, ou conversa que não nasceu de
@@ -544,9 +595,22 @@ export async function garantirLeadDaConversa(
     // A timeline é o ÚNICO lugar onde quem abre o card descobre por que ele
     // nasceu naquele funil. Sem esta distinção, o cliente antigo aparece num
     // quadro diferente do resto sem explicação nenhuma, e quem vê conclui que
-    // alguém arrastou.
-    reason: ehCliente ? "cliente conhecido voltou a escrever" : origem.motivo,
-    payload: { conversation_id: conversationId, cliente: ehCliente },
+    // alguém arrastou. Com a venda (#3644) o texto diz mais: há quanto tempo foi
+    // a compra, em que funil e por quanto — o vendedor sabe que é recompra mesmo
+    // quando o card caiu no funil padrão por falta de um funil de clientes.
+    reason:
+      pelaVenda.cliente && pelaVenda.motivo
+        ? pelaVenda.motivo
+        : ehCliente
+          ? "cliente conhecido voltou a escrever"
+          : origem.motivo,
+    payload: {
+      conversation_id: conversationId,
+      cliente: ehCliente,
+      // Só com a venda como fundamento: sem ela, o campo seria uma referência
+      // falsa para uma "venda anterior" que não é a razão desta classificação.
+      ...(pelaVenda.cliente && venda ? { venda_anterior_id: venda.leadId } : {}),
+    },
   });
   if (!registro.ok) {
     // O lead existe e é o que importa; a linha da timeline falhou. Devolver erro
