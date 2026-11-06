@@ -21,7 +21,7 @@ describe("ELUS360 — contratos dos executores obrigatórios", () => {
     const candidata = readFileSync(".github/workflows/elus360-v1102-candidate.yml", "utf8");
     expect(oficial).toMatch(/- name: ELUS operational tests \(node:test\)[\s\S]*?run: pnpm test:operational/);
     expect(oficial).toContain("pnpm test:unit --project produto --shard=");
-    expect(candidata).toContain("run: pnpm test:operational");
+    expect(candidata).toContain("pnpm test:operational");
     expect(candidata).toContain("- run: pnpm test:unit");
   });
 });

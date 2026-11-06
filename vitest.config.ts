@@ -62,7 +62,7 @@ export default defineConfig({
       },
       {
         extends: true,
-        test: { name: "produto", exclude: CERCAS },
+        test: { name: "produto", exclude: [...CERCAS, "tests/operational/**"] },
       },
     ],
   },

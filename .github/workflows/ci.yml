@@ -280,15 +280,15 @@ jobs:
       # minutos. Rodam UMA vez: o passo de unit abaixo pula o projeto `cercas`.
       # Seleção e medições: o bloco `projects` de vitest.config.ts.
       # Na parte 7, junto do kit bash: o porquê e a conta estão no cabeçalho do job.
-      - name: Cercas estruturais
-        if: matrix.parte == 7
-        run: pnpm cercas
-
-      # Provas operacionais ELUS em node:test: não são suítes Vitest.
-      # O runner é obrigatório no check oficial, além da candidata ELUS360.
+      # node:test é executado ANTES das cercas para não ser pulado quando
+      # uma cerca reprova; os dois gates devem entregar evidência independente.
       - name: ELUS operational tests (node:test)
         if: matrix.parte == 7
         run: pnpm test:operational
+
+      - name: Cercas estruturais
+        if: matrix.parte == 7
+        run: pnpm cercas
 
       - name: Typecheck
         if: matrix.parte == 1
