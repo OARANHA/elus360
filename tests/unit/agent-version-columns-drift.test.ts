@@ -147,6 +147,21 @@ const INSERT_SUPABASE = /\.from\("ai_agent_versions"\)\s*\.insert\(/;
 /** Jeito 2 de gravar versão: SQL puro no caminho transacional em pg. */
 const INSERT_SQL = /insert\s+into\s+ai_agent_versions\s*\(/i;
 
+// Portas ELUS360 não usam INSERT direto: a RPC aplica o lock de grants e
+// a criação numa única transação. Mantemos estas portas na descoberta, exigindo
+// o nome do RPC, seu payload de versão e a pré-validação do schema.
+const RPC_DE_VERSAO: Record<string, { rpc: string; payload: string; schema: string }> = {
+  "app/api/v1/ai/agents/route.ts": {
+    rpc: "fn_elus_ai_agent_create_guarded", payload: "p_version: { ...records.version", schema: "agentMcpCreateSchema.safeParse",
+  },
+  "app/api/v1/ai/agents/[id]/versions/route.ts": {
+    rpc: "fn_elus_ai_version_create_guarded", payload: "p_version:", schema: "versionCreateSchema.safeParse",
+  },
+  "app/app/ai/agents/[id]/_actions.ts": {
+    rpc: "fn_elus_ai_draft_save_guarded", payload: "p_version_payload:", schema: "versionCreateSchema.safeParse",
+  },
+};
+
 type Fonte = { rel: string; source: string };
 
 let cacheDeFontes: Fonte[] | null = null;
@@ -225,7 +240,7 @@ function corpoDaPropriedade(source: string, nome: string): string {
  */
 function arquivosQueGravamVersao(): string[] {
   return fontesDeCodigo()
-    .filter((f) => INSERT_SUPABASE.test(f.source) || INSERT_SQL.test(f.source))
+    .filter((f) => INSERT_SUPABASE.test(f.source) || INSERT_SQL.test(f.source) || f.rel in RPC_DE_VERSAO)
     .map((f) => f.rel)
     .sort();
 }
@@ -426,6 +441,15 @@ describe("todo INSERT de versão leva todas as chaves de versionShapeSchema", ()
     for (const file of arquivosQueGravamVersao()) {
       if (file in INSERTS_FORA_DA_COBRANCA) continue;
       const source = fonte(file);
+      const guarded = RPC_DE_VERSAO[file];
+      if (guarded) {
+        expect(source, `${file} perdeu a RPC transacional`).toContain(guarded.rpc);
+        expect(source, `${file} perdeu o payload de versão`).toContain(guarded.payload);
+        expect(source, `${file} perdeu a validação de schema`).toContain(guarded.schema);
+        expect(INSERT_SUPABASE.test(source), `${file} reintroduziu INSERT direto`).toBe(false);
+        expect(INSERT_SQL.test(source), `${file} reintroduziu INSERT SQL direto`).toBe(false);
+        continue;
+      }
       // SQL puro a cerca não lê: ou o caminho é justificado na allowlist, ou o
       // INSERT passa a ser objeto e entra na cobrança de chaves.
       expect(
@@ -469,7 +493,6 @@ describe("PATCH /versions/:vid grava toda chave que o schema aceita", () => {
    */
   const PATCH_SEM_GRAVACAO: Record<string, string> = {
     operator_enabled: "papel Operador (spec 16): a tela grava por saveAgentDraftAction; o PATCH nunca gravou",
-    operator_model: "idem operator_enabled",
     operator_tool_ids: "idem operator_enabled",
   };
 
