@@ -22,7 +22,12 @@ test("baseline preserva migration integral e única no apêndice final", () => {
   assert.equal(baseline.split(marker).length - 1, 1);
   const pos = baseline.lastIndexOf(marker);
   assert.ok(pos > 3_000_000, "baseline parece truncado ou substituído");
-  assert.equal(baseline.slice(pos + marker.length), migration);
+  const scan = baseline.indexOf("-- ---- VARREDURA anon:", pos);
+  assert.ok(scan > pos, "varredura de ACL deve ser executada APÓS as funções ELUS");
+  assert.equal(baseline.slice(pos + marker.length, scan), migration);
+  assert.equal(baseline.split("-- ---- VARREDURA anon:").length - 1, 1);
+  assert.doesNotMatch(baseline.slice(scan), /^\s*create\s+(?:or\s+replace\s+)?function/gim);
+  assert.doesNotMatch(baseline.slice(scan), /^\s*grant\s+[^;]*\bto\b[^;]*\banon\b/gim);
   assert.match(baseline.slice(0, pos), /create table if not exists "public"\."organizations"/i);
 });
 
