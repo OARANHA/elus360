@@ -51,10 +51,20 @@ jobs:
           cache: "pnpm"
       - name: Dependências verificadas pelo lockfile
         run: pnpm install --frozen-lockfile
-      - name: TypeScript global
-        env:
-          NODE_OPTIONS: "--max-old-space-size=6144"
-        run: pnpm typecheck
+      - name: TypeScript global - all source and tests, 16 GiB public runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          free -h
+          total_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+          echo "runner_memtotal_kib=$total_kb"
+          if (( total_kb < 14680064 )); then
+            echo "ERROR: insufficient runner memory for full 12 GiB TypeScript heap" >&2
+            exit 1
+          fi
+          ulimit -c 0
+          export NODE_OPTIONS="--max-old-space-size=12288"
+          pnpm exec tsc --noEmit -p tsconfig.typecheck.json --extendedDiagnostics
       - name: Governança IA — testes unitários e de handlers
         run: >-
           pnpm exec vitest run
