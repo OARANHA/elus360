@@ -12,6 +12,11 @@ import { PROVEDOR_POR_ID } from "@/lib/ai/pontos/provedores";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Modelo = { provider: string; model_id: string; display_name: string };
+
+// Rótulo de modelo (não de contato): mantém o fallback local ao catálogo.
+function rotuloDeModelo(m: Modelo): string {
+  return m.display_name || m.model_id;
+}
 type Credencial = { id: string; provider: string; label: string; api_key_last4: string; is_active: boolean; validated_at: string | null; models_available: string[] };
 type Dados = {
   organization_name: string;
@@ -98,7 +103,7 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
             {modelos.length && (!model || modelos.some((m) => m.model_id === model)) ?
               <Select value={model || undefined} disabled={bloqueado} onValueChange={setModel}>
                 <SelectTrigger id="elus-padrao-model"><SelectValue placeholder={t("Escolha o modelo")}/></SelectTrigger>
-                <SelectContent>{modelos.map((m) => <SelectItem key={m.model_id} value={m.model_id}>{m.display_name || m.model_id}</SelectItem>)}</SelectContent>
+                <SelectContent>{modelos.map((m) => <SelectItem key={m.model_id} value={m.model_id}>{rotuloDeModelo(m)}</SelectItem>)}</SelectContent>
               </Select> : <Input id="elus-padrao-model" value={model} onChange={(e) => setModel(e.target.value)} disabled={bloqueado} maxLength={120} placeholder={t("Identificador exato do modelo")}/>}
           </div>
         </div>
