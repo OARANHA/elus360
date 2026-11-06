@@ -16,7 +16,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { buildContext } from "@/lib/automation/engine";
 import type { EventRow } from "@/lib/event-log/dispatcher";
 import {
-  GOV_LEAD, GOV_ORG, GOV_VIEWER, seedGov, sql,
+  GOV_CONTACT_1, GOV_LEAD, GOV_ORG, GOV_VIEWER, seedGov, sql,
 } from "./gov-helpers";
 import {
   comoAnon, comoUsuario, criarOrg, criarUsuarios, erroDe, numero, uuid, valor, vincular,
@@ -116,15 +116,43 @@ describe("Gate 9 — chamada RPC vs autorização de organização", () => {
     )).toBe("t");
   });
 
-  it("baseline contém redefinição posterior de emit_event: origem opcional, não valida entidade", () => {
-    // Migration 0279 sucede 0223: lookup tenant-scoped enriquece service_origin,
-    // mas evento continua permitido sem entidade encontrada.
+  it("baseline: emit_event usa auxiliar tenant-scoped sem tornar enriquecimento autorizacao", () => {
+    // Fonte FINAL: 0551 introduziu fn_service_event_contact, 0670 incluiu
+    // contact.phone_added e 0743 incluiu lead.date_field_due.
+    // Emissao e enriquecimento opcional sao contratos separados.
     const body = sql("select pg_get_functiondef('" + EMIT + "'::regprocedure);");
     expect(body).toContain("fn_role_at_least(v_org_id, 'viewer')");
-    expect(body).toContain("select contact_id into v_contact from public.crm_leads");
-    expect(body).toContain("where organization_id=v_org_id and id=p_entity_id");
+    expect(body).toMatch(/select\s+f\.contact_id\s+into\s+v_contact\s+from\s+public\.fn_service_event_contact\s*\(v_org_id,\s*p_event_type,\s*p_entity_kind,\s*p_entity_id\)\s*f/i);
+    expect(body).toContain("if v_contact is not null");
+    expect(body).toContain("where organization_id=v_org_id and id=v_contact");
     expect(body).toContain("insert into public.event_log");
     expect(body).toContain("jsonb_build_object('emitted_at', extract(epoch from now()))");
+
+    const helper = "public.fn_service_event_contact(uuid, text, text, uuid)";
+    const helperBody = sql("select pg_get_functiondef('" + helper + "'::regprocedure);");
+    expect(helperBody).toMatch(/returns\s+table\s*\(contact_id\s+uuid,\s*suportado\s+boolean\)/i);
+    expect(helperBody).toMatch(/from\s+public\.crm_leads\s+l\s+where\s+l\.organization_id\s*=\s*p_org\s+and\s+l\.id\s*=\s*p_entity_id/i);
+    expect(helperBody).toMatch(/from\s+public\.contacts\s+c\s+where\s+c\.organization_id\s*=\s*p_org\s+and\s+c\.id\s*=\s*p_entity_id/i);
+    expect(helperBody).toMatch(/from\s+public\.calendar_appointments\s+a\s+where\s+a\.organization_id\s*=\s*p_org\s+and\s+a\.id\s*=\s*p_entity_id/i);
+    expect(helperBody).toContain("return query select null::uuid,false");
+
+    // Execucao REAL no mesmo PostgreSQL descartavel: existe, cruza tenant
+    // e par nao suportado. Sem efeitos e sem enfraquecer os 4 diagnosticos.
+    const resolve = (org: string, type: string, kind: string, entity: string) =>
+      JSON.parse(valor(
+        "select jsonb_build_object('contact_id',f.contact_id,'suportado',f.suportado)::text " +
+        "from public.fn_service_event_contact('" + org + "'::uuid,'" + type + "','" +
+        kind + "','" + entity + "'::uuid) f;"
+      )) as { contact_id: string | null; suportado: boolean };
+
+    expect(resolve(GOV_ORG, "contact.tag_added", "contact", GOV_CONTACT_1))
+      .toEqual({ contact_id: GOV_CONTACT_1, suportado: true });
+    expect(resolve(B, "contact.tag_added", "contact", GOV_CONTACT_1))
+      .toEqual({ contact_id: null, suportado: true });
+    expect(resolve(GOV_ORG, "lead.evento_inexistente", "crm_lead", GOV_LEAD))
+      .toEqual({ contact_id: null, suportado: false });
+    // 'suportado=true' com entity null nao impede o INSERT do emit_event.
+    // A ausencia de vinculo entidade-org permanece NO-GO.
   });
 
   it("viewer autenticado em A emite evento do lead de A (comportamento vigente, não aprovação)", () => {
