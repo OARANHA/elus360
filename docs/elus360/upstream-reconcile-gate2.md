@@ -487,3 +487,51 @@ Foram publicados cinco testes adversariais em `tests/operational/elus-upstream-r
 **Estado:** implementado em branch da PR #20, sem declarar execução/testes GREEN do novo HEAD antes da CI correspondente. A instrumentação não prova equivalência semântica; candidatos com indícios legítimos ou falsos positivos permanecem bloqueados. Pendente leitura do artefato novo para medir efetivamente cobertura de AST, distinguir bloqueios contextuais e preparar recomendações **somente de revisão**, nunca patches automáticos. Hindsight `Elus360` respondeu `UNAVAILABLE` em `recall` e KB nesta rodada; checkpoint versionado preserva a continuidade até nova sincronização.
 
 **Restrições:** PR Draft, sem `prepare`, merge, deploy, publicação de imagem, alteração de schema/banco ou incorporação da v1.95.0.
+
+## Gate 4 — Precisao dos bloqueios sem alteracao de permissao (06/11/2026 UTC)
+
+### Resultado do Gate 3 comprovado, sem presumir compatibilidade funcional
+
+O GitHub confirmou a execução [42145457189](https://github.com/OARANHA/elus360/actions/runs/42145457189) no HEAD `e740d9c759bcc80ccee4f1333c0062fe23c02108`, com os jobs `contrato-upstream` e `Ensaio oficial de reconcile plan (read-only)` concluídos em sucesso. O artefato `elus360-official-reconcile-plan` (ID `13469499340`) foi baixado e o conteúdo de `SHA256SUMS` foi confrontado com o SHA-256 de `plan.json`, `matrix-787.csv`, `ast-coverage-354.json`, `summary.md` e `provenance.txt`: todos corresponderam.
+
+O plano real examinou 787 alterações e manteve 235 protegidas, 545 em revisão contratual, sete conflitos e **zero `safe_to_prepare`**. Para os 354 candidatos preliminares: 353 análises estáticas de contrato concluídas, uma inconclusiva; 3.194 fontes no grafo, `executed:true`, `complete:false`, uma dependência computada não resolvida. Do total, 125 candidatos estão no grafo do fork, 76 têm consumidores protegidos, 101 possuem imports protegidos retidos, 48 introduziram imports protegidos e 125 estavam associados a alguma alteração insegura na componente conexa. Essas classes se sobrepõem.
+
+### 229 ausências no grafo — diagnóstico individual por identidade Git
+
+As árvores Git completas da base oficial, target e fork foram comparadas novamente pelo conteúdo de `git/trees/<sha>?recursive=1`, `truncated=false`. Os 229 ausentes são:
+
+| Causa comprovada | Arquivos | Tratamento |
+| --- | ---: | --- |
+| Arquivos `*.test.ts[x]` existentes no fork | **100** | Excluídos deliberadamente do grafo de produção; continuam sujeitos a revisão de testes |
+| Testes criados apenas pelo upstream target | **84** | Não existem no fork; o grafo não poderia enxergá-los |
+| Módulos de produção criados apenas no target | **45** | Exigem inspeção AST do próprio target, novas importações e contratos antes de qualquer integração |
+| Fontes existentes omitidas por configuração de escopo | **0** | Nenhum caso identificado entre os 229 |
+| **Total** | **229** | Não é um conjunto de 229 erros do resolvedor TypeScript |
+
+Os 45 módulos de produção estão em `app/`, `components/` e `lib/`, incluindo superfícies de atendimentos, templates, contatos, canais, financeiro e mensageria. A inexistência desses módulos no fork não prova que a integração seja fácil: seu conteúdo upstream é inspecionado quanto a sinais de contrato e imports protegidos, enquanto suas relações completas na árvore *target* ainda demandam validação própria. O relatório novo distingue explicitamente `existing_test_excluded`, `new_upstream_test_excluded` e `new_upstream_source_not_in_fork`.
+
+### Diagnóstico de falso positivo potencial na regra de lote
+
+No artefato do Gate 3, **todos os 125 candidatos presentes no grafo tinham exatamente 265 arquivos associados por `unsafe_changed_dependency_chain`**. A implementação original de `changedRiskCouplings` conecta arestas nos dois sentidos e agrupa todas as mudanças inseguras da mesma componente conexa. Essa aproximação detecta riscos distribuídos, porém não distingue alterações diretas de conexões longínquas; a lista uniforme não prova 265 efeitos reais em cada candidato.
+
+Adicionada `nearestUnsafeRiskEvidence` (somente diagnóstico) para medir distância mínima e direção da primeira aresta entre cada candidato e um arquivo de **revisão dura** (protegido, contrato sensível ou conflito, mas excluindo os 354 candidatos ordinários bloqueados por sinais). Publica distância `direct` / `two_hops` / `indirect_three_or_more` / `no_static_path`, vizinhos diretos e amostras limitadas das cadeias. **A função `changedRiskCouplings` e o bloqueio `unsafe_changed_dependency_chain` não foram relaxados**; mesmo conexão distante continua bloqueada no classificador atual.
+
+### Análise de precisão de 171 inicializações e 156 exportações
+
+Criado `scripts/elus-upstream-precision-diagnostics.mjs`, que usa o parser TypeScript somente sobre textos de código de versões anterior e nova. O relatório distingue:
+
+- Declaração exportada cuja forma tipada efetiva mudou; forma declarada estável com corpo ou inicializador alterado; assinatura inferida ou construção não modelada; e exportação não modificada com comportamento interno ainda não verificado.
+- Expressões de inicialização executadas em nível de módulo versus chamadas presentes apenas dentro de funções/closures adiadas; sintaxe incerta envolvendo classes e importações permanece **não resolvida**.
+- Diferenças sintáticas normalizadas contra diferenças de código textual, como evidência de triagem, sem atribuir equivalência comportamental.
+
+Os resultados novos agrupam a natureza dos 171 e 156 sinais anteriores, mas **não são contagens novas ainda verificadas por CI**. A análise não executa o código, não usa TypeChecker completo e não prova equivalência de efeitos assíncronos, imports, getters, side effects, tipagem inferida ou mutações de banco. Declarações com forma idêntica podem executar comportamentos diferentes.
+
+### Matriz para revisão humana e novos testes de precisão
+
+O `reconcile plan` inclui agora `candidate_analysis.review_bucket` para separar `potential_compatibility_manual_review` (sem novos indicadores prioritários e com AST analisável) de `requires_targeted_contract_review`. Ambos são **indicadores de prioridade de revisão humana**: o campo `authorization` é sempre `none`, nunca altera `status`, não faz `prepare` e nunca autoriza merge. Bloqueios em código de segurança, testes, imports novos protegidos, exportações de forma alterada, inicialização imediata e conteúdo não analisável continuam sinalizados.
+
+O workflow publica, como artefatos read-only, `plan.json`, `ast-coverage-354.json`, `matrix-787.csv` detalhada, `manual-compatibility-review.json`, resumo, proveniência e SHA-256. O job exige 787 caminhos, 354 candidatos preliminares, 125 presentes no grafo, 100 testes anteriores excluídos, 84 novos testes excluídos, 45 módulos novos, cobertura dos 171/156 sinais de inicialização/exportação e soma de 354 grupos de revisão, além da regra `complete!==true` → zero `safe_to_prepare`.
+
+Novos casos adversariais publicados (além dos 60 testes operacionais anteriormente GREEN): assinatura exportada alterada versus corpo alterado com assinatura declarada estável, execução imediata versus closure adiada, dependência direta versus três saltos e risco isolado, criação de módulo versus novo teste excluído, e manutenção do status de revisão quando mudanças de contrato permanecem.
+
+**Status:** alterações presentes na branch Draft da PR #20, sem resultado da CI do novo HEAD confirmado neste checkpoint. Não afirmar segurança funcional, equivalência semântica, `safe_to_prepare` ou regressão aprovada até conferir a nova execução. Hindsight `Elus360` havia retornado `UNAVAILABLE`; checkpoint está na documentação Git versionada, com sincronização de memória pendente. Sem merge, deploy, banco, imagens ou incorporação da release upstream.
