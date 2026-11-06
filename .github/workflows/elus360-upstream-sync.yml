@@ -10,10 +10,13 @@ on:
       - "scripts/elus-upstream-contract-risk.mjs"
       - "scripts/elus-upstream-dependency-risk.mjs"
       - "scripts/elus-upstream-precision-diagnostics.mjs"
+      - "scripts/elus-upstream-gate5-evidence.mjs"
       - "scripts/elus-upstream-real-tree-benchmark.mjs"
       - "docs/elus360/upstream-reconcile-gate2.md"
       - "tests/operational/elus-upstream-prepare.test.mjs"
       - "tests/operational/elus-upstream-reconcile.test.mjs"
+      - "tests/operational/elus-upstream-gate5.test.mjs"
+      - "docs/elus360/upstream-gate5-review.md"
       - ".github/workflows/elus360-upstream-sync.yml"
   workflow_dispatch:
 
@@ -41,11 +44,13 @@ jobs:
           node --check scripts/elus-upstream-contract-risk.mjs
           node --check scripts/elus-upstream-dependency-risk.mjs
           node --check scripts/elus-upstream-precision-diagnostics.mjs
+          node --check scripts/elus-upstream-gate5-evidence.mjs
           node --check scripts/elus-upstream-real-tree-benchmark.mjs
       - name: Gates sem rede externa, banco ou Docker
         run: |
           node --test tests/operational/elus-upstream-prepare.test.mjs
           node --test tests/operational/elus-upstream-reconcile.test.mjs
+          node --test tests/operational/elus-upstream-gate5.test.mjs
       - name: Benchmark AST de arvore real (read-only)
         run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
 
@@ -293,6 +298,86 @@ jobs:
           test -z "$(git -C "$scratch/repo" status --porcelain)"
           ( cd "$scratch/evidence" && sha256sum plan.json matrix-787.csv ast-coverage-354.json manual-compatibility-review.json summary.md provenance.txt > SHA256SUMS )
           echo "Ensaio read-only e evidencias geradas no runner temporario"
+      - name: Gate 5 - grafo AST do target e comparacao triadica dos 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$(dirname "$ARTIFACT_DIR")"
+          (
+            cd "$scratch/repo"
+            node "$GITHUB_WORKSPACE/scripts/elus-upstream-gate5-evidence.mjs" \
+              --base "$BASE_SHA" --target "$TARGET_SHA" --fork "$FORK_SHA" \
+              --plan "$ARTIFACT_DIR/plan.json"
+          ) > "$ARTIFACT_DIR/gate5-evidence.json"
+          node --input-type=module - "$ARTIFACT_DIR/gate5-evidence.json" "$ARTIFACT_DIR" <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const r=JSON.parse(fs.readFileSync(process.argv[2],"utf8")),dir=process.argv[3];
+          if(r.mode!=="read_only"||r.authorization!=="none"||
+             r.target_graph?.summary?.new_production_modules!==45||
+             r.triad12?.count!==12) throw Error("GATE5_INCOMPLETE");
+          const newFiles=r.target_graph.modules,review=r.triad12.candidates;
+          if(newFiles.some(x=>x.approval!=="none"||!x.source_in_target||x.source_in_fork))
+            throw Error("NEW_MODULE_APPROVAL_VIOLATION");
+          if(review.some(x=>x.approval!=="none"||!x.fork_same_as_base||!x.diff))
+            throw Error("TRIAD12_APPROVAL_VIOLATION");
+          const report=[
+            "# Gate 5 - grafo AST da arvore target oficial",
+            "",
+            "Diagnostico somente leitura, nao e prova de compatibilidade funcional.",
+            "- Target: "+r.refs.target,
+            "- Novos modulos de producao: "+newFiles.length,
+            "- Fontes target examinadas: "+r.target_graph.target_graph.sources,
+            "- Target graph complete: "+String(r.target_graph.target_graph.complete),
+            "- Imports resolvidos: "+r.target_graph.target_graph.module_edges,
+            "- Imports inconclusivos: "+r.target_graph.target_graph.unresolved_count,
+            "- Novos modulos diretamente consumidos por superficie protegida: "+
+              r.target_graph.summary.directly_imported_by_protected,
+            "- Novos modulos transitivamente consumidos por superficie protegida: "+
+              r.target_graph.summary.transitively_imported_by_protected,
+            "- Novos modulos que importam superficies protegidas: "+
+              r.target_graph.summary.modules_importing_protected,
+            "",
+            "## Os 45 novos modulos (nao aprovados)",
+            "| Modulo | Imports | Consumidores | Protegidos transitivos | Checks obrigatorios |",
+            "| --- | ---: | ---: | ---: | --- |",
+            ...newFiles.map(x=>"| "+x.path+" | "+x.direct_import_count+" | "+
+              x.direct_consumer_count+" | "+x.transitive_protected_consumer_count+
+              " | "+x.required_checks.join(", ")+" |"),
+            "",
+            "**NENHUM modulo elegivel automaticamente.** Consulte gate5-evidence.json para as arestas e caminhos completos.",
+            ""
+          ].join("\n");
+          fs.writeFileSync(path.join(dir,"gate5-target-matrix.md"),report);
+          const fence=String.fromCharCode(96).repeat(3);
+          const triad=[
+            "# Gate 5 - diferencas triadicas dos 12 candidatos",
+            "",
+            "Fork igual a base nos 12 caminhos. As diferencas target sao reais e NAO autorizadas.",
+            "",
+            ...review.flatMap(x=>[
+              "## "+x.path,
+              "- Blobs: base="+x.oid.base+" target="+x.oid.target+" fork="+x.oid.fork,
+              "- Linhas adicionadas="+x.added_lines+", removidas="+x.removed_lines,
+              "- Estado real: "+x.actual_status+"; autorizacao="+x.approval,
+              "- Sinais: "+x.risk_signals.join(", "),
+              "- Testes: "+x.suggested_checks.join(", "),
+              "- Distancia ate risco duro: "+String(x.nearest_hard_risk?.nearest_distance??"nao identificada"),
+              "",
+              fence+"diff",x.diff,fence,""
+            ])
+          ].join("\n");
+          fs.writeFileSync(path.join(dir,"gate5-triad12.md"),triad);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,report.slice(0,16000));
+          console.log(JSON.stringify({gate:"gate5_read_only",
+            target_graph:r.target_graph.target_graph,
+            target_summary:r.target_graph.summary,
+            review12:review.length,approved:0}));
+          NODE
+          test -z "$(git -C "$scratch/repo" status --porcelain)"
+          (cd "$ARTIFACT_DIR" && sha256sum plan.json matrix-787.csv ast-coverage-354.json \
+            manual-compatibility-review.json summary.md provenance.txt \
+            gate5-evidence.json gate5-target-matrix.md gate5-triad12.md > SHA256SUMS)
       - name: Publicar plano real e matriz nominal como artefato
         if: always()
         uses: actions/upload-artifact@v4
