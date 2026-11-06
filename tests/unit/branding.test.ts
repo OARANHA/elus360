@@ -938,6 +938,14 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "endpoint da API da Anthropic (contagem de tokens e a prova de credencial da tela de configuração). Mesma razão: é o destino, não texto de interface.",
   },
+  "llm.chutes.ai": {
+    categoria: "FORNECEDOR",
+    motivo: "endpoint oficial Chutes.ai usado pelo runtime, catálogo e validação de credenciais; o host não representa marca da instalação.",
+  },
+  "chutes.ai": {
+    categoria: "CONSOLE",
+    motivo: "painel oficial Chutes.ai onde a organização obtém a chave; link apresentado na lista de provedores.",
+  },
   "openrouter.ai": {
     categoria: "FORNECEDOR",
     motivo:
