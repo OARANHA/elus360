@@ -204,6 +204,31 @@ export function transitiveProtectedDependents(changedPaths,sources,graph=depende
   }
   return result;
 }
+/** Conservative batch coupling: any unsafe changed source connected by a static
+ * dependency chain to a candidate requires review, in either import direction.
+ * This never establishes safety; unresolved imports are blocked separately.
+ */
+export function changedRiskCouplings(candidatePaths,unsafePaths,graph) {
+  const reverse=graph.reverse,adjacent=new Map();
+  for(const [dependency,consumers] of reverse) for(const consumer of consumers){
+    const a=adjacent.get(dependency)??new Set();a.add(consumer);adjacent.set(dependency,a);
+    const b=adjacent.get(consumer)??new Set();b.add(dependency);adjacent.set(consumer,b);
+  }
+  const risk=new Set(unsafePaths);
+  const results=new Map();
+  for(const candidate of candidatePaths){
+    const visited=new Set([candidate]),queue=[candidate],found=new Set();
+    for(let i=0;i<queue.length;i++) {
+      const node=queue[i];
+      if(risk.has(node)&&node!==candidate) found.add(node);
+      for(const next of adjacent.get(node)??[]) if(!visited.has(next)) {
+        visited.add(next);queue.push(next);
+      }
+    }
+    if(found.size) results.set(candidate,[...found].sort());
+  }
+  return results;
+}
 export function protectedConsumers(path,dependents) {return dependents.get(canonical(path))??[];}
 export function directProtectedDependents(changedPaths,sources) {
   const graph=dependencyGraph(sources),result=new Map();
