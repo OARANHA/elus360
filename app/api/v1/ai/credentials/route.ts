@@ -93,8 +93,9 @@ export async function POST(req: NextRequest): Promise<Response> {
       const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
       await requirePlatformAdminEscrita();
       platformBypass = true;
-    } catch {
-      return fail("forbidden_platform_ai", "Superadmin requer sessão full com MFA.", 403, { requestId });
+    } catch (e) {
+      const { falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      return falhaDaEscritaDePlatformAdmin(e, requestId);
     }
   }
 
