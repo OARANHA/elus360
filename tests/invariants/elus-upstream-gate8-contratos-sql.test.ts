@@ -202,10 +202,13 @@ describe("Gate 8 — evento, autorização e idempotência no banco", () => {
       "'::uuid,'{}'::jsonb,'{}'::jsonb,'" + B + "'::uuid)";
     // authenticated alcança o corpo SECURITY DEFINER, que recusa por vínculo;
     // anon nem tem EXECUTE e é negado antes do corpo (42501).
-    for (const [script, sqlState, marker] of [
+    const tentativas: ReadonlyArray<
+      readonly [script: string, sqlState: string, marcador: string]
+    > = [
       [comoUsuario(USER_A, stmt), "P0001", "caller_not_authorized_for_org"],
       [comoAnon(stmt), "42501", "permission denied"],
-    ]) {
+    ];
+    for (const [script, sqlState, marker] of tentativas) {
       const error = erroDe(script);
       expect(error).toContain(sqlState);
       expect(error).toContain(marker);
