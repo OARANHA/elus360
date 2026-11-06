@@ -29,6 +29,7 @@ O log TAP é publicado como `gate7-functional-compare.tap` no artefato `elus360-
 - Fork/base: blob `22354e3e992a117e11f44bb699a2562bfc2f7b39`.
 - Target: blob `45e507424de1e2bc581b0c9597d418c2f93f56a4`.
 - Diff preciso: antes `p_metadata: { caused_by_rule: ctx.ruleId }`; depois cria `metadata={}` e só inclui `caused_by_rule` quando `ctx.ruleId` é truthy.
+- **Limite da hipótese:** o contrato `ActionCtx.ruleId` é `string` obrigatório. O caso sem regra é robustez adversarial sob contexto incompleto, **não** fluxo normal comprovado do motor.
 - Comparações propostas: com regra presente, mesmo evento, `p_org`, `added_tags`, origem e foto; sem regra, o target omite a chave enquanto o fork mantém uma propriedade JavaScript cujo valor é `undefined` (**ambos serializam a metadata como `{}`**); duplicata não cria evento; id de outro tenant não recebe escrita nem evento; sabotagem em memória que remove a condição deve disparar o discriminador.
 - Aceite **ainda não executado**: concorrência real entre drenos no SQL `fn_lead_adicionar_etiquetas` / `fn_contato_adicionar_etiquetas`, idempotência de `emit_event`, replay, isolamento efetivo da função em banco descartável e passagem pelo runtime de automações. O teste de concorrência da base fica em `tests/invariants/add-tag-concorrente-nao-apaga.test.ts`.
 - Decisão: **REVIEW**. O comparador comprova apenas semântica isolada quando passar no CI, nunca autorização para integrar.
@@ -38,7 +39,7 @@ O log TAP é publicado como `gate7-functional-compare.tap` no artefato `elus360-
 - Fork/base: blob `905ae3d957027828389293cf1c624b045b14eefc`.
 - Target: blob `3606e150a22f4ab4ce7cc0cc20664431d9d0d788`.
 - Diff preciso: `admin.rpc("fn_cobranca_reconciliaveis")` passa a encadear `.order("relida_em", { ascending: false, nullsFirst: false }).limit(1)`.
-- Comparações propostas: conjunto desordenado e valores `NULL`, mesma maior leitura anterior e nova, uma só linha no target, suporte a conjunto vazio, erro de RPC continua lançando; sabotagem que remove a ordenação mantendo limite devolve data errada no dublê e deve ser detectada.
+- Comparações propostas: conjunto desordenado e valores `NULL`, mesma maior leitura anterior e nova, uma só linha no target, suporte a conjunto vazio, erro de RPC continua lançando; **1.001 linhas com teto PostgREST simulado de 1.000** distinguem o fork, que perde a maior `relida_em`, do target, que ordena antes de limitar; sabotagem que remove a ordenação mantendo limite devolve data errada no dublê e deve ser detectada. A hipótese das 1.001 linhas foi confrontada com o teste oficial novo `lib/cobranca/visao-geral-postgrest-limite.test.ts` (blob target `57b99b1f7fa3b3df8f2df3cc17b391cb5a31f604`), **não** executado no fork.
 - Aceite **ainda não executado**: provar a função `fn_cobranca_reconciliaveis` como retorno ordenável/limitável no PostgREST real, paridade do SQL, timezone, timestamps empatados, erro de provider, RBAC de painel e ausência de leaks. `limit(1)` exige prova de semântica em PostgreSQL descartável, não inferência pelo stub.
 - Decisão: **REVIEW**, sem `prepare`.
 

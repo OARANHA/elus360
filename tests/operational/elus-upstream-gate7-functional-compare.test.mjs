@@ -171,7 +171,9 @@ function billingBank(rows, rpcError = null) {
               return b.relida_em.localeCompare(a.relida_em);
             });
           }
-          if (entry.limit !== null) values = values.slice(0, entry.limit);
+          // PostgREST has a configured max-rows ceiling (1,000 in the pinned
+          // upstream regression). ORDER must execute before the row cap.
+          values = values.slice(0, entry.limit ?? 1000);
           entry.returned = values.length;
           return Promise.resolve({ data: values, error: rpcError }).then(onSuccess, onFailure);
         },
@@ -309,6 +311,19 @@ test("billing: equivalência do máximo relida_em para conjunto desordenado com 
   assert.equal(a.calls[0].returned, 4);
   assert.equal(b.calls[0].returned, 1);
   assert.equal(b.result.problemas.avisosRecusados, a.result.problemas.avisosRecusados);
+});
+
+test("billing: PostgREST trunca 1001 linhas; fork perde a maior, target preserva", async () => {
+  const rows = Array.from({ length: 1001 }, (_, i) => ({
+    relida_em: new Date(Date.UTC(2026, 9, 10, 8) + i * 60_000).toISOString(),
+  }));
+  const a = await billingScenario(gitFile("billing", "fork"), rows);
+  const b = await billingScenario(gitFile("billing", "target"), rows);
+  assert.equal(a.calls[0].returned, 1000);
+  assert.equal(a.result.ultimaLeituraEm, rows[999].relida_em);
+  assert.equal(b.calls[0].returned, 1);
+  assert.equal(b.result.ultimaLeituraEm, rows[1000].relida_em);
+  assert.notEqual(a.result.ultimaLeituraEm, b.result.ultimaLeituraEm);
 });
 
 test("billing: NULL-only e conjunto vazio continuam sem falsa última leitura", async () => {
