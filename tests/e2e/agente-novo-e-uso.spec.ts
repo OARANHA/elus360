@@ -58,7 +58,11 @@ test.describe("Criar um agente pela tela", () => {
     // Modelo/credencial podem vir PREENCHIDOS dos defaults da organização;
     // nesse caso exigir "Escolha..." seria testar a ausência do próprio default.
     await expect(page.getByText(/dê um nome para este agente/i).first()).toBeVisible();
-    await expect(page.getByText(/escreva as instruções do agente/i).first()).toBeVisible();
+    const prompt = page.locator('textarea[rows="12"]');
+    await expect(prompt).toBeVisible();
+    // O formulário recebe instruções PADRÃO válidas; ausência de aviso aqui
+    // é correta porque não falta texto. O teste ainda exige texto utilizável.
+    expect((await prompt.inputValue()).trim().length).toBeGreaterThanOrEqual(10);
     for (const [id, mensagem] of [
       ["model", /escolha o modelo/i],
       ["credential_id", /escolha a chave de acesso|esta instalação não tem chave/i],
@@ -97,12 +101,11 @@ test.describe("Criar um agente pela tela", () => {
     const nome = `Recepção da Clínica ${Date.now()}`;
 
     await page.locator("#name").fill(nome);
-    await page
-      .locator("textarea")
-      .first()
-      .fill(
-        "Você é a recepção de uma clínica odontológica. Atenda com educação, responda dúvidas sobre horários e ajude a marcar consulta.",
-      );
+    // O primeiro textarea é a DESCRIÇÃO; o prompt real é o campo de 12 linhas.
+    // O teste não deve aprovar criação com o texto escrito no campo errado.
+    await page.locator('textarea[rows="12"]').fill(
+      "Você é a recepção de uma clínica odontológica. Atenda com educação, responda dúvidas sobre horários e ajude a marcar consulta.",
+    );
 
     // Os três campos que a tela exige. São comboboxes do Radix, NÃO `<select>`
     // nativo: não existe `<option>` no DOM até o menu abrir, e procurar por
