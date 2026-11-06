@@ -63,9 +63,9 @@ $auth_uid$;
 GRANT USAGE ON SCHEMA auth TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.role(), auth.uid() TO authenticated, service_role;
 INSERT INTO public.organizations(id) VALUES ('11111111-1111-4111-8111-111111111111');
-\ir ../../supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql
+\ir ../../supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql
 -- Reaplicação idempotente.
-\ir ../../supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql
+\ir ../../supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql
 
 -- authenticated não pode emitir ou revogar grants, mesmo se UPDATE em settings funcionar.
 SET ROLE authenticated;
