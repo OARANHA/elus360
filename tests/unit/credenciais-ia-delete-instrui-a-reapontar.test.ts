@@ -20,6 +20,13 @@ import { audit } from "@/lib/audit";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/elus360/ai-managed/server")>()),
+  // Esta suíte exercita FK e mensagens com concessão explícita de fixture;
+  // os testes negativos de governança continuam usando o gate real.
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
 
@@ -32,6 +39,12 @@ type Fake = { from: (table: string) => unknown };
 /** Chain mínimo que cobre select/filter/maybeSingle/single/delete e é thenable. */
 function fakeAdmin(config: Record<string, Resposta>): Fake {
   return {
+    rpc: async (name: string, args: { p_org: string; p_op: string; p_id: string; p_platform_bypass: boolean }) => {
+      expect(name).toBe("fn_elus_ai_credential_write_guarded");
+      expect(args).toMatchObject({ p_org: org, p_op: "delete", p_id: id, p_platform_bypass: false });
+      const result = config["ai_provider_credentials:delete"] ?? { error: null };
+      return { data: result.error ? null : { id }, error: result.error ?? null };
+    },
     from(table: string) {
       let op = "select";
       const respond = () => config[`${table}:${op}`] ?? config[table] ?? { data: null, error: null };

@@ -26,6 +26,13 @@ import { audit } from "@/lib/audit";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/elus360/ai-managed/server")>()),
+  // Esta suíte exercita FK e mensagens com concessão explícita de fixture;
+  // os testes negativos de governança continuam usando o gate real.
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
 

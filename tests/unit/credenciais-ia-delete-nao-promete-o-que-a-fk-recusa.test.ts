@@ -33,6 +33,13 @@ import { audit } from "@/lib/audit";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/elus360/ai-managed/server")>()),
+  // Esta suíte exercita FK e mensagens com concessão explícita de fixture;
+  // os testes negativos de governança continuam usando o gate real.
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
 
@@ -56,6 +63,11 @@ interface Registro {
  */
 function fakeAdmin(config: Record<string, Resposta>, registros: Registro[]): Fake {
   return {
+    rpc: async (name: string, args: { p_org: string; p_op: string; p_id: string; p_platform_bypass: boolean }) => {
+      registros.push({ table: name, op: "rpc", filtros: { ...args }, limit: 0 });
+      const result = config["ai_provider_credentials:delete"] ?? { error: null };
+      return { data: result.error ? null : { id }, error: result.error ?? null };
+    },
     from(table: string) {
       const registro: Registro = { table, op: "select", filtros: {}, limit: 0 };
       registros.push(registro);
@@ -153,7 +165,7 @@ function consultaDeUso(): Registro {
 }
 
 function deleteEmitido(): boolean {
-  return registros.some((x) => x.table === "ai_provider_credentials" && x.op === "delete");
+  return registros.some((x) => x.table === "fn_elus_ai_credential_write_guarded" && x.op === "rpc");
 }
 
 beforeEach(() => {
@@ -250,9 +262,14 @@ describe("a pré-checagem do DELETE enxerga o mesmo conjunto da FK", () => {
 
     expect(res.status).toBe(200);
     expect(body.data).toEqual({ id, deleted: true, jev_desligado: false });
-    const del = registros.find((x) => x.table === "ai_provider_credentials" && x.op === "delete");
+    const del = registros.find((x) => x.table === "fn_elus_ai_credential_write_guarded" && x.op === "rpc");
     expect(del).toBeDefined();
-    expect((del as Registro).filtros).toMatchObject({ id, organization_id: org });
+    expect((del as Registro).filtros).toMatchObject({
+      p_org: org,
+      p_id: id,
+      p_op: "delete",
+      p_platform_bypass: false,
+    });
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({ action: "ai.credential_deleted", resourceId: id }),
     );
