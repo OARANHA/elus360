@@ -46,3 +46,163 @@ jobs:
           node --test tests/operational/elus-upstream-reconcile.test.mjs
       - name: Benchmark AST de arvore real (read-only)
         run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
+
+  ensaio-oficial-real-readonly:
+    name: Ensaio oficial de reconcile plan (read-only)
+    needs: contrato-upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ba24d4d366b7caf056b88553e0ed434cb0fb46de
+      TARGET_SHA: ca37cb7f2a35c1a0f6abc968139dd263b20ccb36
+      FORK_SHA: 749aaf8fbb25b46dddd9138219e2ac032cc83336
+    steps:
+      - name: Checkout apenas dos scripts do gate
+        uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.9"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Instalar parser TypeScript sem scripts externos
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Obter commits e tags pinadas em Git temporario e executar somente plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/elus-upstream-official.XXXXXXXX")"
+          mkdir -p "$scratch/repo" "$scratch/evidence"
+          printf 'ARTIFACT_DIR=%s\n' "$scratch/evidence" >> "$GITHUB_ENV"
+          git -C "$scratch/repo" init -q
+          git -C "$scratch/repo" remote add upstream https://github.com/melgarafael/DeskcommCRM.git
+          git -C "$scratch/repo" fetch --quiet --no-tags upstream \
+            refs/tags/v1.94.0:refs/tags/elus-verify-v194 \
+            refs/tags/v1.95.0:refs/tags/elus-verify-v195
+          git -C "$scratch/repo" remote add fork https://github.com/OARANHA/elus360.git
+          git -C "$scratch/repo" fetch --quiet --no-tags fork "$FORK_SHA"
+          git -C "$scratch/repo" update-ref refs/audit/fork "$FORK_SHA"
+
+          test "$(git -C "$scratch/repo" cat-file -t refs/tags/elus-verify-v194)" = tag
+          test "$(git -C "$scratch/repo" cat-file -t refs/tags/elus-verify-v195)" = tag
+          test "$(git -C "$scratch/repo" rev-parse refs/tags/elus-verify-v194)" = 9b20e5983de83dadadd62cb43d68ff55c5336247
+          test "$(git -C "$scratch/repo" rev-parse refs/tags/elus-verify-v195)" = 317229a9f5e25a310fafc7e9f42e93e14d2bd7fe
+          test "$(git -C "$scratch/repo" rev-parse 'refs/tags/elus-verify-v194^{commit}')" = "$BASE_SHA"
+          test "$(git -C "$scratch/repo" rev-parse 'refs/tags/elus-verify-v195^{commit}')" = "$TARGET_SHA"
+          test "$(git -C "$scratch/repo" rev-parse 'refs/audit/fork^{commit}')" = "$FORK_SHA"
+          test "$(git -C "$scratch/repo" rev-parse "$BASE_SHA^{tree}")" = a337f7a1ea64c9bbe4d13cb82a25f17401f03616
+          test "$(git -C "$scratch/repo" rev-parse "$TARGET_SHA^{tree}")" = 8253470b44c82323912e352615ea385e69965012
+          test "$(git -C "$scratch/repo" rev-parse "$FORK_SHA^{tree}")" = d5691861a3c39668dcabc4ed62046fd13259936b
+          git -C "$scratch/repo" merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+          git -C "$scratch/repo" fsck --connectivity-only --no-reflogs --no-dangling
+
+          {
+            printf 'base=%s\n' "$BASE_SHA"
+            printf 'target=%s\n' "$TARGET_SHA"
+            printf 'fork=%s\n' "$FORK_SHA"
+            printf 'gate_source=%s\n' "$GITHUB_SHA"
+            printf 'base_tag_object=9b20e5983de83dadadd62cb43d68ff55c5336247\n'
+            printf 'target_tag_object=317229a9f5e25a310fafc7e9f42e93e14d2bd7fe\n'
+            printf 'repo_is_temporary=true\n'
+            printf 'operation=plan_only\n'
+          } > "$scratch/evidence/provenance.txt"
+
+          (
+            cd "$scratch/repo"
+            node "$GITHUB_WORKSPACE/scripts/elus-upstream-reconcile.mjs" plan \
+              --base "$BASE_SHA" --target "$TARGET_SHA" --fork "$FORK_SHA"
+          ) > "$scratch/evidence/plan.json"
+
+          node --input-type=module - "$scratch/evidence/plan.json" "$scratch/evidence" <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const file=process.argv[2], dest=process.argv[3];
+          const r=JSON.parse(fs.readFileSync(file,'utf8'));
+          const refs={base:process.env.BASE_SHA,target:process.env.TARGET_SHA,fork:process.env.FORK_SHA};
+          if (r.mode!=='read_only' || r.tool!=='elus-upstream-reconcile') throw Error('NOT_READ_ONLY_PLAN');
+          for (const [key,value] of Object.entries(refs)) if(r.refs?.[key]!==value) throw Error('REF_MISMATCH:'+key);
+          if(!Array.isArray(r.files)||r.files.length!==787||r.totals.changed!==787) throw Error('INCOMPLETE_OFFICIAL_DELTA');
+          if(new Set(r.files.map(f=>f.path)).size!==787) throw Error('DUPLICATE_PATH');
+          const byStatus={};const bySignal={};
+          for(const f of r.files){
+            byStatus[f.status]=(byStatus[f.status]||0)+1;
+            for(const signal of f.signals||[]) bySignal[signal]=(bySignal[signal]||0)+1;
+          }
+          const ordinary=r.files.filter(f=>f.impact==='application_code');
+          if(ordinary.length!==354) throw Error('PRELIMINARY_CANDIDATE_DRIFT:'+ordinary.length);
+          const eligible=ordinary.filter(f=>f.status==='safe_to_prepare');
+          if(r.dependency_scan?.complete===false && eligible.length) throw Error('FAIL_OPEN_ON_INCOMPLETE_SCAN');
+          const conflicted=[
+            '.env.example','.github/workflows/e2e.yml','supabase/baseline.sql',
+            'app/api/v1/cron/sync-model-catalog/route.ts',
+            'app/app/ai/agents/[id]/_components/AgentForm.tsx',
+            'lib/agent-engine/edge/llm/providers.ts',
+            'lib/ai/credenciais/guardar.ts',
+            'lib/ai/credenciais/login-codex.ts',
+            'lib/ai/runtime/agent.ts',
+            'lib/audit/actions.ts'
+          ];
+          const local=conflicted.map(p=>r.files.find(f=>f.path===p));
+          if(local.some(x=>!x||x.status==='safe_to_prepare')) throw Error('LOCAL_CONTRACT_UNPROTECTED');
+          const cell=x=>'"'+String(x??'').replaceAll('"','""')+'"';
+          const csv=[['path','impact','status','signals','suggested_checks','protected_importers'].map(cell).join(',')];
+          for(const f of r.files) csv.push([
+            f.path,f.impact,f.status,(f.signals||[]).join('|'),
+            (f.suggested_checks||[]).join('|'),(f.protected_importers||[]).join('|')
+          ].map(cell).join(','));
+          fs.writeFileSync(path.join(dest,'matrix-787.csv'),csv.join('\n')+'\n');
+          const md=[
+            '# Ensaio real do reconciliador — DeskcommCRM v1.94.0 → v1.95.0',
+            '',
+            'Somente plan em repositório Git temporário; nenhum prepare, merge, SQL ou deploy.',
+            '',
+            '- Base: '+refs.base,
+            '- Target: '+refs.target,
+            '- Fork: '+refs.fork,
+            '- Gate source: '+process.env.GITHUB_SHA,
+            '- Caminhos reais: '+r.files.length,
+            '- Candidatos preliminares ordinários: '+ordinary.length,
+            '- Candidatos classificados safe_to_prepare: '+eligible.length+' (não preparados)',
+            '- Gate: '+r.gate,
+            '- dependency_scan.complete: '+String(r.dependency_scan?.complete),
+            '- dependency_scan.scanned: '+String(r.dependency_scan?.scanned),
+            '- dependency_scan.unresolved_count: '+String(r.dependency_scan?.unresolved_count),
+            '',
+            '## Classificação real',
+            ...Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).map(([s,n])=>'- '+s+': '+n),
+            '',
+            '## Sinais',
+            ...Object.entries(bySignal).sort((a,b)=>b[1]-a[1]).map(([s,n])=>'- '+s+': '+n),
+            '',
+            '## Dez divergências locais protegidas',
+            ...local.map(f=>'- '+f.path+': '+f.status+'; '+(f.signals||[]).join(', ')),
+            '',
+            '## Classificação dos 354 candidatos preliminares',
+            ...Object.entries(ordinary.reduce((o,f)=>(o[f.status]=(o[f.status]||0)+1,o),{})).map(([s,n])=>'- '+s+': '+n),
+            '',
+            '## Limites de aceite',
+            '- Este relatório é classificação estática real, não equivalência semântica nem prova de runtime.',
+            '- Nenhum candidato deve ser preparado automaticamente.',
+            '- Verifique auth/RBAC/RLS, onboarding, IA gerenciada, credenciais, auditoria, agentes, banco e mensagens antes de qualquer merge.',
+            '- JSON integral em plan.json e matriz nominal em matrix-787.csv.',
+            ''
+          ].join('\n');
+          fs.writeFileSync(path.join(dest,'summary.md'),md);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,md.slice(0,15000));
+          console.log(JSON.stringify({totals:r.totals,gate:r.gate,dependency_scan:r.dependency_scan,ordinary_candidates:ordinary.length,ordinary_statuses:ordinary.reduce((o,f)=>(o[f.status]=(o[f.status]||0)+1,o),{}),eligible_not_prepared:eligible.length}));
+          NODE
+
+          test -z "$(git -C "$scratch/repo" status --porcelain)"
+          ( cd "$scratch/evidence" && sha256sum plan.json matrix-787.csv summary.md provenance.txt > SHA256SUMS )
+          echo "Ensaio read-only e evidencias geradas no runner temporario"
+      - name: Publicar plano real e matriz nominal como artefato
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elus360-official-reconcile-plan
+          path:${{ env.ARTIFACT_DIR }}
+          if-no-files-found: warn
+          retention-days: 30
