@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -15,7 +16,8 @@ BASE = "ba24d4d366b7caf056b88553e0ed434cb0fb46de"
 FORK = "749aaf8fbb25b46dddd9138219e2ac032cc83336"
 TARGET = "4b5815721710c9b1e99078322593838fda1ee740"
 FILE = "supabase/baseline.sql"
-MIGRATION = "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql"
+ORIGINAL_MIGRATION = "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql"
+RENAMED_MIGRATION = "supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql"
 GUARDS = (
     b"fn_elus_ai_version_patch_guarded",
     b"fn_elus_ai_version_create_guarded",
@@ -60,7 +62,24 @@ def main() -> None:
     old = read(BASE, FILE)
     fork = read(FORK, FILE)
     upstream = read(TARGET, FILE)
-    elus_migration = read(FORK, MIGRATION)
+    elus_migration = read(FORK, ORIGINAL_MIGRATION)
+    require(not Path(ORIGINAL_MIGRATION).exists(), "legacy 9037 migration path still present")
+    require(Path(RENAMED_MIGRATION).read_bytes() == elus_migration,
+            "renamed 9900 migration differs from the original SQL bytes")
+
+    # Upstream 9037 and ELUS legacy 9037 must not coexist under one number.
+    # The Supabase execution identity (14-digit timestamp) was kept unchanged.
+    number_paths: dict[str, list[str]] = {}
+    timestamp_paths: dict[str, list[str]] = {}
+    for migration in Path("supabase/migrations").glob("*.sql"):
+        match = re.fullmatch(r"(\d{14})_(\d{4})_.+\.sql", migration.name)
+        require(match is not None, "migration name violates timestamp_NNNN convention: " + migration.name)
+        timestamp_paths.setdefault(match[1], []).append(migration.name)
+        number_paths.setdefault(match[2], []).append(migration.name)
+    for label, names in number_paths.items():
+        require(len(names) == 1, "duplicate migration NNNN=" + label + ": " + ", ".join(names))
+    for stamp, names in timestamp_paths.items():
+        require(len(names) == 1, "duplicate migration timestamp=" + stamp + ": " + ", ".join(names))
     committed = Path(FILE).read_bytes()
 
     require(fork.startswith(old), "v1.94 fork baseline is not an exact official prefix")
@@ -91,6 +110,8 @@ def main() -> None:
         "v1102": TARGET,
         "bytes": len(expected),
         "migration_byte_exact": True,
+        "migration_filename": RENAMED_MIGRATION,
+        "migration_timestamp_unchanged": True,
         "guards_present": len(GUARDS),
         **hashes,
     }, indent=2))
