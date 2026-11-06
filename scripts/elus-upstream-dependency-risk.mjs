@@ -110,6 +110,7 @@ export function newUnsafeImportSignals(path,before,after,unsafePaths,rawConfig=n
   for(const specifier of newImports){
     const plain=sourceModule(specifier,path);
     if(plain&&risky.has(plain)) return ["unsafe_changed_import_edge"];
+    if(plain) continue; // A known different root-relative module is not in the unsafe set.
     if(resolver){
       const resolved=resolver.resolve(specifier,path);
       if(resolved.path&&risky.has(canonical(resolved.path))) return ["unsafe_changed_import_edge"];
