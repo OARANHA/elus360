@@ -114,7 +114,7 @@ export function newUnsafeImportSignals(path,before,after,unsafePaths,rawConfig=n
     if(resolver){
       const resolved=resolver.resolve(specifier,path);
       if(resolved.path&&risky.has(canonical(resolved.path))) return ["unsafe_changed_import_edge"];
-      if(resolved.local&&!resolved.path) return ["dependency_analysis_incomplete"];
+      if(!plain&&resolved.local&&!resolved.path) return ["dependency_analysis_incomplete"];
     } else if(isLocal(specifier)) return ["dependency_analysis_incomplete"];
   }
   return [];
