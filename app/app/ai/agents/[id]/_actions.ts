@@ -740,8 +740,16 @@ export async function createMcpAgentAction(
     return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
   }
 
+  // A autorização técnica é reavaliada no banco sob lock.
+  // Uma recusa de MFA do Superadmin mantém seu código próprio: não vira false.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    const autorizado = await escritaDeAdminOuRecusa();
+    if (!autorizado.ok) return { ok: false, error: autorizado.error };
+    platformBypass = true;
+  }
+
   // O mesmo RPC protegido da API REST cria agente e versão atomicamente.
-  // A permissão técnica é reavaliada no banco sob lock de organizations.
   const { mcpAgentDraftRecords } = await import("@/lib/ai/agents/create-draft");
   const records = mcpAgentDraftRecords(
     { orgId: activeOrg.orgId, userId: authUser.id }, parsed.data,
@@ -752,12 +760,7 @@ export async function createMcpAgentAction(
       p_org: activeOrg.orgId,
       p_agent: { ...records.agent, is_active: false, created_by: authUser.id },
       p_version: { ...records.version, created_by: authUser.id },
-      p_platform_bypass: await (async () => {
-        const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
-        if (!podeGerenciarIaDaPlataforma(authUser)) return false;
-        const escrita = await escritaDeAdminOuRecusa();
-        return escrita.ok;
-      })(),
+      p_platform_bypass: platformBypass,
     },
   );
   if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
