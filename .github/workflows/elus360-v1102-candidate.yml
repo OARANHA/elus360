@@ -51,14 +51,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: TypeScript global (tests included) on public 16 GB runner
         shell: bash
         run: |
@@ -83,14 +77,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - run: pnpm lint
       - run: pnpm lint:channels
 
@@ -103,14 +91,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - run: pnpm test:unit
 
   governance:
@@ -122,14 +104,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: Guarded AI/tenant write boundaries
         run: |
           pnpm test:operational
@@ -153,14 +129,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: Build with memory budget and no secrets
         env:
           NODE_OPTIONS: "--max-old-space-size=12288"
@@ -175,14 +145,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - run: pnpm test:shell
 
   db-clean:
@@ -194,14 +158,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: Resolve and prove official DeskcommCRM release tags (no mutable latest API)
         shell: bash
         run: |
@@ -228,12 +186,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - run: pnpm test:db:update
