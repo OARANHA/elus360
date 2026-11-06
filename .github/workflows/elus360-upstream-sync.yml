@@ -73,6 +73,16 @@ jobs:
             app/api/v1/ai/routers/auth-dual.test.ts
       # Baseline only: these tests do not exercise upstream changes until merged in
       # an isolated, explicitly approved integration branch.
+      # Baseline regressivo da arvore ELUS: nao exercita os arquivos do target.
+      - name: Gate 7 - regressao negativa de auth tenant IA mensagens e automacoes (fork)
+        run: |
+          pnpm exec vitest run \
+            lib/api/auth-dual.test.ts \
+            tests/unit/versao-do-agente-referencias-da-org.test.ts \
+            lib/elus360/ai-managed/authorize-version-write.test.ts \
+            lib/elus360/ai-managed/server.test.ts \
+            lib/messaging/remetente-de-grupo.test.ts \
+            lib/automation/actions/send-ai-message-restricao-comercial.test.ts
       - name: Benchmark AST de arvore real (read-only)
         run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
 
