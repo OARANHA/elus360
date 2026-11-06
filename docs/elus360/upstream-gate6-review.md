@@ -5,7 +5,7 @@
 ## Proveniência verificada
 
 - Fonte oficial DeskcommCRM: base `v1.94.0`, commit `ba24d4d366b7caf056b88553e0ed434cb0fb46de`, target `v1.95.0`, commit `ca37cb7f2a35c1a0f6abc968139dd263b20ccb36`.
-- Fork ELUS360 `main` da comparação: `749aaf8fbb25b46dddd9138219e2ac032cc83336b`.
+- Fork ELUS360 `main` da comparação: `749aaf8fbb25b46dddd9138219e2ac032cc83336`.
 - Último Gate 5 comprovado: [GitHub Actions 42150178794](https://github.com/OARANHA/elus360/actions/runs/42150178794), SHA da branch `2e749eccb47401842479b70cf00a489399edbd52`; dois jobs `success`. **Não transferir GREEN a commits posteriores.**
 - Artefato GitHub `elus360-official-reconcile-plan`, ID `13472346852`, recuperado. SHA-256 de `plan.json`, `matrix-787.csv`, `ast-coverage-354.json`, `manual-compatibility-review.json`, `summary.md`, `provenance.txt`, `gate5-evidence.json`, `gate5-target-matrix.md` e `gate5-triad12.md` conferidos: **9/9**.
 - Contratos obrigatórios do fork: `CLAUDE.md`, `AGENTS.md`, `docs/elus360/extension-contract.md`, skills `elus-live-context`, `elus-doutrina`, `elus-contribuir`, com consulta complementar às skills oficiais `deskcomm-doutrina` / `deskcomm-contribuir`.
