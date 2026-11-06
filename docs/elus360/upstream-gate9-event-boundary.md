@@ -8,7 +8,7 @@ Fork operacional `OARANHA/elus360` PR #20 Draft. Base fork `749aaf8fbb25b46dddd9
 
 **Gate 8 GREEN confirmado somente no SHA `bc0318caf3e315712403135b1a0550f938ab698a`**: [Upstream Sync 42166578283](https://github.com/OARANHA/elus360/actions/runs/42166578283) e [AI Autonomy Migration Triple 42166578326](https://github.com/OARANHA/elus360/actions/runs/42166578326), ambos `completed/success`. PostgreSQL 34/34 (15 Gate 8, 19 nas três suítes anteriores), TypeScript global, kit de isolamento e reconciliação read-only aprovados. Não demonstram comportamento dos novos casos Gate 9 nem configuração completa de proteção da branch.
 
-**Fontes do contrato:** `docs/specs/07-spec-events-workers.md` (blob `8b68cdfd5bc86c69cf6f2126feef13ed001ad0dc`), migration `supabase/migrations/20260906030000_0223_origem_imutavel_do_evento.sql` (blob `7c9472ed878e4853d288dbf0268207132587ed05`), `lib/automation/actions/add-tag.ts`, `lib/automation/engine.ts`, `lib/event-log/drain.ts`, `lib/event-log/dispatcher.ts` e `tests/invariants/evento-de-negocio-so-nasce-do-negocio.test.ts`. A spec tem intenção arquitetural; o SQL/consumidores do fork demonstram o que funciona hoje.
+**Fontes do contrato:** `docs/specs/07-spec-events-workers.md` (blob `8b68cdfd5bc86c69cf6f2126feef13ed001ad0dc`), migration histórica `supabase/migrations/20260906030000_0223_origem_imutavel_do_evento.sql` (blob `7c9472ed878e4853d288dbf0268207132587ed05`) e redefinição posterior `supabase/migrations/20260918100000_0279_caso_so_nasce_do_motor.sql` (blob `4fd895ad393c13d0ec98601d6904ad5c640259a9`), `lib/automation/actions/add-tag.ts`, `lib/automation/engine.ts`, `lib/event-log/drain.ts`, `lib/event-log/dispatcher.ts` e `tests/invariants/evento-de-negocio-so-nasce-do-negocio.test.ts`. A spec tem intenção arquitetural; o SQL/consumidores do fork demonstram o que funciona hoje.
 
 ## Política implementada vs. política pretendida para viewer
 
@@ -19,7 +19,7 @@ Fork operacional `OARANHA/elus360` PR #20 Draft. Base fork `749aaf8fbb25b46dddd9
 **Três camadas distintas:**
 
 1. **Chamada da RPC:** `has_function_privilege` no catálogo e acesso a `emit_event`. EXECUTE não comprova autorização do evento.
-2. **Organização e entidade:** validação do usuário/membership é interna; a função examinada NÃO consulta `crm_leads`, `contacts` ou `messages` para vincular `p_entity_id` a `p_organization_id`. `service_role` contorna RLS, e o chamador deve filtrar organização confiável.
+2. **Organização e entidade:** validação do usuário/membership é interna; a redefinição 0279 **consulta `crm_leads`/`contacts` com `organization_id`** para **tentar** anexar `service_origin`, porém **não exige que uma entidade seja encontrada**: a ausência de `v_contact` não bloqueia o `INSERT`. A consulta de origem é enriquecimento opcional, NÃO autorização de entidade. O teste Gate 9 inspeciona via `pg_get_functiondef` o corpo efetivo do baseline. `service_role` contorna RLS, e o chamador deve filtrar organização confiável.
 3. **Consumo:** `buildContext` do motor filtra `crm_leads.id` E `organization_id`; o dispatcher seleciona por tipo e `consumed_by`, e o dreno trabalha com `status` e retries. A filtração em um consumidor **não conserta** evento forjado nem garante demais consumidores sem prova adicional.
 
 ## Matriz de evidências e decisão
@@ -41,11 +41,11 @@ Fork operacional `OARANHA/elus360` PR #20 Draft. Base fork `749aaf8fbb25b46dddd9
 
 ### Como ler os resultados do Gate 9
 
-O arquivo `tests/invariants/elus-upstream-gate9-emit-event-boundaries.test.ts` acrescenta **12 casos**. Parte exige negação com ausência de escrita. **Quatro casos têm nome LACUNA e reproduzem comportamento que seria incompatível com autorização entidade↔organização completa.** O `PASS` de caso LACUNA demonstra a **existência do risco**, NÃO sua solução. O log desses testes expõe `[Gate9][NO-GO]`. Se um hardening futuro eliminar a emissão indevida, esses testes caracterizadores devem falhar até revisão da matriz, nunca ser ajustados silenciosamente para esconder a mudança.
+O arquivo `tests/invariants/elus-upstream-gate9-emit-event-boundaries.test.ts` acrescenta **13 casos** (incluindo introspecção do SQL efetivo via `pg_get_functiondef`). Parte exige negação com ausência de escrita. **Quatro casos têm nome LACUNA e reproduzem comportamento que seria incompatível com autorização entidade↔organização completa.** O `PASS` de caso LACUNA demonstra a **existência do risco**, NÃO sua solução. O log desses testes expõe `[Gate9][NO-GO]`. Se um hardening futuro eliminar a emissão indevida, esses testes caracterizadores devem falhar até revisão da matriz, nunca ser ajustados silenciosamente para esconder a mudança.
 
 Os casos que admitem eventos usam `BEGIN`, `SET LOCAL ROLE`, JWT sintético apenas no PostgreSQL, consultas de proveniência e `ROLLBACK` com verificação de **zero persistência após a transação**. Não processam eventos, não acessam WAHA, não enviam mensagens, não acionam handlers nem escrevem no Supabase real. A sonda `auth.uid()` nulo **NÃO comprova exposição via JWT válido/PostgREST**. O `buildContext` real é executado com um adaptador de leitura de banco descartável — isso comprova o filtro do consumer específico, não todos os efeitos downstream.
 
-**Workflow:** `.github/workflows/elus360-upstream-sync.yml` mantém o job Gate 8 PostgreSQL com INSTALL, UPDATE e tripla conferência oficial de isolamento. Acrescenta o arquivo Gate 9, preservando `elus-upstream-gate8-contratos-sql.test.ts` e os três arquivos preexistentes de concorrência/cobrança. **Contagem esperada: 34 existentes + 12 Gate 9 = 46 casos**, não verificados ainda no novo HEAD. TypeScript global/IA no workflow irmão deverão ser conferidos no mesmo SHA; não usar o GREEN do commit anterior.
+**Workflow:** `.github/workflows/elus360-upstream-sync.yml` mantém o job Gate 8 PostgreSQL com INSTALL, UPDATE e tripla conferência oficial de isolamento. Acrescenta o arquivo Gate 9, preservando `elus-upstream-gate8-contratos-sql.test.ts` e os três arquivos preexistentes de concorrência/cobrança. **Contagem esperada: 34 existentes + 13 Gate 9 = 47 casos**, não verificados ainda no novo HEAD. TypeScript global/IA no workflow irmão deverão ser conferidos no mesmo SHA; não usar o GREEN do commit anterior.
 
 ## Riscos residuais e decisões humanas
 

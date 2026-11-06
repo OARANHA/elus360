@@ -116,6 +116,17 @@ describe("Gate 9 — chamada RPC vs autorização de organização", () => {
     )).toBe("t");
   });
 
+  it("baseline contém redefinição posterior de emit_event: origem opcional, não valida entidade", () => {
+    // Migration 0279 sucede 0223: lookup tenant-scoped enriquece service_origin,
+    // mas evento continua permitido sem entidade encontrada.
+    const body = sql("select pg_get_functiondef('" + EMIT + "'::regprocedure);");
+    expect(body).toContain("fn_role_at_least(v_org_id, 'viewer')");
+    expect(body).toContain("select contact_id into v_contact from public.crm_leads");
+    expect(body).toContain("where organization_id=v_org_id and id=p_entity_id");
+    expect(body).toContain("insert into public.event_log");
+    expect(body).toContain("jsonb_build_object('emitted_at', extract(epoch from now()))");
+  });
+
   it("viewer autenticado em A emite evento do lead de A (comportamento vigente, não aprovação)", () => {
     const out = diagnosticarEmTransacao("viewer_mesma_org","authenticated",GOV_VIEWER,GOV_ORG,GOV_LEAD);
     expect(out).toContain("G9_AUTH_UID:" + GOV_VIEWER);
