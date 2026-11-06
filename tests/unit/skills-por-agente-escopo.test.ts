@@ -21,9 +21,15 @@ vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn(async () => ({})) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
+vi.mock("@/lib/api/auth-dual", () => ({ resolveAuthDual: vi.fn(), tetoDeEscritaDoToken: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
+  podeAlterarTecnicaDeVersao: vi.fn(async () => true),
+}));
 
 import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
 import { mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { versionCreateSchema, versionPatchSchema } from "@/lib/ai/agents/validation";
 import { createMcpAgentDraft } from "@/lib/ai/agents/create-draft";
@@ -50,6 +56,17 @@ function bancoFalso(escritas: Array<{ tabela: string; valor: Linha }>) {
     ai_agent_versions: [{ id: VERSAO, organization_id: ORG, agent_id: AGENTE, status: "draft", followup: {} }],
   };
   return {
+    async rpc(name: string, args: { p_org: string; p_agent: string; p_version: string; p_patch: Linha }) {
+      if (name !== "fn_elus_ai_version_patch_guarded" || args.p_org !== ORG ||
+          args.p_agent !== AGENTE || args.p_version !== VERSAO) {
+        return { data: { error: "version_not_found" }, error: null };
+      }
+      const row = tabelas.ai_agent_versions?.[0];
+      if (!row || row.status !== "draft") return { data: { error: "version_conflict" }, error: null };
+      escritas.push({ tabela: "ai_agent_versions", valor: args.p_patch });
+      Object.assign(row, args.p_patch);
+      return { data: { ...row }, error: null };
+    },
     from(tabela: string) {
       const filtros: Array<(l: Linha) => boolean> = [];
       let carga: Linha | null = null;
@@ -79,6 +96,12 @@ const escritas: Array<{ tabela: string; valor: Linha }> = [];
 beforeEach(() => {
   escritas.length = 0;
   vi.mocked(createAdminClient).mockReturnValue(bancoFalso(escritas) as never);
+  vi.mocked(resolveAuthDual).mockResolvedValue({
+    ok: true, via: "session", organizationId: ORG,
+    actor: { type: "user", id: USER }, apiTokenId: null, idioma: "pt-BR",
+  } as never);
+  vi.mocked(tetoDeEscritaDoToken).mockResolvedValue(null);
+  vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValue(true);
   vi.mocked(requireRole).mockResolvedValue({
     ok: true,
     user: { id: USER, idioma: "pt-BR" },
@@ -165,6 +188,13 @@ describe("PATCH /ai/agents/:id/versions/:vid — skill_names", () => {
     const r = await patch({ skill_names: null });
     expect(r.status).toBe(200);
     expect(escritas).toEqual([{ tabela: "ai_agent_versions", valor: { skill_names: null } }]);
+  });
+
+  it("sem autonomia técnica, uma skill válida não chama a RPC", async () => {
+    vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValueOnce(false);
+    const r = await patch({ skill_names: ["agendamento"] });
+    expect(r.status).toBe(403);
+    expect(escritas).toEqual([]);
   });
 
   it("recusa nome inexistente com 422 validation_failed, sem gravar nada", async () => {
