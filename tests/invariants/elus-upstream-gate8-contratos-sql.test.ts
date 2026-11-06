@@ -185,7 +185,7 @@ describe("Gate 8 — evento, autorização e idempotência no banco", () => {
     ));
     const metadata = JSON.parse(valor(comoServidor(
       "select metadata::text from public.event_log where id='" + eventId + "'::uuid;"
-    ))) as Record<string, unknown>;
+    ))) as { emitted_at: number; caused_by_rule?: string };
     expect(Object.keys(metadata)).toEqual(["emitted_at"]);
     expect(typeof metadata.emitted_at).toBe("number");
     expect(Number.isFinite(metadata.emitted_at)).toBe(true);
