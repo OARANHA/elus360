@@ -1,5 +1,5 @@
 {
-  "status": "CODE_MERGED_SQL_RECONCILIATION_AND_TESTS_PENDING",
+  "status": "SOURCE_MERGED_CI_AND_POSTGRESQL_NOT_YET_VERIFIED",
   "base_tag": "v1.94.0",
   "base_commit": "ba24d4d366b7caf056b88553e0ed434cb0fb46de",
   "target_tag": "v1.102.0",
@@ -25,16 +25,14 @@
     "lib/ai/runtime/agent.ts",
     "lib/env.ts"
   ],
-  "unresolved": [
-    "supabase/baseline.sql"
-  ],
+  "unresolved": [],
   "upstream_workflows_pending_review": [
     ".github/workflows/ci.yml",
     ".github/workflows/e2e.yml"
   ],
   "production_changed": false,
-  "tests": "PENDING_LATEST_HEAD",
-  "baseline_status": "PENDING_ISOLATED_RECONCILIATION",
+  "tests": "PENDING_CURRENT_HEAD",
+  "baseline_status": "MERGED_IN_BRANCH_SOURCE_PARITY_AND_PG_PENDING",
   "baseline_official_sha256": "2610cd387c65f92ee4b893f598db4cc8a53ff032a418fbac8f455fa05762871f",
   "baseline_elus_appendix_sha256": "b1c58b7c0abdc4e09fc14ed8746e70fb5d5f02ea014910e6553c3b0cef895e97",
   "baseline_combined_sha256": "fa0e7c1e2259a918bf013aef4a628b477695315c6316d2d7906b668b22294dc2",
@@ -64,5 +62,16 @@
     "lib/ai/provider-validators.ts",
     "lib/audit/actions.ts"
   ],
-  "review_note": "Manual resolution paths preserve ELUS guarded RPCs and official new version fields. No build or database verification yet; official CI/E2E workflow updates held for review."
+  "review_note": "Baseline committed from official v1.102 plus ELUS SQL; independently check official prefix, exact migration appendix, SQL guards, unique names and database install/update in new PR-triggered CI. No green claimed.",
+  "migration_reconciliation": {
+    "upstream_migration": "supabase/migrations/20261029005025_9037_grants_explicitos_das_tabelas_do_apendice.sql",
+    "elus_original": "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql",
+    "elus_renamed": "supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql",
+    "original_git_blob_sha": "b4fd132fdd482c017a823f2baf013b20b2850c2d",
+    "unchanged_timestamp": "20261028235959",
+    "unchanged_sql_bytes": true,
+    "sql_source_parity": "PENDING_GITHUB_ACTIONS",
+    "database_install_update": "PENDING_GITHUB_ACTIONS",
+    "note": "Different NNNN labels, identical SQL and Supabase timestamp; collision checker only waives an old number when HEAD proves a byte-identical rename."
+  }
 }
