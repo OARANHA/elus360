@@ -556,3 +556,23 @@ Foram lidos diretamente os pares de blobs v1.94.0/v1.95.0 dos 12 candidatos (o f
 Adicionado `scripts/elus-upstream-gate5-evidence.mjs`, cujo modo CLI é read-only em Git temporário: inspeciona por AST a árvore `target` v1.95.0, registra imports e consumidores diretos/transitivos dos 45 módulos, dependências protegidas e inconclusões; verifica as três identidades Git dos 12 arquivos e publica diffs completos. A regra `statusFor` e `prepare` não foram modificadas. Incluídos testes adversariais de grafo, import computado, ausência de fonte, revisão triádica e fail-closed em `tests/operational/elus-upstream-gate5.test.mjs`. O job `ensaio-oficial-real-readonly` ganhou etapa Gate 5 que publicará `gate5-evidence.json`, `gate5-target-matrix.md` e `gate5-triad12.md` com hashes SHA-256 no artefato da execução.
 
 **Estado do HEAD com Gate 5:** implementação publicada para CI, execução e resultado **ainda não confirmados** neste checkpoint. Revisão humana e testes funcionais negativos (auth, RLS/tenant, canais, credenciais, LGPD, cobrança e MCP) continuam pendentes; nenhuma decisão de `safe_to_prepare` ou merge pode ser derivada dos indicadores. Hindsight `Elus360` segue com sincronização pendente enquanto `UNAVAILABLE`. PR Draft, sem prepare, merge, deploy, publicação de imagem ou banco.
+
+## Gate 6 — revisão de contratos, cobertura de base e NO-GO (06/11/2026)
+
+### Evidência independente de entrada
+
+- Gate 5 [run 42150178794](https://github.com/OARANHA/elus360/actions/runs/42150178794) confirmado `completed/success` em `2e749eccb47401842479b70cf00a489399edbd52` (dois jobs). Artefato GitHub 13472346852 baixado com **9/9 hashes SHA-256** válidos; não extrapolar esse resultado para HEAD novo.
+- Tríade: base `ba24d4d366b7caf056b88553e0ed434cb0fb46de`, target `ca37cb7f2a35c1a0f6abc968139dd263b20ccb36`, fork `749aaf8fbb25b46dddd9138219e2ac032cc83336`. `main` do fork verificada nesse SHA, PR aberta Draft.
+- Fork 3.194 fontes e um import computed; target 3.279 fontes, 15.702 arestas e dois imports computed. `complete:false` nos dois lados, sem `safe_to_prepare`.
+
+### Entregas implementadas na PR #20
+
+- Relatório humano individual dos 12 e dos 45 em [upstream-gate6-review.md](./upstream-gate6-review.md), com critérios, testes obrigatórios e motivos de NO-GO. Dois caminhos são *compatíveis apenas para revisão*, cinco exigem adaptação e cinco aguardam comprovação de contrato; não houve integração.
+- `scripts/elus-upstream-gate6-evidence.mjs`: consome os JSONs oficiais do plano e Gate 5, valida SHAs, status, triades e proveniência de 45 módulos, produz decisões sempre `authorization:none`. Priorização dos 45 por exposição estática em três grupos, sem alterar o reconciliador.
+- `tests/operational/elus-upstream-gate6.test.mjs`: seis novos testes adversariais de invariantes, integridade Git e falha-fechada.
+- Workflow `elus360-upstream-sync.yml`: testes estáticos do Gate 6, nove testes Vitest direcionados ao **fork ainda sem atualização**, e nova etapa read-only que publicará `gate6-evidence.json`, `gate6-review.md` e SHA256SUMS. Esses checks não constituem testes de compatibilidade do código upstream já incorporado.
+- Investigações: dynamic imports localizados em `curso/semear-demonstracao.ts`; grafo ainda incompleto. Distâncias dos 12: dez 2→2, um 3→2 e um 2→3. Hindsight `Elus360` respondeu UNAVAILABLE; sincronização pendente.
+
+### Limites e decisão
+
+**Gate 6 implementado, novo CI não verificado.** Testes funcionais positivos/negativos com patches upstream em checkout isolado, teste de sabotagem, E2E, prova em par de agente/ferramenta, DB descartável e autorização humana **não realizados**. Nenhum `prepare`, merge, deploy, imagens, schema ou produção. Decisão funcional: **NO-GO**. Em caso de CI RED, corrigir erro concreto uma vez; não fazer polling.
