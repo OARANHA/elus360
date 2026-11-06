@@ -18,6 +18,8 @@ on:
       - "tests/operational/elus-upstream-reconcile.test.mjs"
       - "tests/operational/elus-upstream-gate5.test.mjs"
       - "tests/operational/elus-upstream-gate6.test.mjs"
+      - "tests/operational/elus-upstream-gate7-functional-compare.test.mjs"
+      - "docs/elus360/upstream-gate7-functional.md"
       - "docs/elus360/upstream-gate6-review.md"
       - "docs/elus360/upstream-gate5-review.md"
       - ".github/workflows/elus360-upstream-sync.yml"
@@ -50,6 +52,7 @@ jobs:
           node --check scripts/elus-upstream-gate5-evidence.mjs
           node --check scripts/elus-upstream-gate6-evidence.mjs
           node --check scripts/elus-upstream-real-tree-benchmark.mjs
+          node --check tests/operational/elus-upstream-gate7-functional-compare.test.mjs
       - name: Gates sem rede externa, banco ou Docker
         run: |
           node --test tests/operational/elus-upstream-prepare.test.mjs
@@ -476,6 +479,19 @@ jobs:
             manual-compatibility-review.json summary.md provenance.txt \
             gate5-evidence.json gate5-target-matrix.md gate5-triad12.md \
             gate6-evidence.json gate6-review.md > SHA256SUMS)
+      - name: Gate 7 - comparar execucao dos blobs fixos em VM isolada (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ELUS_COMPARE_GIT_REPO="$(dirname "$ARTIFACT_DIR")/repo" \
+          ELUS_GATE6_EVIDENCE="$ARTIFACT_DIR/gate6-evidence.json" \
+            node --test tests/operational/elus-upstream-gate7-functional-compare.test.mjs \
+              2>&1 | tee "$ARTIFACT_DIR/gate7-functional-compare.tap"
+          test -z "$(git -C "$(dirname "$ARTIFACT_DIR")/repo" status --porcelain)"
+          (cd "$ARTIFACT_DIR" && sha256sum plan.json matrix-787.csv ast-coverage-354.json \
+            manual-compatibility-review.json summary.md provenance.txt \
+            gate5-evidence.json gate5-target-matrix.md gate5-triad12.md \
+            gate6-evidence.json gate6-review.md gate7-functional-compare.tap > SHA256SUMS)
       - name: Publicar plano real e matriz nominal como artefato
         if: always()
         uses: actions/upload-artifact@v4
