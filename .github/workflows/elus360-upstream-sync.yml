@@ -131,10 +131,18 @@ jobs:
             byStatus[f.status]=(byStatus[f.status]||0)+1;
             for(const signal of f.signals||[]) bySignal[signal]=(bySignal[signal]||0)+1;
           }
-          const ordinary=r.files.filter(f=>f.impact==='application_code');
+          const ordinary=r.files.filter(f=>f.preliminary_status==='safe_to_prepare');
           if(ordinary.length!==354) throw Error('PRELIMINARY_CANDIDATE_DRIFT:'+ordinary.length);
+          if(r.candidate_coverage?.preliminary_ordinary!==ordinary.length) throw Error('COVERAGE_MISMATCH');
+          if(!r.dependency_scan?.executed || r.dependency_scan?.scanned<=0) throw Error('FALSE_GRAPH_COMPLETENESS');
+          if(r.candidate_coverage?.source_contract_scans_evaluated+
+             r.candidate_coverage?.source_contract_scans_incomplete!==ordinary.length)
+            throw Error('SOURCE_AST_COVERAGE_INCONSISTENT');
+          if(ordinary.some(f=>!f.candidate_analysis?.dependency_graph ||
+            typeof f.candidate_analysis?.source_contract_scan!=='string'))
+            throw Error('CANDIDATE_DIAGNOSTICS_MISSING');
           const eligible=ordinary.filter(f=>f.status==='safe_to_prepare');
-          if(r.dependency_scan?.complete===false && eligible.length) throw Error('FAIL_OPEN_ON_INCOMPLETE_SCAN');
+          if(r.dependency_scan?.complete!==true && eligible.length) throw Error('FAIL_OPEN_ON_INCOMPLETE_SCAN');
           const conflicted=[
             '.env.example','.github/workflows/e2e.yml','supabase/baseline.sql',
             'app/api/v1/cron/sync-model-catalog/route.ts',
@@ -148,12 +156,39 @@ jobs:
           const local=conflicted.map(p=>r.files.find(f=>f.path===p));
           if(local.some(x=>!x||x.status==='safe_to_prepare')) throw Error('LOCAL_CONTRACT_UNPROTECTED');
           const cell=x=>'"'+String(x??'').replaceAll('"','""')+'"';
-          const csv=[['path','impact','status','signals','suggested_checks','protected_importers'].map(cell).join(',')];
-          for(const f of r.files) csv.push([
-            f.path,f.impact,f.status,(f.signals||[]).join('|'),
-            (f.suggested_checks||[]).join('|'),(f.protected_importers||[]).join('|')
-          ].map(cell).join(','));
+          const csv=[['path','impact','preliminary_status','status','signals','suggested_checks',
+            'source_contract_scan','lexical_retained','lexical_introduced','lexical_removed',
+            'graph_executed','graph_complete','present_in_fork','protected_importers_count',
+            'unsafe_neighbors_count'].map(cell).join(',')];
+          for(const f of r.files) {
+            const a=f.candidate_analysis,lex=a?.lexical_signal_provenance,graph=a?.dependency_graph;
+            csv.push([
+              f.path,f.impact,f.preliminary_status,f.status,(f.signals||[]).join('|'),
+              (f.suggested_checks||[]).join('|'),a?.source_contract_scan??'',
+              (lex?.retained||[]).join('|'),(lex?.introduced||[]).join('|'),
+              (lex?.removed||[]).join('|'),graph?.executed??'',
+              graph?.complete??'',graph?.present_in_fork??'',
+              graph?.protected_importers_count??'',graph?.unsafe_changed_neighbors_count??''
+            ].map(cell).join(','));
+          }
           fs.writeFileSync(path.join(dest,'matrix-787.csv'),csv.join('\n')+'\n');
+          const coverage={
+            refs:r.refs,
+            phase:'diagnostic_only_no_prepare',
+            result:r.gate,
+            dependency_scan:r.dependency_scan,
+            summary:r.candidate_coverage,
+            candidates:ordinary.map(f=>({
+              path:f.path,preliminary_status:f.preliminary_status,final_status:f.status,
+              signals:f.signals,suggested_checks:f.suggested_checks,
+              candidate_analysis:f.candidate_analysis
+            })),
+            local_divergences:local.map(f=>({
+              path:f.path,impact:f.impact,status:f.status,
+              signals:f.signals,suggested_checks:f.suggested_checks
+            }))
+          };
+          fs.writeFileSync(path.join(dest,'ast-coverage-354.json'),JSON.stringify(coverage,null,2)+'\n');
           const md=[
             '# Ensaio real do reconciliador — DeskcommCRM v1.94.0 → v1.95.0',
             '',
@@ -167,9 +202,21 @@ jobs:
             '- Candidatos preliminares ordinários: '+ordinary.length,
             '- Candidatos classificados safe_to_prepare: '+eligible.length+' (não preparados)',
             '- Gate: '+r.gate,
+            '- dependency_scan.executed: '+String(r.dependency_scan?.executed),
             '- dependency_scan.complete: '+String(r.dependency_scan?.complete),
             '- dependency_scan.scanned: '+String(r.dependency_scan?.scanned),
             '- dependency_scan.unresolved_count: '+String(r.dependency_scan?.unresolved_count),
+            '',
+            '## Cobertura diagnostica dos candidatos inicialmente ordinarios',
+            '- Candidatos preliminares: '+r.candidate_coverage.preliminary_ordinary,
+            '- Inspecoes AST/contrato avaliadas: '+r.candidate_coverage.source_contract_scans_evaluated,
+            '- Inspecoes AST/contrato inconclusivas: '+r.candidate_coverage.source_contract_scans_incomplete,
+            '- Bloqueados por sinais antes do grafo: '+r.candidate_coverage.signal_blocked_before_graph,
+            '- Candidatos presentes na arvore do fork: '+r.candidate_coverage.candidates_present_in_fork_graph,
+            '- Candidatos ausentes na arvore do fork: '+r.candidate_coverage.candidates_absent_in_fork_graph,
+            '- Candidatos com consumidores protegidos: '+r.candidate_coverage.candidates_with_protected_importers,
+            '- Candidatos ligados a lote inseguro: '+r.candidate_coverage.candidates_coupled_to_unsafe_changes,
+            '- A cobertura e diagnostica; nenhum numero acima autoriza prepare.',
             '',
             '## Classificação real',
             ...Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).map(([s,n])=>'- '+s+': '+n),
@@ -187,16 +234,20 @@ jobs:
             '- Este relatório é classificação estática real, não equivalência semântica nem prova de runtime.',
             '- Nenhum candidato deve ser preparado automaticamente.',
             '- Verifique auth/RBAC/RLS, onboarding, IA gerenciada, credenciais, auditoria, agentes, banco e mensagens antes de qualquer merge.',
-            '- JSON integral em plan.json e matriz nominal em matrix-787.csv.',
+            '- JSON integral em plan.json, cobertura detalhada em ast-coverage-354.json e matriz nominal em matrix-787.csv.',
             ''
           ].join('\n');
           fs.writeFileSync(path.join(dest,'summary.md'),md);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,md.slice(0,15000));
-          console.log(JSON.stringify({totals:r.totals,gate:r.gate,dependency_scan:r.dependency_scan,ordinary_candidates:ordinary.length,ordinary_statuses:ordinary.reduce((o,f)=>(o[f.status]=(o[f.status]||0)+1,o),{}),eligible_not_prepared:eligible.length}));
+          console.log(JSON.stringify({totals:r.totals,gate:r.gate,dependency_scan:r.dependency_scan,
+            candidate_coverage:r.candidate_coverage,
+            ordinary_candidates:ordinary.length,
+            ordinary_statuses:ordinary.reduce((o,f)=>(o[f.status]=(o[f.status]||0)+1,o),{}),
+            eligible_not_prepared:eligible.length}));
           NODE
 
           test -z "$(git -C "$scratch/repo" status --porcelain)"
-          ( cd "$scratch/evidence" && sha256sum plan.json matrix-787.csv summary.md provenance.txt > SHA256SUMS )
+          ( cd "$scratch/evidence" && sha256sum plan.json matrix-787.csv ast-coverage-354.json summary.md provenance.txt > SHA256SUMS )
           echo "Ensaio read-only e evidencias geradas no runner temporario"
       - name: Publicar plano real e matriz nominal como artefato
         if: always()
