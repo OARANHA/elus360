@@ -283,6 +283,64 @@ export function changedRiskCouplings(candidatePaths,unsafePaths,graph) {
   }
   return result;
 }
+/**
+ * Evidence-only: shortest import-chain distance from a candidate to a changed
+ * hard-review file. The conservative changedRiskCouplings gate is unchanged.
+ * A connected component is NOT a direct contract dependency.
+ *
+ * graph.reverse maps dependency -> consumer. Traversal is deliberately
+ * bidirectional for comparability with the existing conservative gate, but
+ * exposes direction and distance instead of returning the entire component.
+ */
+export function nearestUnsafeRiskEvidence(candidatePaths,unsafePaths,graph) {
+  const adjacent=new Map();
+  const add=(from,to,direction)=>{
+    const a=adjacent.get(from)??[];
+    a.push({path:to,direction});
+    adjacent.set(from,a);
+  };
+  for(const [dependency,consumers] of graph.reverse) for(const consumer of consumers) {
+    add(dependency,consumer,"imported_by");
+    add(consumer,dependency,"imports");
+  }
+  const risk=new Set(unsafePaths);
+  const result=new Map();
+  for(const candidate of candidatePaths) {
+    const start=canonical(candidate);
+    // Existing graph keys normally include extensions; preserve exact first.
+    const origin=adjacent.has(candidate)?candidate:
+      [...adjacent.keys()].find(path=>canonical(path)===start)??candidate;
+    const visited=new Set([origin]), queue=[{path:origin,distance:0,first_direction:null,via:[origin]}];
+    let nearest=null, examples=[],firstDirections=new Set(),directRisk=0;
+    for(let i=0;i<queue.length;i++){
+      const at=queue[i];
+      if(nearest!==null && at.distance>nearest) break;
+      if(at.distance>0 && risk.has(at.path)) {
+        nearest=at.distance;
+        firstDirections.add(at.first_direction);
+        if(examples.length<3) examples.push({path:at.path,chain:at.via});
+        continue;
+      }
+      if(nearest!==null) continue;
+      for(const edge of adjacent.get(at.path)??[]){
+        if(at.distance===0 && risk.has(edge.path)) directRisk++;
+        if(visited.has(edge.path)) continue;
+        visited.add(edge.path);
+        queue.push({path:edge.path,distance:at.distance+1,
+          first_direction:at.first_direction??edge.direction,
+          via:at.via.length<12?[...at.via,edge.path]:[at.via[0],"...",at.path,edge.path]});
+      }
+    }
+    result.set(candidate,{nearest_distance:nearest,
+      classification:nearest===null?"no_static_path":nearest===1?"direct":
+        nearest===2?"two_hops":"indirect_three_or_more",
+      direct_unsafe_neighbors:directRisk,
+      first_hop_directions:[...firstDirections].sort(),
+      nearest_risk_examples:examples});
+  }
+  return result;
+}
+
 export function protectedConsumers(path,dependents) {return dependents.get(canonical(path))??[];}
 export function directProtectedDependents(changedPaths,sources) {
   const graph=dependencyGraph(sources),result=new Map();
