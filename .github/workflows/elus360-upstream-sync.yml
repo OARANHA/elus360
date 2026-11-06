@@ -106,9 +106,36 @@ jobs:
           cache: pnpm
       - name: Instalar dependencias do fork sem executar scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
+      # O checkout deste job tem origin=OARANHA/elus360, SEM release própria.
+      # O script conferir-isolamento-do-kit.sh usa refs/tags locais antes
+      # de consultar origin. Buscar explicitamente as tags OFICIAIS e validar
+      # object ID anotado + commit + blob, sem confiar no fork nem na API móvel.
+      - name: Gate 8 - verificar releases oficiais e fixar tags do kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags --depth=1 \
+            https://github.com/melgarafael/DeskcommCRM.git \
+            refs/tags/v1.102.0:refs/tags/v1.102.0 \
+            refs/tags/v1.63.0:refs/tags/v1.63.0
+
+          test "$(git cat-file -t refs/tags/v1.102.0)" = tag
+          test "$(git rev-parse refs/tags/v1.102.0)" = 1d6dcd2b6a4295ad414d27cde30971690a5d342e
+          test "$(git rev-parse 'refs/tags/v1.102.0^{commit}')" = 4b5815721710c9b1e99078322593838fda1ee740
+          test "$(git rev-parse 'refs/tags/v1.102.0:hostgator-setup-kit/update.sh')" = 6a229ef11d85207105e9db05b77ceab6026f39d3
+
+          test "$(git cat-file -t refs/tags/v1.63.0)" = tag
+          test "$(git rev-parse refs/tags/v1.63.0)" = 093e0656a8c6895659878445018395214ab44561
+          test "$(git rev-parse 'refs/tags/v1.63.0^{commit}')" = 0fd9bda24fac7430dbb240e87c35cc9fd7ce7633
+          test "$(git rev-parse 'refs/tags/v1.63.0:hostgator-setup-kit/update.sh')" = 51a138fc616a4f562b0a3e93fe89976747e1c69c
+
+          echo "Gate 8: releases oficiais pinadas: v1.102.0 e v1.63.0 (tags anotadas, commits e scripts verificados)"
       - name: Gate 8 - baseline instalado/reaplicado e invariantes em Docker efemero
         env:
           TEST_DB_IMAGE: pgvector/pgvector:pg15
+          # A release stable/latest OFICIAL em 06/11/2026; o script do kit
+          # lê estas tags locais verificadas e não tenta buscá-las no fork.
+          CONFERENCIA_KIT_RELEASE: v1.102.0
         run: |
           pnpm test:db \
             tests/invariants/elus-upstream-gate8-contratos-sql.test.ts \
