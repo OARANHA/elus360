@@ -61,6 +61,9 @@ def main():
     upstream_only=[];fork_only=[];merged=[];unresolved=[];equivalent=[];workflows_pending=[]
     for path in sorted(set(A)|set(B)|set(C)):
         old,ours,new=A.get(path),B.get(path),C.get(path)
+        if path.startswith(".github/workflows/"):
+            if old!=new: workflows_pending.append(path)
+            continue
         if old==new:
             if old!=ours: fork_only.append(path)
             continue
