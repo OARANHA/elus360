@@ -383,6 +383,12 @@ describe("nenhum job pode ser desligado por uma condição — `skipped` conta c
     expect(jobs.filter((j) => j.condicao === null).length).toBeGreaterThan(0);
   });
 
+  it("o build legado ELUS é somente smoke — sem permissão de publicar imagens", () => {
+    const legado = readFileSync(join(DIR, "build-elus360.yml"), "utf8");
+    expect(legado).toMatch(/^ {10}push: false$/m);
+    expect(legado).not.toMatch(/^\s+packages:\s*write\s*$/m);
+    expect(legado).not.toMatch(/^\s+- uses: docker\/login-action/m);
+  });
   it("jobs de publicação do upstream não executam escrita no fork ELUS360", () => {
     for (const chave of [
       "release.yml::abrir-pr-de-release", "release.yml::cortar-tag",
