@@ -73,6 +73,16 @@ Aresta `imports` indica dependência estática A→B, mas `imported_by` indica c
 
 **Hipótese para um gate futuro:** investigar um scanner de imports dinâmicos de diretórios limitados, com testes de path traversal, symlink, extensão, erros de leitura, chamadas indiretas e módulos ausentes. Não efetuar alteração de regra agora; nenhuma resolução foi comprovada.
 
+## Auditoria de cobertura existente na base ELUS
+
+As árvores Git completas do fork (11.067 entradas, `truncated:false`) e do target (11.339 entradas, `truncated:false`) foram consultadas por SHA de árvore. Encontrados, em ambos, testes diretamente associados a `lib/automation/actions/add-tag`, `lib/automation/texto-do-followup`, `lib/channels/zernio/ingest`, `lib/cobranca/uso`, `lib/cobranca/visao-geral`, `lib/crm-b2b/import-process` e `lib/wacalls/events-bridge`.
+
+**Diferença importante:** o target contém `lib/cobranca/visao-geral-postgrest-limite.test.ts`, ausente na base do fork. O teste preexistente de `texto-do-followup` cobre texto/reserva, **não** a nova consulta de campos de pipeline. O teste preexistente de `cobranca/uso` confirma a antiga contagem sem o novo caso QR sem telefone. O teste preexistente de `crm-b2b/import-process` cobre documentos CNPJ, não comprova dedupe por telefone extra. O teste de `wacalls/events-bridge-auth` mede autorização da ponte, não o novo SQL de `contact_phones`. Não inferir cobertura da mudança pela coincidência de nomes.
+
+O workflow passou a solicitar Vitest para **nove arquivos de teste existentes** do fork (incluindo `app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts` e `app/api/v1/ai/routers/auth-dual.test.ts`) e os **seis testes de Gate 6**. Essas execuções são baseline, com código ELUS anterior à atualização. Provas ainda faltantes: testes novos para telefone extra cross-tenant, guard de WABA no backend, seleção do sender canônico, exportação de endereço LGPD, paridade de trigger de cobrança, perda de dados por consulta falha, testes adversariais de imports dinâmicos, sabotagem isolada, E2E e prova em par quando houver agente.
+
+**Não afirmar PASS** desses novos checks antes de confirmar resultado CI do SHA que os contém. Nenhum teste de banco descartável ou E2E de app foi executado nesta etapa.
+
 ## Testes e aceite
 
 Publicado `scripts/elus-upstream-gate6-evidence.mjs`: recebe `plan.json` e `gate5-evidence.json`, confere SHAs oficiais, contagens, triades e status bloqueados, registra razões e propõe prioridades. **Não faz integração e não possui comando de preparo.**
