@@ -26,6 +26,12 @@ de menor precedência e registre.
 
 ---
 
+## Skills do ELUS360
+
+- [Adoção e sincronização das skills](elus360/skills-adocao.md) — governança, versões do ChatGPT e checklist.
+- [elus-doutrina](../.agents/skills/elus-doutrina/SKILL.md) — arquitetura, segurança e contratos do fork.
+- [elus-contribuir](../.agents/skills/elus-contribuir/SKILL.md) — desenvolvimento, CI, testes e reconciliação upstream.
+
 ## 1. Comece por aqui
 
 | Doc | Para quê |

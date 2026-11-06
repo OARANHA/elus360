@@ -12,6 +12,19 @@
 
 ---
 
+## ELUS360 — skills de desenvolvimento específicas do fork
+
+Quando o trabalho tiver como destino OARANHA/elus360, consultar as adaptações versionadas
+[elus-doutrina](.agents/skills/elus-doutrina/SKILL.md) para arquitetura/segurança e
+[elus-contribuir](.agents/skills/elus-contribuir/SKILL.md) para PRs, CI, testes e upstream.
+O procedimento de adoção e sincronização do plugin está em
+[docs/elus360/skills-adocao.md](docs/elus360/skills-adocao.md).
+São orientações subordinadas a esta doutrina e às specs; não substituem fonte viva,
+testes, autorização humana nem os gates de integração. Skills oficiais DeskcommCRM
+permanecem disponíveis e devem ser consultadas na revisão real do upstream.
+
+---
+
 ## Visão (1 parágrafo)
 
 DeskcommCRM é um sistema operacional de vendas open source com agentes de IA nativos — multi-nicho (e-commerce, clínicas, imobiliárias, infoprodutos, serviços), com WhatsApp como canal primário (via WAHA). Agentes com RAG por tenant atendem, qualificam e movem o funil junto com humanos; CRM inteiro exposto via MCP. Monetização = self-host em VPS (parceria HostGator), não assinatura. Arquitetura multi-tenant com RLS desde o dia 1; LGPD nativa. Posicionamento completo: `VISION.md`.

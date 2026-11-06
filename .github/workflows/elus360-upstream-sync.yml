@@ -6,7 +6,33 @@ on:
       - "docs/elus360/extension-contract.md"
       - "docs/elus360/upstream-sync.md"
       - "scripts/elus-upstream-prepare.mjs"
+      - "scripts/elus-upstream-reconcile.mjs"
+      - "scripts/elus-upstream-contract-risk.mjs"
+      - "scripts/elus-upstream-dependency-risk.mjs"
+      - "scripts/elus-upstream-precision-diagnostics.mjs"
+      - "scripts/elus-upstream-gate5-evidence.mjs"
+      - "scripts/elus-upstream-gate6-evidence.mjs"
+      - "scripts/elus-upstream-real-tree-benchmark.mjs"
+      - "docs/elus360/upstream-reconcile-gate2.md"
       - "tests/operational/elus-upstream-prepare.test.mjs"
+      - "tests/operational/elus-upstream-reconcile.test.mjs"
+      - "tests/operational/elus-upstream-gate5.test.mjs"
+      - "tests/operational/elus-upstream-gate6.test.mjs"
+      - "tests/operational/elus-upstream-gate7-functional-compare.test.mjs"
+      - "tests/invariants/elus-upstream-gate8-contratos-sql.test.ts"
+      - "tests/invariants/elus-upstream-gate9-emit-event-boundaries.test.ts"
+      - "docs/elus360/upstream-gate9-event-boundary.md"
+      - "docs/elus360/upstream-gate10-event-hardening-proposal.md"
+      - "scripts/elus-upstream-gate10-inventory.mjs"
+      - "tests/operational/elus-upstream-gate10-inventory.test.mjs"
+      - "scripts/elus-upstream-gate10-classify.mjs"
+      - "tests/operational/elus-upstream-gate10-classify.test.mjs"
+      - "tests/invariants/elus-upstream-gate10-http-jwt.test.ts"
+      - "docs/elus360/upstream-gate10-classification-http.md"
+      - "docs/elus360/upstream-gate8-contracts.md"
+      - "docs/elus360/upstream-gate7-functional.md"
+      - "docs/elus360/upstream-gate6-review.md"
+      - "docs/elus360/upstream-gate5-review.md"
       - ".github/workflows/elus360-upstream-sync.yml"
   workflow_dispatch:
 
@@ -18,10 +44,562 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.9"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: pnpm
+      - name: Instalar dependencias para analisador AST
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Sintaxe do analisador
-        run: node --check scripts/elus-upstream-prepare.mjs
+        run: |
+          node --check scripts/elus-upstream-prepare.mjs
+          node --check scripts/elus-upstream-reconcile.mjs
+          node --check scripts/elus-upstream-contract-risk.mjs
+          node --check scripts/elus-upstream-dependency-risk.mjs
+          node --check scripts/elus-upstream-precision-diagnostics.mjs
+          node --check scripts/elus-upstream-gate5-evidence.mjs
+          node --check scripts/elus-upstream-gate6-evidence.mjs
+          node --check scripts/elus-upstream-real-tree-benchmark.mjs
+          node --check tests/operational/elus-upstream-gate7-functional-compare.test.mjs
       - name: Gates sem rede externa, banco ou Docker
-        run: node --test tests/operational/elus-upstream-prepare.test.mjs
+        run: |
+          node --test tests/operational/elus-upstream-prepare.test.mjs
+          node --test tests/operational/elus-upstream-reconcile.test.mjs
+          node --test tests/operational/elus-upstream-gate5.test.mjs
+          node --test tests/operational/elus-upstream-gate6.test.mjs
+      # Gate 10 nao certifica seguranca: scanner de fontes e testes do proprio
+      # inventario. O resultado e uma lista de CANDIDATOS para revisar.
+      - name: Gate 10 - mapa lexical do barramento (somente leitura)
+        run: |
+          node --check scripts/elus-upstream-gate10-inventory.mjs
+          node --check tests/operational/elus-upstream-gate10-inventory.test.mjs
+          node --check scripts/elus-upstream-gate10-classify.mjs
+          node --check tests/operational/elus-upstream-gate10-classify.test.mjs
+          node --test tests/operational/elus-upstream-gate10-inventory.test.mjs tests/operational/elus-upstream-gate10-classify.test.mjs
+          mkdir -p gate10-evidence
+          node scripts/elus-upstream-gate10-inventory.mjs --output gate10-evidence/inventory.json
+          node scripts/elus-upstream-gate10-classify.mjs --output gate10-evidence/inventory-classified.json
+      - name: Gate 10 - artefato de candidatos, nao aceite de seguranca
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elus360-gate10-inventory
+          path: |
+            gate10-evidence/inventory.json
+            gate10-evidence/inventory-classified.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Gate 6 - testes direcionados do fork sem atualizacao upstream
+        run: |
+          pnpm exec vitest run \
+            lib/automation/actions/add-tag.test.ts \
+            lib/automation/texto-do-followup.test.ts \
+            lib/channels/zernio/ingest-telefone-ganho.test.ts \
+            lib/cobranca/uso.test.ts \
+            lib/cobranca/visao-geral.test.ts \
+            lib/crm-b2b/import-process.test.ts \
+            lib/wacalls/events-bridge-auth.test.ts \
+            'app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts' \
+            app/api/v1/ai/routers/auth-dual.test.ts
+      # Baseline only: these tests do not exercise upstream changes until merged in
+      # an isolated, explicitly approved integration branch.
+      # Baseline regressivo da arvore ELUS: nao exercita os arquivos do target.
+      - name: Gate 7 - regressao negativa de auth tenant IA mensagens e automacoes (fork)
+        run: |
+          pnpm exec vitest run \
+            lib/api/auth-dual.test.ts \
+            tests/unit/versao-do-agente-referencias-da-org.test.ts \
+            lib/elus360/ai-managed/authorize-version-write.test.ts \
+            lib/elus360/ai-managed/server.test.ts \
+            lib/messaging/remetente-de-grupo.test.ts \
+            lib/automation/actions/send-ai-message-restricao-comercial.test.ts
+      - name: Benchmark AST de arvore real (read-only)
+        run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
+
+  gate8-contratos-postgresql-descartavel:
+    name: Gate 8 - contratos SQL reais (PostgreSQL descartavel)
+    needs: contrato-upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.9"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Instalar dependencias do fork sem executar scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      # O checkout deste job tem origin=OARANHA/elus360, SEM release própria.
+      # O script conferir-isolamento-do-kit.sh usa refs/tags locais antes
+      # de consultar origin. Buscar explicitamente as tags OFICIAIS e validar
+      # object ID anotado + commit + blob, sem confiar no fork nem na API móvel.
+      - name: Gate 8 - verificar releases oficiais e fixar tags do kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags --depth=1 \
+            https://github.com/melgarafael/DeskcommCRM.git \
+            refs/tags/v1.102.0:refs/tags/v1.102.0 \
+            refs/tags/v1.63.0:refs/tags/v1.63.0
+
+          test "$(git cat-file -t refs/tags/v1.102.0)" = tag
+          test "$(git rev-parse refs/tags/v1.102.0)" = 1d6dcd2b6a4295ad414d27cde30971690a5d342e
+          test "$(git rev-parse 'refs/tags/v1.102.0^{commit}')" = 4b5815721710c9b1e99078322593838fda1ee740
+          test "$(git rev-parse 'refs/tags/v1.102.0:hostgator-setup-kit/update.sh')" = 6a229ef11d85207105e9db05b77ceab6026f39d3
+
+          test "$(git cat-file -t refs/tags/v1.63.0)" = tag
+          test "$(git rev-parse refs/tags/v1.63.0)" = 093e0656a8c6895659878445018395214ab44561
+          test "$(git rev-parse 'refs/tags/v1.63.0^{commit}')" = 0fd9bda24fac7430dbb240e87c35cc9fd7ce7633
+          test "$(git rev-parse 'refs/tags/v1.63.0:hostgator-setup-kit/update.sh')" = 51a138fc616a4f562b0a3e93fe89976747e1c69c
+
+          echo "Gate 8: releases oficiais pinadas: v1.102.0 e v1.63.0 (tags anotadas, commits e scripts verificados)"
+      - name: Gate 8 - baseline instalado/reaplicado e invariantes em Docker efemero
+        env:
+          TEST_DB_IMAGE: pgvector/pgvector:pg15
+          # A release stable/latest OFICIAL em 06/11/2026; o script do kit
+          # lê estas tags locais verificadas e não tenta buscá-las no fork.
+          CONFERENCIA_KIT_RELEASE: v1.102.0
+        run: |
+          pnpm test:db \
+            tests/invariants/elus-upstream-gate8-contratos-sql.test.ts \
+            tests/invariants/elus-upstream-gate9-emit-event-boundaries.test.ts \
+            tests/invariants/elus-upstream-gate10-http-jwt.test.ts \
+            tests/invariants/add-tag-concorrente-nao-apaga.test.ts \
+            tests/invariants/cobranca-reconciliacao.test.ts \
+            tests/invariants/cobranca-isolamento.test.ts
+      # scripts/test-db.sh cria container efemero, valida baseline em duas
+      # aplicacoes e remove container+volume via trap mesmo sob falha.
+      # Nao conecta a banco externo nem ao Supabase do usuario.
+
+  ensaio-oficial-real-readonly:
+    name: Ensaio oficial de reconcile plan (read-only)
+    needs: contrato-upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ba24d4d366b7caf056b88553e0ed434cb0fb46de
+      TARGET_SHA: ca37cb7f2a35c1a0f6abc968139dd263b20ccb36
+      FORK_SHA: 749aaf8fbb25b46dddd9138219e2ac032cc83336
+    steps:
+      - name: Checkout apenas dos scripts do gate
+        uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.9"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Instalar parser TypeScript sem scripts externos
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Obter commits e tags pinadas em Git temporario e executar somente plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/elus-upstream-official.XXXXXXXX")"
+          mkdir -p "$scratch/repo" "$scratch/evidence"
+          printf 'ARTIFACT_DIR=%s\n' "$scratch/evidence" >> "$GITHUB_ENV"
+          git -C "$scratch/repo" init -q
+          git -C "$scratch/repo" remote add upstream https://github.com/melgarafael/DeskcommCRM.git
+          git -C "$scratch/repo" fetch --quiet --no-tags upstream \
+            refs/tags/v1.94.0:refs/tags/elus-verify-v194 \
+            refs/tags/v1.95.0:refs/tags/elus-verify-v195
+          git -C "$scratch/repo" remote add fork https://github.com/OARANHA/elus360.git
+          git -C "$scratch/repo" fetch --quiet --no-tags fork "$FORK_SHA"
+          git -C "$scratch/repo" update-ref refs/audit/fork "$FORK_SHA"
+
+          test "$(git -C "$scratch/repo" cat-file -t refs/tags/elus-verify-v194)" = tag
+          test "$(git -C "$scratch/repo" cat-file -t refs/tags/elus-verify-v195)" = tag
+          test "$(git -C "$scratch/repo" rev-parse refs/tags/elus-verify-v194)" = 9b20e5983de83dadadd62cb43d68ff55c5336247
+          test "$(git -C "$scratch/repo" rev-parse refs/tags/elus-verify-v195)" = 317229a9f5e25a310fafc7e9f42e93e14d2bd7fe
+          test "$(git -C "$scratch/repo" rev-parse 'refs/tags/elus-verify-v194^{commit}')" = "$BASE_SHA"
+          test "$(git -C "$scratch/repo" rev-parse 'refs/tags/elus-verify-v195^{commit}')" = "$TARGET_SHA"
+          test "$(git -C "$scratch/repo" rev-parse 'refs/audit/fork^{commit}')" = "$FORK_SHA"
+          test "$(git -C "$scratch/repo" rev-parse "$BASE_SHA^{tree}")" = a337f7a1ea64c9bbe4d13cb82a25f17401f03616
+          test "$(git -C "$scratch/repo" rev-parse "$TARGET_SHA^{tree}")" = 8253470b44c82323912e352615ea385e69965012
+          test "$(git -C "$scratch/repo" rev-parse "$FORK_SHA^{tree}")" = d5691861a3c39668dcabc4ed62046fd13259936b
+          git -C "$scratch/repo" merge-base --is-ancestor "$BASE_SHA" "$TARGET_SHA"
+          git -C "$scratch/repo" fsck --connectivity-only --no-reflogs --no-dangling
+
+          {
+            printf 'base=%s\n' "$BASE_SHA"
+            printf 'target=%s\n' "$TARGET_SHA"
+            printf 'fork=%s\n' "$FORK_SHA"
+            printf 'gate_source=%s\n' "$GITHUB_SHA"
+            printf 'base_tag_object=9b20e5983de83dadadd62cb43d68ff55c5336247\n'
+            printf 'target_tag_object=317229a9f5e25a310fafc7e9f42e93e14d2bd7fe\n'
+            printf 'repo_is_temporary=true\n'
+            printf 'operation=plan_only\n'
+          } > "$scratch/evidence/provenance.txt"
+
+          (
+            cd "$scratch/repo"
+            node "$GITHUB_WORKSPACE/scripts/elus-upstream-reconcile.mjs" plan \
+              --base "$BASE_SHA" --target "$TARGET_SHA" --fork "$FORK_SHA"
+          ) > "$scratch/evidence/plan.json"
+
+          node --input-type=module - "$scratch/evidence/plan.json" "$scratch/evidence" <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const file=process.argv[2], dest=process.argv[3];
+          const r=JSON.parse(fs.readFileSync(file,'utf8'));
+          const refs={base:process.env.BASE_SHA,target:process.env.TARGET_SHA,fork:process.env.FORK_SHA};
+          if (r.mode!=='read_only' || r.tool!=='elus-upstream-reconcile') throw Error('NOT_READ_ONLY_PLAN');
+          for (const [key,value] of Object.entries(refs)) if(r.refs?.[key]!==value) throw Error('REF_MISMATCH:'+key);
+          if(!Array.isArray(r.files)||r.files.length!==787||r.totals.changed!==787) throw Error('INCOMPLETE_OFFICIAL_DELTA');
+          if(new Set(r.files.map(f=>f.path)).size!==787) throw Error('DUPLICATE_PATH');
+          const byStatus={};const bySignal={};
+          for(const f of r.files){
+            byStatus[f.status]=(byStatus[f.status]||0)+1;
+            for(const signal of f.signals||[]) bySignal[signal]=(bySignal[signal]||0)+1;
+          }
+          const ordinary=r.files.filter(f=>f.preliminary_status==='safe_to_prepare');
+          if(ordinary.length!==354) throw Error('PRELIMINARY_CANDIDATE_DRIFT:'+ordinary.length);
+          if(r.candidate_coverage?.preliminary_ordinary!==ordinary.length) throw Error('COVERAGE_MISMATCH');
+          if(!r.dependency_scan?.executed || r.dependency_scan?.scanned<=0) throw Error('FALSE_GRAPH_COMPLETENESS');
+          if(r.candidate_coverage?.source_contract_scans_evaluated+
+             r.candidate_coverage?.source_contract_scans_incomplete!==ordinary.length)
+            throw Error('SOURCE_AST_COVERAGE_INCONSISTENT');
+          if(ordinary.some(f=>!f.candidate_analysis?.dependency_graph ||
+            typeof f.candidate_analysis?.source_contract_scan!=='string' ||
+            typeof f.candidate_analysis?.ast_precision?.executed!=='boolean' ||
+            typeof f.candidate_analysis?.review_bucket!=='string' ||
+            f.candidate_analysis?.authorization!=='none'))
+            throw Error('CANDIDATE_DIAGNOSTICS_MISSING');
+          const absence=r.candidate_coverage?.fork_graph_absence_reasons??{};
+          if(absence.present_in_fork_graph!==125 ||
+             absence.existing_test_excluded!==100 ||
+             absence.new_upstream_test_excluded!==84 ||
+             absence.new_upstream_source_not_in_fork!==45)
+            throw Error('CANDIDATE_ABSENCE_REASONS_DRIFT:'+JSON.stringify(absence));
+          const sum=o=>Object.values(o??{}).reduce((n,v)=>n+Number(v),0);
+          if(sum(r.candidate_coverage?.ast_precision_relations?.export)!==156 ||
+             sum(r.candidate_coverage?.ast_precision_relations?.initialization)!==171)
+            throw Error('AST_PRECISION_COVERAGE_MISMATCH');
+          if(sum(r.candidate_coverage?.manual_review_buckets)!==354)
+            throw Error('REVIEW_BUCKET_COVERAGE_MISMATCH');
+          const eligible=ordinary.filter(f=>f.status==='safe_to_prepare');
+          if(r.dependency_scan?.complete!==true && eligible.length) throw Error('FAIL_OPEN_ON_INCOMPLETE_SCAN');
+          const conflicted=[
+            '.env.example','.github/workflows/e2e.yml','supabase/baseline.sql',
+            'app/api/v1/cron/sync-model-catalog/route.ts',
+            'app/app/ai/agents/[id]/_components/AgentForm.tsx',
+            'lib/agent-engine/edge/llm/providers.ts',
+            'lib/ai/credenciais/guardar.ts',
+            'lib/ai/credenciais/login-codex.ts',
+            'lib/ai/runtime/agent.ts',
+            'lib/audit/actions.ts'
+          ];
+          const local=conflicted.map(p=>r.files.find(f=>f.path===p));
+          if(local.some(x=>!x||x.status==='safe_to_prepare')) throw Error('LOCAL_CONTRACT_UNPROTECTED');
+          const cell=x=>'"'+String(x??'').replaceAll('"','""')+'"';
+          const csv=[['path','impact','preliminary_status','status','signals','suggested_checks',
+            'source_contract_scan','lexical_retained','lexical_introduced','lexical_removed',
+            'protected_imports_retained','protected_imports_introduced',
+            'fork_graph_absence_reason','ast_export_relation','ast_effect_relation',
+            'graph_executed','graph_complete','present_in_fork','protected_importers_count',
+            'unsafe_neighbors_count','nearest_hard_risk_distance','review_bucket','authorization'].map(cell).join(',')];
+          for(const f of r.files) {
+            const a=f.candidate_analysis,lex=a?.lexical_signal_provenance,
+              imports=a?.protected_import_provenance,graph=a?.dependency_graph;
+            csv.push([
+              f.path,f.impact,f.preliminary_status,f.status,(f.signals||[]).join('|'),
+              (f.suggested_checks||[]).join('|'),a?.source_contract_scan??'',
+              (lex?.retained||[]).join('|'),(lex?.introduced||[]).join('|'),
+              (lex?.removed||[]).join('|'),(imports?.retained||[]).join('|'),
+              (imports?.introduced||[]).join('|'),a?.fork_graph_absence_reason??'',
+              a?.ast_precision?.export_relation??'',a?.ast_precision?.initialization_relation??'',
+              graph?.executed??'',graph?.complete??'',graph?.present_in_fork??'',
+              graph?.protected_importers_count??'',graph?.unsafe_changed_neighbors_count??'',
+              graph?.nearest_hard_risk?.nearest_distance??'',a?.review_bucket??'',
+              a?.authorization??''
+            ].map(cell).join(','));
+          }
+          fs.writeFileSync(path.join(dest,'matrix-787.csv'),csv.join('\n')+'\n');
+          const coverage={
+            refs:r.refs,
+            phase:'diagnostic_only_no_prepare',
+            result:r.gate,
+            dependency_scan:r.dependency_scan,
+            summary:r.candidate_coverage,
+            candidates:ordinary.map(f=>({
+              path:f.path,preliminary_status:f.preliminary_status,final_status:f.status,
+              signals:f.signals,suggested_checks:f.suggested_checks,
+              candidate_analysis:f.candidate_analysis
+            })),
+            local_divergences:local.map(f=>({
+              path:f.path,impact:f.impact,status:f.status,
+              signals:f.signals,suggested_checks:f.suggested_checks
+            }))
+          };
+          fs.writeFileSync(path.join(dest,'ast-coverage-354.json'),JSON.stringify(coverage,null,2)+'\n');
+          const humanReview=ordinary.filter(f=>
+            f.candidate_analysis.review_bucket==='potential_compatibility_manual_review').map(f=>({
+              path:f.path,status:f.status,
+              signals:f.signals,
+              fork_graph_absence_reason:f.candidate_analysis.fork_graph_absence_reason,
+              ast_precision:f.candidate_analysis.ast_precision,
+              nearest_hard_risk:f.candidate_analysis.dependency_graph?.nearest_hard_risk,
+              authorization:"none"
+            }));
+          fs.writeFileSync(path.join(dest,'manual-compatibility-review.json'),JSON.stringify({
+            disclaimer:"Review hints only. No automatic preparation, merge or approval.",
+            refs,graph_complete:r.dependency_scan.complete,review_candidates:humanReview
+          },null,2)+'\n');
+          const md=[
+            '# Ensaio real do reconciliador — DeskcommCRM v1.94.0 → v1.95.0',
+            '',
+            'Somente plan em repositório Git temporário; nenhum prepare, merge, SQL ou deploy.',
+            '',
+            '- Base: '+refs.base,
+            '- Target: '+refs.target,
+            '- Fork: '+refs.fork,
+            '- Gate source: '+process.env.GITHUB_SHA,
+            '- Caminhos reais: '+r.files.length,
+            '- Candidatos preliminares ordinários: '+ordinary.length,
+            '- Candidatos classificados safe_to_prepare: '+eligible.length+' (não preparados)',
+            '- Gate: '+r.gate,
+            '- dependency_scan.executed: '+String(r.dependency_scan?.executed),
+            '- dependency_scan.complete: '+String(r.dependency_scan?.complete),
+            '- dependency_scan.scanned: '+String(r.dependency_scan?.scanned),
+            '- dependency_scan.unresolved_count: '+String(r.dependency_scan?.unresolved_count),
+            '',
+            '## Cobertura diagnostica dos candidatos inicialmente ordinarios',
+            '- Candidatos preliminares: '+r.candidate_coverage.preliminary_ordinary,
+            '- Inspecoes AST/contrato avaliadas: '+r.candidate_coverage.source_contract_scans_evaluated,
+            '- Inspecoes AST/contrato inconclusivas: '+r.candidate_coverage.source_contract_scans_incomplete,
+            '- Bloqueados por sinais antes do grafo: '+r.candidate_coverage.signal_blocked_before_graph,
+            '- Candidatos presentes na arvore do fork: '+r.candidate_coverage.candidates_present_in_fork_graph,
+            '- Candidatos ausentes na arvore do fork: '+r.candidate_coverage.candidates_absent_in_fork_graph,
+            '- Candidatos com consumidores protegidos: '+r.candidate_coverage.candidates_with_protected_importers,
+            '- Candidatos com importacoes protegidas retidas: '+r.candidate_coverage.candidates_with_retained_protected_imports,
+            '- Candidatos com importacoes protegidas novas: '+r.candidate_coverage.candidates_with_introduced_protected_imports,
+            '- Candidatos ligados a lote inseguro: '+r.candidate_coverage.candidates_coupled_to_unsafe_changes,
+            '- Ausencias do grafo (motivos): '+JSON.stringify(r.candidate_coverage.fork_graph_absence_reasons),
+            '- Distancias para risco duro: '+JSON.stringify(r.candidate_coverage.nearest_hard_risk_distances),
+            '- Relacoes AST exportacao: '+JSON.stringify(r.candidate_coverage.ast_precision_relations.export),
+            '- Relacoes AST inicializacao: '+JSON.stringify(r.candidate_coverage.ast_precision_relations.initialization),
+            '- Grupos de revisao humana: '+JSON.stringify(r.candidate_coverage.manual_review_buckets),
+            '- A cobertura e diagnostica; nenhum numero acima autoriza prepare.',
+            '',
+            '## Classificação real',
+            ...Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).map(([s,n])=>'- '+s+': '+n),
+            '',
+            '## Sinais',
+            ...Object.entries(bySignal).sort((a,b)=>b[1]-a[1]).map(([s,n])=>'- '+s+': '+n),
+            '',
+            '## Dez divergências locais protegidas',
+            ...local.map(f=>'- '+f.path+': '+f.status+'; '+(f.signals||[]).join(', ')),
+            '',
+            '## Classificação dos 354 candidatos preliminares',
+            ...Object.entries(ordinary.reduce((o,f)=>(o[f.status]=(o[f.status]||0)+1,o),{})).map(([s,n])=>'- '+s+': '+n),
+            '',
+            '## Limites de aceite',
+            '- Este relatório é classificação estática real, não equivalência semântica nem prova de runtime.',
+            '- Nenhum candidato deve ser preparado automaticamente.',
+            '- Verifique auth/RBAC/RLS, onboarding, IA gerenciada, credenciais, auditoria, agentes, banco e mensagens antes de qualquer merge.',
+            '- JSON integral em plan.json, cobertura detalhada em ast-coverage-354.json e matriz nominal em matrix-787.csv.',
+            ''
+          ].join('\n');
+          fs.writeFileSync(path.join(dest,'summary.md'),md);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,md.slice(0,15000));
+          console.log(JSON.stringify({totals:r.totals,gate:r.gate,dependency_scan:r.dependency_scan,
+            candidate_coverage:r.candidate_coverage,
+            ordinary_candidates:ordinary.length,
+            ordinary_statuses:ordinary.reduce((o,f)=>(o[f.status]=(o[f.status]||0)+1,o),{}),
+            eligible_not_prepared:eligible.length}));
+          NODE
+
+          test -z "$(git -C "$scratch/repo" status --porcelain)"
+          ( cd "$scratch/evidence" && sha256sum plan.json matrix-787.csv ast-coverage-354.json manual-compatibility-review.json summary.md provenance.txt > SHA256SUMS )
+          echo "Ensaio read-only e evidencias geradas no runner temporario"
+      - name: Gate 5 - grafo AST do target e comparacao triadica dos 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$(dirname "$ARTIFACT_DIR")"
+          (
+            cd "$scratch/repo"
+            node "$GITHUB_WORKSPACE/scripts/elus-upstream-gate5-evidence.mjs" \
+              --base "$BASE_SHA" --target "$TARGET_SHA" --fork "$FORK_SHA" \
+              --plan "$ARTIFACT_DIR/plan.json"
+          ) > "$ARTIFACT_DIR/gate5-evidence.json"
+          node --input-type=module - "$ARTIFACT_DIR/gate5-evidence.json" "$ARTIFACT_DIR" <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const r=JSON.parse(fs.readFileSync(process.argv[2],"utf8")),dir=process.argv[3];
+          if(r.mode!=="read_only"||r.authorization!=="none"||
+             r.target_graph?.summary?.new_production_modules!==45||
+             r.triad12?.count!==12) throw Error("GATE5_INCOMPLETE");
+          const newFiles=r.target_graph.modules,review=r.triad12.candidates;
+          const directions=r.target_graph.distance_comparison_12;
+          if(!Array.isArray(directions)||directions.length!==12||
+             directions.some(x=>x.approval!=="none"))
+            throw Error("TARGET_FORK_RISK_COMPARISON_INCOMPLETE");
+          if(newFiles.some(x=>x.approval!=="none"||!x.source_in_target||x.source_in_fork))
+            throw Error("NEW_MODULE_APPROVAL_VIOLATION");
+          if(review.some(x=>x.approval!=="none"||!x.fork_same_as_base||!x.diff))
+            throw Error("TRIAD12_APPROVAL_VIOLATION");
+          const report=[
+            "# Gate 5 - grafo AST da arvore target oficial",
+            "",
+            "Diagnostico somente leitura, nao e prova de compatibilidade funcional.",
+            "- Target: "+r.refs.target,
+            "- Novos modulos de producao: "+newFiles.length,
+            "- Fontes target examinadas: "+r.target_graph.target_graph.sources,
+            "- Target graph complete: "+String(r.target_graph.target_graph.complete),
+            "- Imports resolvidos: "+r.target_graph.target_graph.module_edges,
+            "- Imports inconclusivos: "+r.target_graph.target_graph.unresolved_count,
+            "- Novos modulos diretamente consumidos por superficie protegida: "+
+              r.target_graph.summary.directly_imported_by_protected,
+            "- Novos modulos transitivamente consumidos por superficie protegida: "+
+              r.target_graph.summary.transitively_imported_by_protected,
+            "- Novos modulos que importam superficies protegidas: "+
+              r.target_graph.summary.modules_importing_protected,
+            "",
+            "## Comparacao de direcao e menor distancia: fork vs target (12 candidatos)",
+            "| Candidato | Distancia fork | Distancia target | Primeira direcao no target |",
+            "| --- | ---: | ---: | --- |",
+            ...directions.map(x=>"| "+x.path+" | "+
+              String(x.fork_distance??"sem caminho")+" | "+
+              String(x.target_distance??"sem caminho")+" | "+
+              x.target_first_hop_directions.join(", ")+" |"),
+            "",
+            "Arestas bidirecionais de imports; nao sao prova de fluxo executado.",
+            "",
+            "## Os 45 novos modulos (nao aprovados)",
+            "| Modulo | Imports | Consumidores | Protegidos transitivos | Checks obrigatorios |",
+            "| --- | ---: | ---: | ---: | --- |",
+            ...newFiles.map(x=>"| "+x.path+" | "+x.direct_import_count+" | "+
+              x.direct_consumer_count+" | "+x.transitive_protected_consumer_count+
+              " | "+x.required_checks.join(", ")+" |"),
+            "",
+            "**NENHUM modulo elegivel automaticamente.** Consulte gate5-evidence.json para as arestas e caminhos completos.",
+            ""
+          ].join("\n");
+          fs.writeFileSync(path.join(dir,"gate5-target-matrix.md"),report);
+          const fence=String.fromCharCode(96).repeat(3);
+          const triad=[
+            "# Gate 5 - diferencas triadicas dos 12 candidatos",
+            "",
+            "Fork igual a base nos 12 caminhos. As diferencas target sao reais e NAO autorizadas.",
+            "",
+            ...review.flatMap(x=>[
+              "## "+x.path,
+              "- Blobs: base="+x.oid.base+" target="+x.oid.target+" fork="+x.oid.fork,
+              "- Linhas adicionadas="+x.added_lines+", removidas="+x.removed_lines,
+              "- Estado real: "+x.actual_status+"; autorizacao="+x.approval,
+              "- Sinais: "+x.risk_signals.join(", "),
+              "- Testes: "+x.suggested_checks.join(", "),
+              "- Distancia ate risco duro (fork): "+String(x.nearest_hard_risk?.nearest_distance??"nao identificada"),
+              "- Distancia no target: "+String(directions.find(y=>y.path===x.path)?.target_distance??"sem caminho estatico"),
+              "",
+              fence+"diff",x.diff,fence,""
+            ])
+          ].join("\n");
+          fs.writeFileSync(path.join(dir,"gate5-triad12.md"),triad);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,report.slice(0,16000));
+          console.log(JSON.stringify({gate:"gate5_read_only",
+            target_graph:r.target_graph.target_graph,
+            target_summary:r.target_graph.summary,
+            review12:review.length,approved:0}));
+          NODE
+          test -z "$(git -C "$scratch/repo" status --porcelain)"
+          (cd "$ARTIFACT_DIR" && sha256sum plan.json matrix-787.csv ast-coverage-354.json \
+            manual-compatibility-review.json summary.md provenance.txt \
+            gate5-evidence.json gate5-target-matrix.md gate5-triad12.md > SHA256SUMS)
+      - name: Gate 6 - matriz de revisao fail-closed sem preparar upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/elus-upstream-gate6-evidence.mjs \
+            "$ARTIFACT_DIR/plan.json" \
+            "$ARTIFACT_DIR/gate5-evidence.json" > "$ARTIFACT_DIR/gate6-evidence.json"
+          node --input-type=module - "$ARTIFACT_DIR/gate6-evidence.json" "$ARTIFACT_DIR" <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const r=JSON.parse(fs.readFileSync(process.argv[2],"utf8")),dir=process.argv[3];
+          if(r.mode!=="read_only"||r.authorization!=="none"||
+             r.status!=="manual_review_required"||
+             r.counts?.reviewed12!==12||r.counts?.new_modules!==45||
+             r.counts?.safe_to_prepare!==0||
+             r.counts?.decisions?.compatible_for_human_review!==2||
+             r.counts?.decisions?.requires_adaptation!==5||
+             r.counts?.decisions?.blocked_pending_contract_proof!==5||
+             r.graph_complete!==false)
+             throw Error("GATE6_UNVERIFIED_OR_UNSAFE");
+          if(r.review12.some(x=>x.authorization!=="none"||x.tests.length<2)||
+             r.review45.some(x=>x.authorization!=="none"||!x.required_tests?.length))
+             throw Error("GATE6_EVIDENCE_MISSING");
+          const q=String.fromCharCode(96);
+          const header=[
+            "# Gate 6 - revisao individual dos 12 e priorizacao dos 45",
+            "",
+            "Somente revisao humana, NAO autorizacao de incorporacao.",
+            "- Base: "+r.refs.base,
+            "- Target: "+r.refs.target,
+            "- Fork: "+r.refs.fork,
+            "- Grafo completo: "+r.graph_complete,
+            "- Imports dinamicos inconclusivos no target: "+r.computed_imports.target_unresolved,
+            "- Aprovados para prepare: "+r.counts.safe_to_prepare,
+            "",
+            "## Doze candidatos",
+            "| Arquivo | Decisao | Risco confirmado no diff | Testes requeridos |",
+            "| --- | --- | --- | --- |",
+            ...r.review12.map(x=>"| "+q+x.path+q+" | "+x.decision+" | "+
+              x.reason.replaceAll("|","/")+" | "+x.tests.join(", ")+" |"),
+            "",
+            "## Novos modulos do target (45)",
+            "| Arquivo | Prioridade | Consumidores protegidos diretos | Transitivos | Imports protegidos |",
+            "| --- | --- | ---: | ---: | ---: |",
+            ...r.review45.map(x=>"| "+q+x.path+q+" | "+x.risk_tier+" | "+
+              x.graph_evidence.direct_protected_consumers+" | "+
+              x.graph_evidence.transitive_protected_consumer_count+" | "+
+              x.graph_evidence.imports_protected+" |"),
+            "",
+            "## Evidencias nao executadas",
+            ...r.limitations.map(x=>"- "+x),
+            "",
+            "Nenhuma categoria diagnostica promove safe_to_prepare ou dispensa revisao humana."
+          ].join("\n");
+          fs.writeFileSync(path.join(dir,"gate6-review.md"),header+"\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,header.slice(0,15000));
+          console.log(JSON.stringify({gate:"gate6_diagnostic_only",
+            counts:r.counts,graph_complete:r.graph_complete,
+            computed_imports:r.computed_imports,authorization:r.authorization}));
+          NODE
+          (cd "$ARTIFACT_DIR" && sha256sum plan.json matrix-787.csv ast-coverage-354.json \
+            manual-compatibility-review.json summary.md provenance.txt \
+            gate5-evidence.json gate5-target-matrix.md gate5-triad12.md \
+            gate6-evidence.json gate6-review.md > SHA256SUMS)
+      - name: Gate 7 - comparar execucao dos blobs fixos em VM isolada (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ELUS_COMPARE_GIT_REPO="$(dirname "$ARTIFACT_DIR")/repo" \
+          ELUS_GATE6_EVIDENCE="$ARTIFACT_DIR/gate6-evidence.json" \
+            node --test tests/operational/elus-upstream-gate7-functional-compare.test.mjs \
+              2>&1 | tee "$ARTIFACT_DIR/gate7-functional-compare.tap"
+          test -z "$(git -C "$(dirname "$ARTIFACT_DIR")/repo" status --porcelain)"
+          (cd "$ARTIFACT_DIR" && sha256sum plan.json matrix-787.csv ast-coverage-354.json \
+            manual-compatibility-review.json summary.md provenance.txt \
+            gate5-evidence.json gate5-target-matrix.md gate5-triad12.md \
+            gate6-evidence.json gate6-review.md gate7-functional-compare.tap > SHA256SUMS)
+      - name: Publicar plano real e matriz nominal como artefato
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elus360-official-reconcile-plan
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: warn
+          retention-days: 30
