@@ -30,6 +30,7 @@ import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
 
 vi.mock("@/lib/api/auth-dual", () => ({
   resolveAuthDual: vi.fn(),
@@ -38,6 +39,10 @@ vi.mock("@/lib/api/auth-dual", () => ({
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
+// Casos positivos exercitam autonomia concedida; o bloqueio é testado separadamente.
+vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
+  podeAlterarTecnicaDeVersao: vi.fn(async () => true),
+}));
 
 const ORG = "22222222-2222-4222-8222-222222222222";
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -233,17 +238,34 @@ let catalogo: Record<string, unknown>[];
 function adminFake() {
   gravados = {};
   const cliente = {
+    // A criação deve ser transacional: nenhuma escrita direta nos mocks de tabela.
+    async rpc(name: string, args: {
+      p_org: string;
+      p_agent: Record<string, unknown>;
+      p_version: Record<string, unknown>;
+      p_platform_bypass: boolean;
+    }) {
+      if (name !== "fn_elus_ai_agent_create_guarded" || args.p_org !== ORG ||
+          args.p_platform_bypass !== false) {
+        return { data: null, error: { code: "42501" } };
+      }
+      const agent = { ...args.p_agent, id: "ai_agents-id", organization_id: ORG };
+      const version = {
+        ...args.p_version, id: "ai_agent_versions-id", agent_id: agent.id, organization_id: ORG,
+      };
+      (gravados.ai_agents ??= []).push(agent);
+      (gravados.ai_agent_versions ??= []).push(version);
+      return { data: { agent, version }, error: null };
+    },
     from(tabela: string) {
       const fila = (gravados[tabela] ??= []);
       const cadeia: Record<string, unknown> = {};
       const devolve = () => cadeia;
-      cadeia.insert = (payload: Record<string, unknown>) => {
-        fila.push(payload);
-        return devolve();
+      cadeia.insert = (_payload: Record<string, unknown>) => {
+        throw new Error("INSERT direto proibido: " + tabela);
       };
-      cadeia.update = (payload: Record<string, unknown>) => {
-        fila.push({ __rollback: payload });
-        return devolve();
+      cadeia.update = (_payload: Record<string, unknown>) => {
+        throw new Error("UPDATE direto proibido: " + tabela);
       };
       cadeia.select = () => devolve();
       cadeia.eq = () => devolve();
@@ -301,9 +323,21 @@ beforeEach(() => {
     apiTokenId: null,
   } as unknown as Awaited<ReturnType<typeof resolveAuthDual>>);
   vi.mocked(createAdminClient).mockReturnValue(adminFake() as never);
+  vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValue(true);
 });
 
 describe("POST /api/v1/ai/agents — o par efetivo gravado (issue #2377)", () => {
+  it("sem autonomia técnica, recusa 403 e não entra no RPC de criação", async () => {
+    llmDaOrganizacao = { provider: "openai", default_model: "gpt-5.6-luna" };
+    vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValueOnce(false);
+    const res = await (await import("@/app/api/v1/ai/agents/route")).POST(
+      post({ name: "Tobias", system_prompt: "Atendente de testes" }),
+    );
+    expect(res.status).toBe(403);
+    expect(gravados.ai_agents).toBeUndefined();
+    expect(gravados.ai_agent_versions).toBeUndefined();
+  });
+
   it("instalação legada (openai + claude-sonnet-5) grava OpenAI, nunca Claude", async () => {
     llmDaOrganizacao = { provider: "openai", default_model: "claude-sonnet-5" };
     catalogo = [{ model_id: "gpt-5.6-luna", supports_tools: true, is_default_for_provider: true }];

@@ -233,7 +233,16 @@ describe("POST /api/v1/ai/agents — Modo B (corpo com `version`)", () => {
   it("nega criação técnica sem autonomia antes de chamar RPC ou gravar linhas", async () => {
     vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValueOnce(false);
     const res = await (await import("@/app/api/v1/ai/agents/route")).POST(
-      post({ name: "Tobias", system_prompt: "Atendente de testes", model: "anthropic/claude-sonnet-4-6" }),
+      post({
+        name: "Tobias",
+        version: {
+          system_prompt: "Atendente de testes",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          credential_id: null,
+          channel_session_id: null,
+        },
+      }),
     );
     expect(res.status).toBe(403);
     expect(gravados.ai_agents).toBeUndefined();

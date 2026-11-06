@@ -35,7 +35,17 @@ test("server action cria agente e draft apenas via RPC atômico", () => {
   const action = source.slice(start);
   assert.match(action, /fn_elus_ai_agent_create_guarded/);
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\.insert\(/);
-  assert.match(action, /requirePlatformAdminEscrita/);
+  const helper = readFileSync("lib/auth/escritaDeAdminOuRecusa.ts", "utf8");
+  assert.match(source, /import \{ escritaDeAdminOuRecusa \} from "@\/lib\/auth\/escritaDeAdminOuRecusa"/);
+  assert.match(helper, /await requirePlatformAdminEscrita\(\)/);
+  assert.match(helper, /err instanceof EscritaDePlatformAdminNegada/);
+  assert.match(action, /const guard = await ensureAdmin\(\)/);
+  const rpc = action.indexOf("await admin.rpc(");
+  const bypass = action.indexOf("p_platform_bypass: await (async () => {", rpc);
+  const guard = action.indexOf("await escritaDeAdminOuRecusa()", bypass);
+  const bypassEnd = action.indexOf("})(),", bypass);
+  assert.ok(rpc >= 0 && bypass > rpc && guard > bypass && bypassEnd > guard,
+    "RPC deve avaliar o bypass apenas com admin full/MFA, sob gate transacional");
 });
 
 test("editor de rascunhos usa gates e RPCs transacionais em ambos os caminhos", () => {
@@ -53,7 +63,12 @@ test("editor de rascunhos usa gates e RPCs transacionais em ambos os caminhos", 
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\s*\.update\(/);
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\s*\.insert\(/);
   assert.match(action, /p_platform_bypass: platformBypass/);
-  assert.match(action, /await requirePlatformAdminEscrita\(\)/);
+  const helper = readFileSync("lib/auth/escritaDeAdminOuRecusa.ts", "utf8");
+  assert.match(helper, /await requirePlatformAdminEscrita\(\)/);
+  assert.match(helper, /err instanceof EscritaDePlatformAdminNegada/);
+  const adminGuard = action.indexOf("await escritaDeAdminOuRecusa()");
+  assert.ok(adminGuard >= 0 && adminGuard < patch,
+    "admin full e MFA devem ser avaliados antes do RPC do rascunho");
   assert.match(action, /podeGerenciarIaDaPlataforma\(authUser\)/);
   assert.match(action, /p_agent_patch: cadastroPatch/);
   assert.doesNotMatch(action, /gravarCadastroDoAgente/);

@@ -20,6 +20,8 @@ vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async (
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn(async () => ({})) }));
+// Autonomia concedida ao tenant: não há superadmin full nem bypass de plataforma.
+vi.mock("@/lib/auth/server", () => ({ loadAuthUser: vi.fn(async () => null) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 vi.mock("@/lib/api/auth-dual", () => ({ resolveAuthDual: vi.fn(), tetoDeEscritaDoToken: vi.fn() }));
 vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
@@ -56,8 +58,9 @@ function bancoFalso(escritas: Array<{ tabela: string; valor: Linha }>) {
     ai_agent_versions: [{ id: VERSAO, organization_id: ORG, agent_id: AGENTE, status: "draft", followup: {} }],
   };
   return {
-    async rpc(name: string, args: { p_org: string; p_agent: string; p_version: string; p_patch: Linha }) {
+    async rpc(name: string, args: { p_org: string; p_agent: string; p_version: string; p_patch: Linha; p_platform_bypass: boolean }) {
       if (name !== "fn_elus_ai_version_patch_guarded" || args.p_org !== ORG ||
+          args.p_platform_bypass !== false ||
           args.p_agent !== AGENTE || args.p_version !== VERSAO) {
         return { data: { error: "version_not_found" }, error: null };
       }
