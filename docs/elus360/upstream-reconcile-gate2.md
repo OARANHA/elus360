@@ -476,9 +476,13 @@ A classificação e os sinais abaixo foram extraídos do `plan.json` da execuç�
 | `lib/audit/actions.ts` | `conflict_requires_review` | `tenant_isolation`, `messaging_events`, `exported_contract_change`; preservar eventos administrativos próprios ELUS |
 | `supabase/baseline.sql` | `protected_requires_review` | `non_source_asset`, `uninspectable_content`; jamais substituir/aplicar baseline sem gate de banco independente |
 
+### Separação de imports preservados e introduzidos
+
+Foi acrescentado diagnóstico AST de importações protegidas em `protectedImportProvenance`: para cada candidato preliminar, identifica módulos protegidos presentes em ambas as revisões (`retained`), acrescentados (`introduced`) ou removidos (`removed`). Esses indicadores complementam a proveniência lexical e **não substituem** a proteção conservadora existente em `changedModuleSignals`: um import mantido pode continuar implicando um contrato sensível. O resumo e o CSV do job oficial contabilizam candidatos com imports protegidos novos versus herdados. Acrescentado teste adversarial específico para essa distinção, sem alteração do status de aprovação.
+
 ### Testes e estado do Gate 3
 
-Foram publicados quatro testes adversariais em `tests/operational/elus-upstream-reconcile.test.mjs` para exigir: (i) análise do grafo mesmo sem `safe_to_prepare`; (ii) import computado ainda devolve `complete:false` e zero preparo; (iii) ausência real de candidato declara grafo **não executado** com `complete:null`; e (iv) distinguir sinal lexical herdado de introduzido sem remover bloqueio. Os cenários anteriores de mutações distribuídas, dependências, exclusões, renomeações, tenants, IA e credenciais permanecem.
+Foram publicados cinco testes adversariais em `tests/operational/elus-upstream-reconcile.test.mjs` para exigir: (i) análise do grafo mesmo sem `safe_to_prepare`; (ii) import computado ainda devolve `complete:false` e zero preparo; (iii) ausência real de candidato declara grafo **não executado** com `complete:null`; e (iv) distinguir sinal lexical herdado de introduzido sem remover bloqueio. Os cenários anteriores de mutações distribuídas, dependências, exclusões, renomeações, tenants, IA e credenciais permanecem.
 
 **Estado:** implementado em branch da PR #20, sem declarar execução/testes GREEN do novo HEAD antes da CI correspondente. A instrumentação não prova equivalência semântica; candidatos com indícios legítimos ou falsos positivos permanecem bloqueados. Pendente leitura do artefato novo para medir efetivamente cobertura de AST, distinguir bloqueios contextuais e preparar recomendações **somente de revisão**, nunca patches automáticos. Hindsight `Elus360` respondeu `UNAVAILABLE` em `recall` e KB nesta rodada; checkpoint versionado preserva a continuidade até nova sincronização.
 
