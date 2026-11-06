@@ -94,9 +94,27 @@ def main() -> None:
         require(symbol in appendix, "ELUS guard missing from appendix: " + symbol.decode())
         require(symbol not in upstream, "ELUS SQL collides with official upstream: " + symbol.decode())
 
-    expected = upstream + appendix
+    # The upstream anon ACL sweep must execute AFTER every custom ELUS function
+    # in both fresh install and UPDATE. Preserve the official sweep SQL verbatim
+    # and move only that contiguous block after the byte-identical ELUS appendix.
+    scan_start_marker = b"-- ---- VARREDURA anon:"
+    scan_end_marker = b"-- ---- Criador provis\xc3\xb3rio sai"
+    scan_start = upstream.find(scan_start_marker)
+    scan_end = upstream.find(scan_end_marker, scan_start)
+    require(scan_start >= 0 and scan_end > scan_start, "official anon ACL sweep bounds not found")
+    scan = upstream[scan_start:scan_end]
+    require(b"revoke" in scan.lower() and b"anon" in scan.lower(),
+            "official anon sweep has unexpected content")
+    expected = upstream[:scan_start] + upstream[scan_end:] + appendix + scan
     require(committed == expected,
-            "committed baseline does not equal exact official v1.102 baseline + ELUS v1.94 appendix")
+            "committed baseline must be exact official v1.102 (only anon sweep moved after unchanged ELUS appendix)")
+    after_sweep = committed[committed.find(scan_start_marker):]
+    require(not re.search(rb"^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?function", after_sweep, re.I | re.M),
+            "functions created after final anon sweep")
+    require(not re.search(rb"^[ \t]*grant[ \t][^;]*\bto\b[^;]*\banon\b", after_sweep, re.I | re.M),
+            "grant to anon after final anon sweep")
+    require(committed.count(scan_start_marker) == 1 and committed.endswith(scan),
+            "anon ACL sweep must be unique and final")
 
     report = json.loads(Path("docs/elus360/upgrade-v1102-candidate.json").read_text())
     hashes = {
