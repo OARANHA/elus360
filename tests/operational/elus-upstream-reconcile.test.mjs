@@ -928,7 +928,9 @@ test("exclusao de modulo compartilhado bloqueia consumidores ligados sem bloquea
     const target=git(f.cwd,"rev-parse","HEAD");
     git(f.cwd,"checkout","-q",base);
     const report=reconcile(base,target,base),by=Object.fromEntries(report.files.map(v=>[v.path,v]));
-    assert.equal(by["hooks/shared.ts"].status,"deletion_requires_review");
+    assert.equal(by["hooks/shared.ts"].status,"protected_requires_review");
+    assert.equal(by["hooks/shared.ts"].impact,"unclassified");
+    assert.equal(by["hooks/shared.ts"].status!=="safe_to_prepare",true);
     assert.equal(by["components/safe.tsx"].status,"contract_requires_review");
     assert.ok(by["components/safe.tsx"].signals.includes("unsafe_changed_dependency_chain"));
     assert.equal(by["components/independent.ts"].status,"safe_to_prepare");
