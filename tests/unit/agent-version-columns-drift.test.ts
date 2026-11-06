@@ -155,7 +155,7 @@ const RPC_DE_VERSAO: Record<string, { rpc: string; payload: string; schema: stri
     rpc: "fn_elus_ai_agent_create_guarded", payload: "p_version: { ...records.version", schema: "agentMcpCreateSchema.safeParse",
   },
   "app/api/v1/ai/agents/[id]/versions/route.ts": {
-    rpc: "fn_elus_ai_version_create_guarded", payload: "p_version:", schema: "versionCreateSchema.safeParse",
+    rpc: "fn_elus_ai_version_create_guarded", payload: "p_payload: {", schema: "versionCreateSchema.safeParse",
   },
   "app/app/ai/agents/[id]/_actions.ts": {
     rpc: "fn_elus_ai_draft_save_guarded", payload: "p_version_payload:", schema: "versionCreateSchema.safeParse",
@@ -446,6 +446,10 @@ describe("todo INSERT de versão leva todas as chaves de versionShapeSchema", ()
         expect(source, `${file} perdeu a RPC transacional`).toContain(guarded.rpc);
         expect(source, `${file} perdeu o payload de versão`).toContain(guarded.payload);
         expect(source, `${file} perdeu a validação de schema`).toContain(guarded.schema);
+        if (file === "app/api/v1/ai/agents/[id]/versions/route.ts") {
+          const faltando = chavesDeConteudoDaVersao().filter((col) => !source.includes(`${col}: v.${col}`));
+          expect(faltando, "RPC de criação deve receber todas as chaves do schema da versão").toEqual([]);
+        }
         expect(INSERT_SUPABASE.test(source), `${file} reintroduziu INSERT direto`).toBe(false);
         expect(INSERT_SQL.test(source), `${file} reintroduziu INSERT SQL direto`).toBe(false);
         continue;
