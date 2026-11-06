@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import {
   dependencyGraph, transitiveProtectedDependents, protectedConsumers,
-  PROTECTED_PATHS
+  nearestUnsafeRiskEvidence, PROTECTED_PATHS
 } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA=/^[0-9a-f]{40}$/;
@@ -112,6 +112,25 @@ export function analyzeTargetSources({sources,config,resourcePaths=[],plan}) {
     }
   const transitive=transitiveProtectedDependents(newFiles.map(x=>x.path),sources,graph);
   const changed=new Set(plan.files.map(f=>f.path));
+  const review12=plan.files.filter(f=>f.candidate_analysis?.review_bucket===
+    "potential_compatibility_manual_review");
+  if(review12.length!==12) throw Error("UNEXPECTED_REVIEW12_COUNT");
+  const hardUnsafe=plan.files.filter(f=>f.preliminary_status!=="safe_to_prepare"&&
+    !["already_integrated","unchanged","safe_to_prepare"].includes(f.status))
+    .map(f=>f.path);
+  const targetNearest=nearestUnsafeRiskEvidence(review12.map(f=>f.path),hardUnsafe,graph);
+  const distanceComparison=review12.map(f=>{
+    const forkRisk=f.candidate_analysis.dependency_graph?.nearest_hard_risk??null;
+    const targetRisk=targetNearest.get(f.path)??null;
+    return {path:f.path,approval:"none",
+      fork_distance:forkRisk?.nearest_distance??null,
+      fork_first_hop_directions:forkRisk?.first_hop_directions??[],
+      target_distance:targetRisk?.nearest_distance??null,
+      target_first_hop_directions:targetRisk?.first_hop_directions??[],
+      target_hard_risk_examples:targetRisk?.nearest_risk_examples??[],
+      comparable_statically:graph.complete,
+      note:"Bidirectional shortest import chain, not an execution or data-flow proof"};
+  });
   const modules=newFiles.map(f=>{
     const path=f.path;
     const imports=[...(outgoing.get(path)??[])].sort();
@@ -151,7 +170,7 @@ export function analyzeTargetSources({sources,config,resourcePaths=[],plan}) {
       modules_with_target_unresolved_imports:modules.filter(x=>x.target_ast_unresolved.length).length,
       modules_without_static_consumers:modules.filter(x=>!x.direct_consumers.length).length
     },
-    modules
+    modules,distance_comparison_12:distanceComparison
   };
 }
 export function examineTriad({plan,base,target,fork}) {
