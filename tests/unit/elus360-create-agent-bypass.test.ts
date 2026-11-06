@@ -45,6 +45,14 @@ const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
   if (name !== "fn_elus_ai_agent_create_guarded" || args.p_org !== ORG) {
     return { data: null, error: { message: "unexpected_rpc_or_tenant" } };
   }
+  const agent = args.p_agent as Record<string, unknown> | undefined;
+  const version = args.p_version as Record<string, unknown> | undefined;
+  // Espelha o contrato fechado de colunas da migration 9901: o RPC, não a
+  // action, escolhe organização, vínculo, versão e status.
+  if (!agent || !version || "organization_id" in agent ||
+      ["organization_id", "agent_id", "version_number", "status"].some((k) => k in version)) {
+    return { data: null, error: { code: "42501", message: "elus_ai_agent_create_version_column_restricted" } };
+  }
   if (revokeBeforeWrite) grantModel = false;
   if (!args.p_platform_bypass && !grantModel) {
     return { data: { error: "forbidden_platform_ai" }, error: null };
@@ -117,6 +125,22 @@ describe("ELUS360: criação de agente por server action não confia no bypass d
       "fn_elus_ai_agent_create_guarded",
       expect.objectContaining({ p_org: ORG, p_platform_bypass: false }),
     );
+    expect(writes).toBe(1);
+  });
+
+  it("não encaminha colunas de escopo geridas pelo RPC ao criar agente", async () => {
+    grantModel = true;
+    expect(await createMcpAgentAction(PAYLOAD)).toMatchObject({ ok: true });
+    const args = rpc.mock.lastCall?.[1] as Record<string, unknown>;
+    const agent = args.p_agent as Record<string, unknown>;
+    const version = args.p_version as Record<string, unknown>;
+    expect(agent.organization_id).toBeUndefined();
+    for (const campo of ["organization_id", "agent_id", "version_number", "status"]) {
+      expect(version[campo], campo).toBeUndefined();
+    }
+    expect(agent.created_by).toBe(USER);
+    expect(version.created_by).toBe(USER);
+    expect(args.p_platform_bypass).toBe(false);
     expect(writes).toBe(1);
   });
 

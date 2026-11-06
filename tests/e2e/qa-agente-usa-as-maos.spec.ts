@@ -418,9 +418,26 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
     await login(page);
 
     const agentesRes = await page.request.get(`${APP_URL}/api/v1/ai/agents`);
-    const agentes = (await agentesRes.json()) as { data?: Array<{ id: string; name: string }> };
-    const agenteId = agentes.data?.[0]?.id;
-    expect(agenteId, "a org de E2E precisa de um agente").toBeTruthy();
+    expect(agentesRes.ok(), "falha ao listar agentes da organização E2E").toBe(true);
+    const agentes = (await agentesRes.json()) as { data?: Array<{ id: string; name: string; kind: string }> };
+    // O primeiro da listagem pode ser um rag_bot legado sem versão. Não
+    // transformar uma pré-condição inválida em 503 da rota de versões.
+    let agenteId: string | null = null;
+    for (const agente of agentes.data ?? []) {
+      if (agente.kind !== "mcp_agent") continue;
+      const versoesRes = await page.request.get(
+        `${APP_URL}/api/v1/ai/agents/${agente.id}/versions`,
+      );
+      if (!versoesRes.ok()) {
+        throw new Error(`listar versões do agente E2E → HTTP ${versoesRes.status()}`);
+      }
+      const versoes = (await versoesRes.json()) as { data?: Array<{ id: string }> };
+      if (versoes.data?.some((v) => !!v.id)) {
+        agenteId = agente.id;
+        break;
+      }
+    }
+    expect(agenteId, "a org E2E precisa de um mcp_agent com versão de referência comprovada").toBeTruthy();
 
     const versaoId = await versaoComAsCapacidades(page.request, agenteId!);
     console.info(`[QA] versão de teste ${versaoId} com ${CAPACIDADES.length} capacidades`);

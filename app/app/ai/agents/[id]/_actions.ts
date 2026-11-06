@@ -758,8 +758,27 @@ export async function createMcpAgentAction(
     "fn_elus_ai_agent_create_guarded",
     {
       p_org: activeOrg.orgId,
-      p_agent: { ...records.agent, is_active: false, created_by: authUser.id },
-      p_version: { ...records.version, created_by: authUser.id },
+      // A RPC 9901 proíbe organization_id/agent_id/version_number/status no
+      // payload: ela própria deriva essas colunas sob lock da organização.
+      // Espalhar records.agent/version inteiros enviaria metadados internos e
+      // provocaria 42501 antes da criação (sem qualquer linha persistida).
+      p_agent: {
+        id: records.agent.id,
+        name: records.agent.name,
+        description: records.agent.description,
+        model: records.agent.model,
+        system_prompt: records.agent.system_prompt,
+        kind: "mcp_agent",
+        priority: records.agent.priority,
+        is_active: false,
+        is_default: false,
+        created_by: authUser.id,
+      },
+      p_version: {
+        ...parsed.data.version,
+        id: records.version.id,
+        created_by: authUser.id,
+      },
       p_platform_bypass: platformBypass,
     },
   );

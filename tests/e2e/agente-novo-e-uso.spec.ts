@@ -54,11 +54,23 @@ test.describe("Criar um agente pela tela", () => {
     const criar = page.getByRole("button", { name: /criar agent/i });
     await expect(criar).toBeDisabled();
 
-    // E ela diz o que falta — as exigências que o servidor também impõe.
-    // Escritas como instrução, não como acusação — um formulário recém-aberto
-    // que já diz "obrigatório" em vermelho trata o usuário como quem errou.
-    for (const exigencia of [/escolha o modelo/i, /escolha a chave de acesso/i]) {
-      await expect(page.getByText(exigencia).first()).toBeVisible();
+    // Exigir orientação para campos efetivamente vazios: nome e instruções.
+    // Modelo/credencial podem vir PREENCHIDOS dos defaults da organização;
+    // nesse caso exigir "Escolha..." seria testar a ausência do próprio default.
+    await expect(page.getByText(/dê um nome para este agente/i).first()).toBeVisible();
+    await expect(page.getByText(/escreva as instruções do agente/i).first()).toBeVisible();
+    for (const [id, mensagem] of [
+      ["model", /escolha o modelo/i],
+      ["credential_id", /escolha a chave de acesso|esta instalação não tem chave/i],
+    ] as const) {
+      const campo = page.locator(`#${id}`);
+      await expect(campo).toBeVisible();
+      const predefinido = await campo.evaluate((elemento) => {
+        if (elemento instanceof HTMLInputElement) return elemento.value.trim().length > 0;
+        return !elemento.hasAttribute("data-placeholder") &&
+          !/^(?:selecione|escolha|carregando)/i.test((elemento.textContent ?? "").trim());
+      });
+      if (!predefinido) await expect(page.getByText(mensagem).first()).toBeVisible();
     }
 
     // ⚠️ O NÚMERO DE WHATSAPP NÃO ESTÁ NESSA LISTA, e a ausência é o teste.
