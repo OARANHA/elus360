@@ -898,3 +898,14 @@ test("import novo somente no upstream aponta a arquivo perigoso e impede a promo
     assert.equal(report.totals.safe_to_prepare,1);
   }finally{process.chdir(prior);rmSync(cwd,{recursive:true,force:true});}
 });
+
+test("alias configurado novo aponta para arquivo modificado e perigoso, sem depender do grafo anterior",async()=>{
+  const {newUnsafeImportSignals}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const config=JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"#risk/*":["components/*"]}}});
+  const before="const version=1;";
+  const after='import {allow} from "#risk/unsafe";const version=2;';
+  const signals=newUnsafeImportSignals("components/feature.ts",before,after,["components/unsafe.ts"],config);
+  assert.ok(signals.includes("unsafe_changed_import_edge"),JSON.stringify(signals));
+  const unrelated=newUnsafeImportSignals("components/feature.ts",before,'import {ok} from "./unrelated";const version=2;',["components/unsafe.ts"],config);
+  assert.deepEqual(unrelated,[]);
+});
