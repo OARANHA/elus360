@@ -909,3 +909,72 @@ test("alias configurado novo aponta para arquivo modificado e perigoso, sem depe
   const unrelated=newUnsafeImportSignals("components/feature.ts",before,'import {ok} from "./unrelated";const version=2;',["components/unsafe.ts"],config);
   assert.deepEqual(unrelated,[]);
 });
+
+test("exclusao de modulo compartilhado bloqueia consumidores ligados sem bloquear arquivo independente",()=>{
+  const f=fixture(),prior=process.cwd(),out=join(tmpdir(),"elus-delete-shared-"+process.pid+"-"+Date.now());
+  try{
+    process.chdir(f.cwd);
+    // BASE/fork: component candidate -> shared module; target deletes shared module.
+    git(f.cwd,"checkout","-q",f.base);
+    mkdirSync(join(f.cwd,"hooks"),{recursive:true});
+    writeFileSync(join(f.cwd,"hooks/shared.ts"),"export const shared=true;");
+    writeFileSync(join(f.cwd,"components/safe.tsx"),'import {shared} from "@/hooks/shared";const ui=1;');
+    writeFileSync(join(f.cwd,"components/independent.ts"),"const version=1;");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","base with shared dependency");
+    const base=git(f.cwd,"rev-parse","HEAD");
+    writeFileSync(join(f.cwd,"components/safe.tsx"),'import {shared} from "@/hooks/shared";const ui=2;');
+    writeFileSync(join(f.cwd,"components/independent.ts"),"const version=2;");
+    git(f.cwd,"rm","-q","hooks/shared.ts");git(f.cwd,"add",".");git(f.cwd,"commit","-qm","upstream deletes shared import target");
+    const target=git(f.cwd,"rev-parse","HEAD");
+    git(f.cwd,"checkout","-q",base);
+    const report=reconcile(base,target,base),by=Object.fromEntries(report.files.map(v=>[v.path,v]));
+    assert.equal(by["hooks/shared.ts"].status,"deletion_requires_review");
+    assert.equal(by["components/safe.tsx"].status,"contract_requires_review");
+    assert.ok(by["components/safe.tsx"].signals.includes("unsafe_changed_dependency_chain"));
+    assert.equal(by["components/independent.ts"].status,"safe_to_prepare");
+    const prepared=prepare(base,target,base,out);
+    assert.equal(prepared.preparedFiles,1);
+    assert.equal(readFileSync(join(out,"hooks/shared.ts"),"utf8"),"export const shared=true;");
+    assert.equal(readFileSync(join(out,"components/safe.tsx"),"utf8"),'import {shared} from "@/hooks/shared";const ui=1;');
+    assert.equal(readFileSync(join(out,"components/independent.ts"),"utf8"),"const version=2;");
+    assert.equal(git(f.cwd,"status","--porcelain"),"");
+  }finally{
+    process.chdir(f.cwd);
+    if(existsSync(out))git(f.cwd,"worktree","remove","--force",out);
+    process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});
+  }
+});
+test("renomeacao de modulo nao autoriza import novo para destino de contrato sob revisao",()=>{
+  const f=fixture(),prior=process.cwd(),out=join(tmpdir(),"elus-rename-shared-"+process.pid+"-"+Date.now());
+  try{
+    process.chdir(f.cwd);
+    git(f.cwd,"checkout","-q",f.base);
+    writeFileSync(join(f.cwd,"components/old-policy.ts"),"export function canUse(role:string){return role==='admin';}");
+    writeFileSync(join(f.cwd,"components/ordinary.ts"),"const version=1;");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","base old policy");
+    const base=git(f.cwd,"rev-parse","HEAD");
+    git(f.cwd,"mv","components/old-policy.ts","components/new-policy.ts");
+    writeFileSync(join(f.cwd,"components/new-policy.ts"),"export function canUse(role:string){return true;}");
+    writeFileSync(join(f.cwd,"components/safe.tsx"),'import {canUse} from "@/components/new-policy";const ui=2;');
+    writeFileSync(join(f.cwd,"components/ordinary.ts"),"const version=2;");
+    git(f.cwd,"add",".");git(f.cwd,"commit","-qm","upstream renames policy and weakens authorization");
+    const target=git(f.cwd,"rev-parse","HEAD");
+    git(f.cwd,"checkout","-q",base);
+    const report=reconcile(base,target,base),by=Object.fromEntries(report.files.map(v=>[v.path,v]));
+    assert.equal(by["components/old-policy.ts"].status,"deletion_requires_review");
+    assert.equal(by["components/new-policy.ts"].status,"contract_requires_review");
+    assert.equal(by["components/safe.tsx"].status,"contract_requires_review");
+    assert.ok(by["components/safe.tsx"].signals.includes("unsafe_changed_import_edge"));
+    assert.equal(by["components/ordinary.ts"].status,"safe_to_prepare");
+    const prepared=prepare(base,target,base,out);
+    assert.equal(prepared.preparedFiles,1);
+    assert.equal(readFileSync(join(out,"components/old-policy.ts"),"utf8"),"export function canUse(role:string){return role==='admin';}");
+    assert.equal(existsSync(join(out,"components/new-policy.ts")),false);
+    assert.equal(readFileSync(join(out,"components/ordinary.ts"),"utf8"),"const version=2;");
+    assert.equal(git(f.cwd,"status","--porcelain"),"");
+  }finally{
+    process.chdir(f.cwd);
+    if(existsSync(out))git(f.cwd,"worktree","remove","--force",out);
+    process.chdir(prior);rmSync(f.cwd,{recursive:true,force:true});
+  }
+});
