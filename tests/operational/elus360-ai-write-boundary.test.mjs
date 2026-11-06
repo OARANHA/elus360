@@ -40,12 +40,19 @@ test("server action cria agente e draft apenas via RPC atômico", () => {
   assert.match(helper, /await requirePlatformAdminEscrita\(\)/);
   assert.match(helper, /err instanceof EscritaDePlatformAdminNegada/);
   assert.match(action, /const guard = await ensureAdmin\(\)/);
-  const rpc = action.indexOf("await admin.rpc(");
-  const bypass = action.indexOf("p_platform_bypass: await (async () => {", rpc);
-  const guard = action.indexOf("await escritaDeAdminOuRecusa()", bypass);
-  const bypassEnd = action.indexOf("})(),", bypass);
-  assert.ok(rpc >= 0 && bypass > rpc && guard > bypass && bypassEnd > guard,
-    "RPC deve avaliar o bypass apenas com admin full/MFA, sob gate transacional");
+  // Verifica a ordem do código efetivo, sem exigir uma IIFE dentro do argumento
+  // da RPC. A prova dos caminhos de sucesso/recusa é feita pelo teste Vitest
+  // elus360-create-agent-bypass.test.ts; a prova do lock/revogação é PostgreSQL.
+  const init = action.indexOf("let platformBypass = false;");
+  const platform = action.indexOf("if (podeGerenciarIaDaPlataforma(authUser))", init);
+  const mfa = action.indexOf("await escritaDeAdminOuRecusa()", platform);
+  const refuse = action.indexOf("if (!autorizado.ok) return", mfa);
+  const allow = action.indexOf("platformBypass = true;", refuse);
+  const rpc = action.indexOf('await admin.rpc(', allow);
+  const bypass = action.indexOf("p_platform_bypass: platformBypass", rpc);
+  assert.ok(init >= 0 && platform > init && mfa > platform &&
+    refuse > mfa && allow > refuse && rpc > allow && bypass > rpc,
+    "bypass só é habilitado após verificação full/MFA e recusa nomeada, antes da RPC");
 });
 
 test("editor de rascunhos usa gates e RPCs transacionais em ambos os caminhos", () => {
