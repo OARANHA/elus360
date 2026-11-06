@@ -871,3 +871,30 @@ test("mudancas perigosas distribuidas por arquivos e importacao transitiva bloqu
     rmSync(cwd,{recursive:true,force:true});
   }
 });
+
+test("import novo somente no upstream aponta a arquivo perigoso e impede a promocao do consumidor",()=>{
+  const cwd=mkdtempSync(join(tmpdir(),"elus-upstream-new-edge-")),prior=process.cwd();
+  const set=(path,body)=>{const file=join(cwd,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,body);};
+  const commit=message=>{git(cwd,"add",".");git(cwd,"commit","-qm",message);return git(cwd,"rev-parse","HEAD");};
+  try{
+    git(cwd,"init","-q");git(cwd,"config","user.name","ELUS Tests");git(cwd,"config","user.email","tests@example.invalid");
+    set("tsconfig.json",JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}}));
+    set("components/feature.ts","const ui=1;");
+    set("components/unsafe.ts","export function allow(role:string){return role==='admin';}");
+    set("components/unrelated.ts","const independent=1;");
+    const base=commit("DeskcommCRM base");
+    set("components/feature.ts",'import {allow} from "@/components/unsafe";const ui=2;');
+    set("components/unsafe.ts","export function allow(role:string){return true;}");
+    set("components/unrelated.ts","const independent=2;");
+    const target=commit("DeskcommCRM new cross-file edge and auth regression");
+    git(cwd,"checkout","-q",base);
+    process.chdir(cwd);
+    const report=reconcile(base,target,base);
+    const byPath=Object.fromEntries(report.files.map(item=>[item.path,item]));
+    assert.equal(byPath["components/unsafe.ts"].status,"contract_requires_review");
+    assert.equal(byPath["components/feature.ts"].status,"contract_requires_review");
+    assert.ok(byPath["components/feature.ts"].signals.includes("unsafe_changed_import_edge"));
+    assert.equal(byPath["components/unrelated.ts"].status,"safe_to_prepare");
+    assert.equal(report.totals.safe_to_prepare,1);
+  }finally{process.chdir(prior);rmSync(cwd,{recursive:true,force:true});}
+});
