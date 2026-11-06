@@ -525,8 +525,9 @@ export async function PUT(req: NextRequest): Promise<Response> {
       const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
       await requirePlatformAdminEscrita();
       platformBypass = true;
-    } catch {
-      return fail("forbidden_platform_ai", "Superadmin precisa de sessão full com MFA.", 403);
+    } catch (e) {
+      const { falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      return falhaDaEscritaDePlatformAdmin(e);
     }
   }
   const { data: result, error } = await createAdminClient().rpc(
@@ -733,8 +734,9 @@ export async function PATCH(req: NextRequest): Promise<Response> {
       const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
       await requirePlatformAdminEscrita();
       platformBypass = true;
-    } catch {
-      return fail("forbidden_platform_ai", "Superadmin precisa de sessão full com MFA.", 403);
+    } catch (e) {
+      const { falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      return falhaDaEscritaDePlatformAdmin(e);
     }
   }
   const { data: gravado, error } = await createAdminClient().rpc(
