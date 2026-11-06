@@ -1383,6 +1383,10 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // A pessoa abre o produto ChatGPT para autenticar a conta; o CRM chama
       // apenas `api.openai.com` no fluxo SIWC.
       "chatgpt.com",
+      // Decisão escrita ELUS360 v1.102: o painel oficial Chutes.ai serve apenas
+      // como link para a organização obter sua chave; não é destino HTTP do CRM.
+      // A API chamada pelo produto permanece em llm.chutes.ai (FORNECEDOR).
+      "chutes.ai",
       "console.anthropic.com",
       // Decisão escrita: é o painel de chaves do Jev, o mesmo caso dos outros
       // CONSOLE — o link "Onde pegar a chave" da tela de Credenciais.
