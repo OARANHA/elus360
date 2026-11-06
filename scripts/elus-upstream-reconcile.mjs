@@ -84,9 +84,10 @@ function parse(args) {
 }
 function inspectForkDependencies(fork,candidatePaths,unsafePaths=[]) {
   // A lack of candidates is NOT a successful AST graph scan.
-  const notRun=(reason,count=0,unresolved=0,complete=false)=>({
+  const notRun=(reason,inventoryCount=0,unresolved=0,complete=false)=>({
     dependents:new Map(),riskCouplings:new Map(),seenCandidates:new Set(),
-    executed:false,not_run_reason:reason,complete,count,unresolved
+    executed:false,not_run_reason:reason,complete,count:0,
+    inventory_count:inventoryCount,unresolved
   });
   if(!candidatePaths.length) return notRun("no_preliminary_candidates",0,0,null);
   // One Git tree read and one batch object read (rather than three processes per source).
@@ -125,7 +126,7 @@ function inspectForkDependencies(fork,candidatePaths,unsafePaths=[]) {
   return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
     riskCouplings:changedRiskCouplings(candidatePaths,unsafePaths,graph),
     seenCandidates:new Set(candidatePaths.filter(path=>sourcePaths.has(path))),
-    executed:true,not_run_reason:null,
+    executed:true,not_run_reason:null,inventory_count:entries.length,
     complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length,unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort()};
 }
 function inventoryFor(fork) {
@@ -246,6 +247,7 @@ export function reconcile(base, target, fork) {
     dependency_scan: {scope:"typescript_ast_transitive_imports",
       executed:dependencyScan.executed,not_run_reason:dependencyScan.not_run_reason??null,
       preliminary_candidates:preliminaryCandidates.length,
+      inventory_sources:dependencyScan.inventory_count??0,
       scanned:dependencyScan.count,complete:dependencyScan.complete,
       unresolved_count:dependencyScan.unresolved,unresolved_reasons:dependencyScan.unresolved_reasons??[]},
     candidate_coverage,
