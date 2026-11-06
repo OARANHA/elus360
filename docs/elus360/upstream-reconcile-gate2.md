@@ -422,3 +422,64 @@ node scripts/elus-upstream-reconcile.mjs plan --base ba24d4d366b7caf056b88553e0e
 ```
 
 O retorno esperado a capturar é `totals`, `files[]`, `signals`, `suggested_checks`, `dependency_scan`, `protected_importers` e impacto de lote. Não houve checkout completo, CLI `plan`, `prepare`, merge, deploy ou escrita no Supabase. Consulta de branch protection de `main` retornou **403** (`Resource not accessible by integration`); rulesets `[]` não comprova ausência de checks obrigatórios. Hindsight `Elus360` retornou **UNAVAILABLE** em `recall` e `search_knowledge_base`; nenhuma gravação nele foi alegada. **Estado funcional: NO-GO.**
+
+
+## Gate 3 — cobertura AST diagnostica do ensaio oficial real (06/11/2026 UTC)
+
+### Evidência medida no Gate anterior
+
+A execução [42142957604](https://github.com/OARANHA/elus360/actions/runs/42142957604) corresponde ao HEAD \`5239ba9357bc69d9eee1db6d20f6d84a89f23e63\`. O GitHub confirmou os jobs \`contrato-upstream\` e \`Ensaio oficial de reconcile plan (read-only)\` como \`completed/success\`. O artefato \`elus360-official-reconcile-plan\` (ID **13469630347**) foi baixado e os arquivos \`plan.json\`, \`matrix-787.csv\`, \`summary.md\` e \`provenance.txt\` tiveram seus hashes SHA-256 verificados contra \`SHA256SUMS\`.
+
+**Medição do \`plan\` real** (não preparação): 787 alterações, \`protected_requires_review=235\`, \`contract_requires_review=545\`, \`conflict_requires_review=7\`, \`safe_to_prepare=0\`, \`gate=manual_review_required\`. Na matriz preliminar 354 arquivos tinham domínio \`application_code\` e correspondência de blob com a base, mas **todos os 354** foram bloqueados por sinais estáticos ainda antes do grafo. A implementação retornava \`dependency_scan: {scanned:0,complete:true,unresolved_count:0}\` porque \`inspectForkDependencies\` recebia somente os arquivos *já* classificados \`safe_to_prepare\` e tinha um retorno antecipado para a lista vazia. **Esse \`complete:true\` não significava AST executado**; o gate permaneceu fail-closed por não haver nenhum \`safe_to_prepare\`.
+
+Sinais presentes nos 354 inicialmente ordinários, por arquivo (categorias sobrepostas; não somar):
+
+| Sinal | Ocorrências |
+| --- | ---: |
+| \`test_change_requires_review\` | 184 |
+| \`tenant_isolation\` | 175 |
+| \`module_initialization_change\` | 171 |
+| \`exported_contract_change\` | 156 |
+| \`protected_module_import_change\` | 146 |
+| \`messaging_events\` | 123 |
+| \`sensitive_import\` | 102 |
+| \`managed_ai\` | 71 |
+| \`authentication_authorization\` | 55 |
+| \`agent_runtime\` | 13 |
+| \`exported_module_internal_change\` | 11 |
+| \`uninspectable_content\` | 1 |
+| \`dependency_analysis_incomplete\` | 1 |
+
+**Interpretação técnica, sem liberar candidatos:** os 184 arquivos de testes continuam exigindo revisão de integridade. O sinal \`exported_contract_change\` sinaliza diferença textual das declarações exportadas; exige verificar comportamento/contratos, mas não prova uma regressão. O sinal lexical \`tenant_isolation\` é encontrado no texto concatenado de antes e depois; pode se referir a uma ocorrência *retida* em código que não alterou o controle de tenant. \`protected_module_import_change\` também percorre imports das versões antiga e nova, não apenas imports introduzidos; o nome não deve ser confundido com uma prova de que a aresta mudou. \`module_initialization_change\` pode representar corpo alterado de fixture ou efeito real e segue bloqueante. O \`uninspectable_content\` foi observado em \`lib/database.types.ts\`, acima do orçamento de 512 KiB para inspeção de conteúdo do delta; requer gate manual, sem truncamento silencioso.
+
+### Instrumentação adicionada na PR #20
+
+1. O reconciliador passa a registrar \`preliminary_status\` por caminho, calculado antes dos sinais, e \`candidate_analysis\` separado do status final. Para cada candidato preliminar, registra origem lexical de sinais (\`retained\`, \`introduced\`, \`removed\`), resultado da inspeção de contratos do arquivo, presença na árvore do fork, consumidores protegidos (contagem + amostra limitada) e conexões com alterações já bloqueadas (contagem + amostra).
+2. A inspeção de dependências passa a receber **todos os candidatos preliminares** mesmo que todos já estejam bloqueados por heurísticas ou AST de arquivo. O relatório publica \`dependency_scan.executed\`, \`not_run_reason\`, \`scanned\`, \`complete\` e \`unresolved_count\` separadamente. **Lista vazia retorna \`executed:false\`, \`complete:null\`, não \`true\`**. Falhas de leitura/orçamento continuam \`complete:false\` e não autorizam preparação.
+3. \`candidate_coverage\` separa o total preliminar, varreduras de contrato avaliadas/inconclusivas, bloqueio anterior ao grafo, presença/ausência de fontes no fork, dependentes protegidos, acoplamento com lote inseguro e status finais. Estes campos são **diagnósticos**; não alimentam \`statusFor\` para afrouxar bloqueios.
+4. O job de ensaio oficial passa a exigir um grafo efetivamente executado quando houver candidatos preliminares, inclusive com zero aprovados. Publica \`ast-coverage-354.json\`, \`plan.json\`, \`matrix-787.csv\` estendida, \`summary.md\`, \`provenance.txt\` e \`SHA256SUMS\` no artefato. O teste de segurança do job reprova \`safe_to_prepare\` sempre que \`complete\` não for estritamente \`true\`.
+
+### Preservação das dez divergências ELUS
+
+A classificação e os sinais abaixo foram extraídos do \`plan.json\` da execução **42142957604**, não presumidos por nome de arquivo. Status mantidos, e nenhum foi preparado:
+
+| Caminho | Status real | Sinais observados e gate de revisão |
+| --- | --- | --- |
+| \`.env.example\` | \`protected_requires_review\` | \`non_source_asset\`, \`tenant_isolation\`, \`managed_ai\`, \`agent_runtime\`, \`messaging_events\`; preservar variáveis Chutes e defaults |
+| \`.github/workflows/e2e.yml\` | \`protected_requires_review\` | \`non_source_asset\`, \`tenant_isolation\`, \`authentication_authorization\`, \`managed_ai\`, \`agent_runtime\`, \`messaging_events\`; workflow ausente no fork, não reintroduzir |
+| \`app/api/v1/cron/sync-model-catalog/route.ts\` | \`conflict_requires_review\` | \`tenant_isolation\`, \`managed_ai\`, \`sensitive_import\`, \`exported_module_internal_change\`, \`protected_module_import_change\`; preservar catálogo Chutes separado de Models.dev |
+| \`app/app/ai/agents/[id]/_components/AgentForm.tsx\` | \`conflict_requires_review\` | \`managed_ai\`, \`agent_runtime\`, \`messaging_events\`, \`sensitive_import\`, \`exported_contract_change\`, \`protected_module_import_change\`; preservar defaults/autonomia IA ELUS |
+| \`lib/agent-engine/edge/llm/providers.ts\` | \`conflict_requires_review\` | \`managed_ai\`, \`messaging_events\`, \`exported_contract_change\`, \`protected_module_import_change\`; preservar provider Chutes |
+| \`lib/ai/credenciais/guardar.ts\` | \`conflict_requires_review\` | \`tenant_isolation\`, \`managed_ai\`, \`sensitive_import\`, \`exported_contract_change\`, \`protected_module_import_change\`; preservar RPC guardada |
+| \`lib/ai/credenciais/login-codex.ts\` | \`conflict_requires_review\` | \`tenant_isolation\`, \`managed_ai\`, \`sensitive_import\`, \`exported_contract_change\`, \`protected_module_import_change\`; preservar renovação local e revisar \`manterModelos\` |
+| \`lib/ai/runtime/agent.ts\` | \`conflict_requires_review\` | \`tenant_isolation\`, \`managed_ai\`, \`agent_runtime\`, \`messaging_events\`, \`sensitive_import\`, \`exported_contract_change\`, \`protected_module_import_change\`; preservar Chutes, roteamento e isolamentos |
+| \`lib/audit/actions.ts\` | \`conflict_requires_review\` | \`tenant_isolation\`, \`messaging_events\`, \`exported_contract_change\`; preservar eventos administrativos próprios ELUS |
+| \`supabase/baseline.sql\` | \`protected_requires_review\` | \`non_source_asset\`, \`uninspectable_content\`; jamais substituir/aplicar baseline sem gate de banco independente |
+
+### Testes e estado do Gate 3
+
+Foram publicados quatro testes adversariais em \`tests/operational/elus-upstream-reconcile.test.mjs\` para exigir: (i) análise do grafo mesmo sem \`safe_to_prepare\`; (ii) import computado ainda devolve \`complete:false\` e zero preparo; (iii) ausência real de candidato declara grafo **não executado** com \`complete:null\`; e (iv) distinguir sinal lexical herdado de introduzido sem remover bloqueio. Os cenários anteriores de mutações distribuídas, dependências, exclusões, renomeações, tenants, IA e credenciais permanecem.
+
+**Estado:** implementado em branch da PR #20, sem declarar execução/testes GREEN do novo HEAD antes da CI correspondente. A instrumentação não prova equivalência semântica; candidatos com indícios legítimos ou falsos positivos permanecem bloqueados. Pendente leitura do artefato novo para medir efetivamente cobertura de AST, distinguir bloqueios contextuais e preparar recomendações **somente de revisão**, nunca patches automáticos. Hindsight \`Elus360\` respondeu \`UNAVAILABLE\` em \`recall\` e KB nesta rodada; checkpoint versionado preserva a continuidade até nova sincronização.
+
+**Restrições:** PR Draft, sem \`prepare\`, merge, deploy, publicação de imagem, alteração de schema/banco ou incorporação da v1.95.0.
