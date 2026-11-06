@@ -9,6 +9,7 @@ on:
       - "scripts/elus-upstream-reconcile.mjs"
       - "scripts/elus-upstream-contract-risk.mjs"
       - "scripts/elus-upstream-dependency-risk.mjs"
+      - "scripts/elus-upstream-precision-diagnostics.mjs"
       - "scripts/elus-upstream-real-tree-benchmark.mjs"
       - "docs/elus360/upstream-reconcile-gate2.md"
       - "tests/operational/elus-upstream-prepare.test.mjs"
@@ -39,6 +40,7 @@ jobs:
           node --check scripts/elus-upstream-reconcile.mjs
           node --check scripts/elus-upstream-contract-risk.mjs
           node --check scripts/elus-upstream-dependency-risk.mjs
+          node --check scripts/elus-upstream-precision-diagnostics.mjs
           node --check scripts/elus-upstream-real-tree-benchmark.mjs
       - name: Gates sem rede externa, banco ou Docker
         run: |
@@ -139,8 +141,23 @@ jobs:
              r.candidate_coverage?.source_contract_scans_incomplete!==ordinary.length)
             throw Error('SOURCE_AST_COVERAGE_INCONSISTENT');
           if(ordinary.some(f=>!f.candidate_analysis?.dependency_graph ||
-            typeof f.candidate_analysis?.source_contract_scan!=='string'))
+            typeof f.candidate_analysis?.source_contract_scan!=='string' ||
+            typeof f.candidate_analysis?.ast_precision?.executed!=='boolean' ||
+            typeof f.candidate_analysis?.review_bucket!=='string' ||
+            f.candidate_analysis?.authorization!=='none'))
             throw Error('CANDIDATE_DIAGNOSTICS_MISSING');
+          const absence=r.candidate_coverage?.fork_graph_absence_reasons??{};
+          if(absence.present_in_fork_graph!==125 ||
+             absence.existing_test_excluded!==100 ||
+             absence.new_upstream_test_excluded!==84 ||
+             absence.new_upstream_source_not_in_fork!==45)
+            throw Error('CANDIDATE_ABSENCE_REASONS_DRIFT:'+JSON.stringify(absence));
+          const sum=o=>Object.values(o??{}).reduce((n,v)=>n+Number(v),0);
+          if(sum(r.candidate_coverage?.ast_precision_relations?.export)!==156 ||
+             sum(r.candidate_coverage?.ast_precision_relations?.initialization)!==171)
+            throw Error('AST_PRECISION_COVERAGE_MISMATCH');
+          if(sum(r.candidate_coverage?.manual_review_buckets)!==354)
+            throw Error('REVIEW_BUCKET_COVERAGE_MISMATCH');
           const eligible=ordinary.filter(f=>f.status==='safe_to_prepare');
           if(r.dependency_scan?.complete!==true && eligible.length) throw Error('FAIL_OPEN_ON_INCOMPLETE_SCAN');
           const conflicted=[
@@ -159,8 +176,9 @@ jobs:
           const csv=[['path','impact','preliminary_status','status','signals','suggested_checks',
             'source_contract_scan','lexical_retained','lexical_introduced','lexical_removed',
             'protected_imports_retained','protected_imports_introduced',
+            'fork_graph_absence_reason','ast_export_relation','ast_effect_relation',
             'graph_executed','graph_complete','present_in_fork','protected_importers_count',
-            'unsafe_neighbors_count'].map(cell).join(',')];
+            'unsafe_neighbors_count','nearest_hard_risk_distance','review_bucket','authorization'].map(cell).join(',')];
           for(const f of r.files) {
             const a=f.candidate_analysis,lex=a?.lexical_signal_provenance,
               imports=a?.protected_import_provenance,graph=a?.dependency_graph;
@@ -169,9 +187,12 @@ jobs:
               (f.suggested_checks||[]).join('|'),a?.source_contract_scan??'',
               (lex?.retained||[]).join('|'),(lex?.introduced||[]).join('|'),
               (lex?.removed||[]).join('|'),(imports?.retained||[]).join('|'),
-              (imports?.introduced||[]).join('|'),graph?.executed??'',
-              graph?.complete??'',graph?.present_in_fork??'',
-              graph?.protected_importers_count??'',graph?.unsafe_changed_neighbors_count??''
+              (imports?.introduced||[]).join('|'),a?.fork_graph_absence_reason??'',
+              a?.ast_precision?.export_relation??'',a?.ast_precision?.initialization_relation??'',
+              graph?.executed??'',graph?.complete??'',graph?.present_in_fork??'',
+              graph?.protected_importers_count??'',graph?.unsafe_changed_neighbors_count??'',
+              graph?.nearest_hard_risk?.nearest_distance??'',a?.review_bucket??'',
+              a?.authorization??''
             ].map(cell).join(','));
           }
           fs.writeFileSync(path.join(dest,'matrix-787.csv'),csv.join('\n')+'\n');
@@ -192,6 +213,19 @@ jobs:
             }))
           };
           fs.writeFileSync(path.join(dest,'ast-coverage-354.json'),JSON.stringify(coverage,null,2)+'\n');
+          const humanReview=ordinary.filter(f=>
+            f.candidate_analysis.review_bucket==='potential_compatibility_manual_review').map(f=>({
+              path:f.path,status:f.status,
+              signals:f.signals,
+              fork_graph_absence_reason:f.candidate_analysis.fork_graph_absence_reason,
+              ast_precision:f.candidate_analysis.ast_precision,
+              nearest_hard_risk:f.candidate_analysis.dependency_graph?.nearest_hard_risk,
+              authorization:"none"
+            }));
+          fs.writeFileSync(path.join(dest,'manual-compatibility-review.json'),JSON.stringify({
+            disclaimer:"Review hints only. No automatic preparation, merge or approval.",
+            refs,graph_complete:r.dependency_scan.complete,review_candidates:humanReview
+          },null,2)+'\n');
           const md=[
             '# Ensaio real do reconciliador — DeskcommCRM v1.94.0 → v1.95.0',
             '',
@@ -221,6 +255,11 @@ jobs:
             '- Candidatos com importacoes protegidas retidas: '+r.candidate_coverage.candidates_with_retained_protected_imports,
             '- Candidatos com importacoes protegidas novas: '+r.candidate_coverage.candidates_with_introduced_protected_imports,
             '- Candidatos ligados a lote inseguro: '+r.candidate_coverage.candidates_coupled_to_unsafe_changes,
+            '- Ausencias do grafo (motivos): '+JSON.stringify(r.candidate_coverage.fork_graph_absence_reasons),
+            '- Distancias para risco duro: '+JSON.stringify(r.candidate_coverage.nearest_hard_risk_distances),
+            '- Relacoes AST exportacao: '+JSON.stringify(r.candidate_coverage.ast_precision_relations.export),
+            '- Relacoes AST inicializacao: '+JSON.stringify(r.candidate_coverage.ast_precision_relations.initialization),
+            '- Grupos de revisao humana: '+JSON.stringify(r.candidate_coverage.manual_review_buckets),
             '- A cobertura e diagnostica; nenhum numero acima autoriza prepare.',
             '',
             '## Classificação real',
@@ -252,7 +291,7 @@ jobs:
           NODE
 
           test -z "$(git -C "$scratch/repo" status --porcelain)"
-          ( cd "$scratch/evidence" && sha256sum plan.json matrix-787.csv ast-coverage-354.json summary.md provenance.txt > SHA256SUMS )
+          ( cd "$scratch/evidence" && sha256sum plan.json matrix-787.csv ast-coverage-354.json manual-compatibility-review.json summary.md provenance.txt > SHA256SUMS )
           echo "Ensaio read-only e evidencias geradas no runner temporario"
       - name: Publicar plano real e matriz nominal como artefato
         if: always()
