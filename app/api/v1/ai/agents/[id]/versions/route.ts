@@ -184,6 +184,23 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
 
   // Transação única: bloqueia organização, referencia a versão mais recente
   // no servidor e cria a próxima versão após conferir grants atuais.
+  // Bypass administrativo exige usuário de sessão, escopo full e MFA atual.
+  // Nunca converter uma recusa MFA nomeada em booleano false silencioso.
+  let platformBypass = false;
+  if (authz.via === "session") {
+    const { loadAuthUser } = await import("@/lib/auth/server");
+    const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+    const usuario = await loadAuthUser();
+    if (usuario?.id === authUserId && podeGerenciarIaDaPlataforma(usuario)) {
+      const { requirePlatformAdminEscrita, falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      try {
+        await requirePlatformAdminEscrita();
+        platformBypass = true;
+      } catch (e) {
+        return falhaDaEscritaDePlatformAdmin(e, requestId);
+      }
+    }
+  }
   const { data, error } = await admin.rpc("fn_elus_ai_version_create_guarded", {
     p_org: organizationId,
     p_agent: id,
@@ -221,17 +238,7 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
       skill_names: v.skill_names,
       created_by: authUserId,
     },
-    p_platform_bypass: authz.via === "session" && (await (async () => {
-      const { loadAuthUser } = await import("@/lib/auth/server");
-      const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
-      const usuario = await loadAuthUser();
-      if (!usuario || usuario.id !== authUserId || !podeGerenciarIaDaPlataforma(usuario)) return false;
-      try {
-        const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
-        await requirePlatformAdminEscrita();
-        return true;
-      } catch { return false; }
-    })()),
+    p_platform_bypass: platformBypass,
   });
   if (error) return fail("internal_error", "Erro ao criar versão.", 500, { requestId });
   if (!data || typeof data !== "object" || Array.isArray(data))
