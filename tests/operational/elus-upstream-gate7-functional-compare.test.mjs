@@ -227,7 +227,7 @@ const HEADERS = [
 ];
 
 const REVIEW_BLOBS = Object.freeze({
-  "lib/automation/texto-do-followup.ts": ["d58eda4a78b7e1e3dab111c69d4eae171c0935f3", "3f0925575c1f9ef375e844bbba70d090c"],
+  "lib/automation/texto-do-followup.ts": ["d58eda4a78b7e1e3dab111c69d4eae171c0935f3", "3f0925575c1f9efb7049ef375e844bbba70d090c"],
   "lib/channels/pos-entrada.ts": ["791b6f8c21c532b0e493af7c4adb3243a87de22a", "1d72ac029edf1d91b423e00fc128b69118a8b8fa"],
   "lib/channels/zernio/ingest.ts": ["7a5b53011693aa4b56cf0e87e137af8d32d8e54f", "9c8f7cda445e3e08c236fb2e66ef791380afb447"],
   "lib/contacts/cliente-pela-agenda.ts": ["063a727f88ccca6e4f10e84c7a9b91ef3f7641f0", "0a8e92546de7bcc80b888941ed384b526be00d4f"],

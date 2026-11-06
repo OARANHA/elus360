@@ -2,6 +2,18 @@
 
 **Estado:** testes e protocolo de evidências publicados na PR #20; execução do novo HEAD **PENDENTE**. Este documento **não é aceite funcional** da v1.95.0. Nenhum item vira `safe_to_prepare`, e a PR permanece Draft.
 
+### Incidente de proveniência no Gate 7 — CI RED 06/11/2026
+
+- PR #20, HEAD anterior `f3ab56664f4f93ae23c616b29a8cdb0a946796be`, [Upstream Sync 42160538886](https://github.com/OARANHA/elus360/actions/runs/42160538886): `contrato-upstream` PASS, ensaio read-only Gate 7 FAIL, comparador **21/22 PASS (1 FAIL)**. [AI Autonomy Migration Triple 42160538926](https://github.com/OARANHA/elus360/actions/runs/42160538926): `completed/success` no mesmo HEAD.
+- Falha única: `revisão independente sem promoção: lib/automation/texto-do-followup.ts`. O teste fixava `3f0925575c1f9ef375e844bbba70d090c` (32 caracteres), mas o objeto Git recuperado diretamente de `melgarafael/DeskcommCRM@ca37cb7f2a35c1a0f6abc968139dd263b20ccb36:lib/automation/texto-do-followup.ts` é o blob SHA-1 **`3f0925575c1f9efb7049ef375e844bbba70d090c` (40 caracteres)**. O código de produção não foi modificado.
+- **Esclarecimento da contagem:** o arquivo declara **12** chamadas diretas a `test(...)`, contém **um** laço `for (const [path, decision] of HEADERS)`, com **10** elementos; o laço registra 10 testes (não 11). Total **12 + 10 = 22**. A declaração anterior de 23 contou erroneamente a própria ocorrência `test(...)` dentro do laço e depois seus 10 casos. O runner `node --test` confirmou `1..22`.
+- **Escopo da correção:** referência truncada → blob Git oficial; preservados os outros 9 pares de blob, os 12 casos diretos, as 10 verificações de classificação, ensaios comportamentais, sabotagens em memória, `PIN` com tríade base/target/fork, `graph_complete:false` e `safe_to_prepare:0`. Não foram alterados os resultados esperados.
+- **Validação local limitada:** conferidas a identidade SHA diretamente no GitHub, a sintaxe JS do corpo (sem imports ESM), a singularidade da substituição e a cardinalidade estática 12+10=22. **O comparador completo não foi reexecutado nativamente fora do CI**: requer objetos Git da tríade e evidência `gate6-evidence.json` montados pelo ensaio oficial. O próximo workflow da PR, para o HEAD da correção, deve reexecutar Gate 7 e toda a cadeia; **não transferir o verde dos 21 casos do SHA antigo**.
+- **Hindsight:** `Elus360` retornou `UNAVAILABLE` em `recall`; solicitar `sync_retain` após publicar. Até obter confirmação do serviço, o checkpoint permanece versionado aqui.
+- **Decisão:** Gate 7 **RED no SHA anterior; novo HEAD CI PENDENTE**, funcional **NO-GO**, PR Draft. Nenhum `prepare`, merge, deploy, SQL/Supabase de produção ou incorporação v1.95.0.
+
+
+
 ## Proveniência e autoridade
 
 - Fork operacional: `OARANHA/elus360`, main-base `749aaf8fbb25b46dddd9138219e2ac032cc83336`; Gate 6 GREEN em `19b60be7a84da5413ecfd844d35bf13d21b146cf`.
