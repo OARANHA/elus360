@@ -319,6 +319,16 @@ Ambos exigem `preparedFiles=1`, conteúdo protegido intacto e `git status --porc
 
 **Aceite atual:** Gate 1 GREEN para os testes até #53; os novos cenários de exclusão/renomeação exigem confirmação própria de CI. Nem o GREEN anterior nem a preservação de arestas autorizam merge/deploy/banco. Hindsight `Elus360` segue com sincronização pendente enquanto o conector retornar `UNAVAILABLE`.
 
+## Gate Exclusão/Renomeação — RED 42136704565, correção específica
+
+**Fonte:** Gerente de IA confirmou [run 42136704565](https://github.com/OARANHA/elus360/actions/runs/42136704565) RED no HEAD `58599f5a363a381a650bc53c64eb71724fa8bac1`: instalação e verificação sintática PASS, **54/55** testes operacionais PASS, benchmark SKIPPED. Teste #54 em `tests/operational/elus-upstream-reconcile.test.mjs` esperava `deletion_requires_review` ao excluir `hooks/shared.ts`; o resultado real foi `protected_requires_review`. Teste #55 de renomeação PASS.
+
+**Diagnóstico por leitura do classificador:** `impact("hooks/shared.ts")` é `unclassified` porque `hooks/` está fora da allowlist de caminhos preparáveis (`SAFE`), e `statusFor` aplica `protected_requires_review` a domínios `unclassified` **antes** da regra geral de exclusão. Isso é comportamento de proteção intencional: a exclusão continua indisponível para `safe_to_prepare`. Outras exclusões ordinárias continuam recebendo `deletion_requires_review`, inclusive a fixture já testada `app/app/delete.tsx`. Alterar a precedência global sem uma decisão de contrato criaria mudança desnecessária em segurança.
+
+**Correção minimalista publicada:** a asserção do teste #54 agora espera `protected_requires_review`, verifica `impact:unclassified` e exige status distinto de `safe_to_prepare`. Nenhum código de produção, regra de autorização, resolvedor, política de exclusão, `prepare` ou banco foi alterado. O teste continua exigindo que consumidores da dependência removida recebam revisão, que somente o arquivo independente seja preparado e que o hook excluído permaneça íntegro no worktree isolado.
+
+**Validação pendente:** a CI do novo HEAD ainda não foi confirmada. Para aceite deste RED específico, são necessários os **55/55 operacionais** e **12/12 de preparação** PASS no mesmo HEAD, além do benchmark. Não atribuir GREEN ao commit corretivo antes da execução. A sincronização Hindsight `Elus360` deve permanecer marcada como pendente enquanto a ferramenta retornar `UNAVAILABLE`.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
