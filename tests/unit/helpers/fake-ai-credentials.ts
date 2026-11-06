@@ -58,8 +58,16 @@ export class FakeSupabase {
     if (!this.linha || this.linha.id !== args.p_id || this.linha.organization_id !== args.p_org) {
       return { data: null, error: null };
     }
-    if (op === "refresh_login" && this.linha.provider !== "openai-assinatura") {
-      return { data: { error: "forbidden_platform_ai" }, error: null };
+    if (op === "refresh_login") {
+      // Reproduz a parte restritiva da RPC SQL: refresh não muda provedor,
+      // rótulo nem identidade, exige o envelope cifrado e validated_at.
+      const required = ["api_key_encrypted", "api_key_iv", "api_key_tag",
+        "api_key_last4", "validated_at"];
+      if (this.linha.provider !== "openai-assinatura" ||
+          p.label !== this.linha.label ||
+          required.some((k) => !(k in p))) {
+        return { data: null, error: { code: "42501", message: "elus_ai_credential_refresh_restricted" } };
+      }
     }
     if (op === "delete") {
       this.linha = null;
