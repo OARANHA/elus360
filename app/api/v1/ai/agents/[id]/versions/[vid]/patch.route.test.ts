@@ -20,6 +20,7 @@ vi.mock("@/lib/ai/agents/escopo", async (importOriginal) => ({
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
+vi.mock("@/lib/auth/server", () => ({ loadAuthUser: vi.fn(async () => null) }));
 // #2052: a rota deixou de chamar `requireRole` direto e passou pelo
 // `resolveAuthDual` (sessão OU Bearer). O helper chama `createClient()` do
 // servidor no ramo de sessão, que precisa do escopo de request do Next — coisa
@@ -58,6 +59,12 @@ function adminStub(
   followup: Record<string, unknown> = followupExistente,
 ) {
   return {
+    rpc: async (name: string, args: { p_org: string; p_agent: string; p_version: string; p_patch: Record<string, unknown>; p_platform_bypass: boolean }) => {
+      expect(name).toBe("fn_elus_ai_version_patch_guarded");
+      expect(args).toMatchObject({ p_org: ORG, p_agent: AGENT, p_version: VERSION, p_platform_bypass: false });
+      atualizacoes.push(args.p_patch);
+      return { data: { id: VERSION, ...args.p_patch }, error: null };
+    },
     from: () => ({
       select: () => ({
         eq: () => ({
@@ -77,18 +84,7 @@ function adminStub(
           }),
         }),
       }),
-      update: (payload: Record<string, unknown>) => {
-        atualizacoes.push(payload);
-        return {
-          eq: () => ({
-            eq: () => ({
-              select: () => ({
-                single: async () => ({ data: { id: VERSION, ...payload }, error: null }),
-              }),
-            }),
-          }),
-        };
-      },
+      update: () => { throw new Error("UPDATE direto de versão não permitido"); },
     }),
   };
 }

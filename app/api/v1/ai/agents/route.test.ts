@@ -50,6 +50,10 @@ vi.mock("@/lib/api/auth-dual", () => ({
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: deps.admin }));
 vi.mock("@/lib/audit", () => ({ audit: deps.audit }));
+vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
+  // Unicidade é o objeto desta suíte; os denies ficam nos testes da política.
+  podeAlterarTecnicaDeVersao: vi.fn(async () => true),
+}));
 vi.mock("@/lib/ai/agents/escopo", () => ({
   validarEscopoDaVersao: deps.escopo,
   codigoDoEscopo: () => "validation_failed",
@@ -84,39 +88,53 @@ function bancoFake(erroForcado?: ErroDoBanco) {
   const insercoes: Array<{ tabela: string; payload: Record<string, unknown> }> = [];
   let seq = 0;
 
-  const from = (tabela: string) => ({
-    insert: (payload: Record<string, unknown>) => {
-      insercoes.push({ tabela, payload });
-      let resposta: { data: unknown; error: ErroDoBanco | null };
-      if (tabela !== "ai_agents") {
-        resposta = { data: { id: `versao-${++seq}` }, error: erroForcado ?? null };
-      } else if (erroForcado) {
-        resposta = { data: null, error: erroForcado };
-      } else {
-        const chave = `${String(payload.organization_id)}|${String(payload.name)}`;
-        const existente = porChave.get(chave);
-        if (existente) {
-          resposta = {
-            data: null,
-            error: {
-              code: "23505",
-              message: 'duplicate key value violates unique constraint "ai_agents_name_unique"',
-              details: `Key (organization_id, name)=(${chave}) already exists.`,
-              hint: null,
-            },
-          };
-        } else {
-          const id = `agente-${++seq}`;
-          porChave.set(chave, id);
-          resposta = { data: { id, ...payload }, error: null };
-        }
-      }
-      return { select: () => ({ single: async () => resposta }) };
+  return {
+    porChave,
+    insercoes,
+    // O handler agora faz criação transacional pelo RPC, nunca INSERT direto.
+    rpc: async (name: string, args: {
+      p_org: string;
+      p_agent: Record<string, unknown>;
+      p_version: Record<string, unknown>;
+      p_platform_bypass: boolean;
+    }) => {
+      expect(name).toBe("fn_elus_ai_agent_create_guarded");
+      expect(args.p_platform_bypass).toBe(false);
+      insercoes.push({ tabela: "ai_agents", payload: args.p_agent });
+      if (erroForcado) return { data: null, error: erroForcado };
+      const chave = `${args.p_org}|${String(args.p_agent.name)}`;
+      if (porChave.has(chave)) return {
+        data: null,
+        error: {
+          code: "23505",
+          message: 'duplicate key value violates unique constraint "ai_agents_name_unique"',
+          details: `Key (organization_id, name)=(${chave}) already exists.`,
+          hint: null,
+        },
+      };
+      const agentId = `agente-${++seq}`;
+      porChave.set(chave, agentId);
+      return {
+        data: {
+          agent: { ...args.p_agent, id: agentId, organization_id: args.p_org },
+          version: { ...args.p_version, id: `versao-${seq}`, agent_id: agentId, organization_id: args.p_org },
+        },
+        error: null,
+      };
     },
-    update: () => ({ eq: () => ({ eq: async () => ({ data: null, error: null }) }) }),
-  });
-
-  return { from, insercoes, porChave };
+    from: (tabela: string) => {
+      if (tabela !== "organizations") throw new Error("Escrita/leitura direta inesperada: " + tabela);
+      const cadeia = {
+        select: () => cadeia,
+        eq: () => cadeia,
+        maybeSingle: async () => ({
+          data: { settings: { llm: { provider: "anthropic", default_model: "claude-sonnet-5" } } },
+          error: null,
+        }),
+      };
+      return cadeia;
+    },
+  };
 }
 
 function pedido(corpo: unknown = CORPO) {
@@ -138,6 +156,7 @@ beforeEach(() => {
     idioma: "pt-BR",
     actor: { type: "user", id: "usuario-1" },
     apiTokenId: null,
+    via: "token", // bypass de superadmin nunca é inferido na suíte de unicidade
   });
 });
 
