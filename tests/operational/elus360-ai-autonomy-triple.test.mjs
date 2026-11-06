@@ -10,6 +10,10 @@ const marker = "-- ---- ELUS 360 — autonomia tecnica IA (migration 9037) ----\
 const migration = readFileSync(resolve(ROOT, sqlFile), "utf8");
 const baseline = readFileSync(resolve(ROOT, "supabase/baseline.sql"), "utf8");
 const forward = readFileSync(resolve(ROOT, "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql"), "utf8");
+const forward9902 = readFileSync(resolve(ROOT, "supabase/migrations/20261106160000_9902_elus_molde_chutes_pt409.sql"), "utf8");
+const forward9903 = readFileSync(resolve(ROOT, "supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql"), "utf8");
+const marker9902 = "-- 20261106160000_9902_elus_molde_chutes_pt409\n";
+const marker9903 = "-- 20261106170000_9903_elus_agent_version_columns\n";
 
 test("migration possui identidade, manifest e DDL de coluna separada", () => {
   assert.match(sqlFile, /\/\d{14}_9900_/);
@@ -25,7 +29,10 @@ test("baseline preserva migration integral e única no apêndice final", () => {
   assert.ok(pos > 3_000_000, "baseline parece truncado ou substituído");
   const scan = baseline.indexOf("-- ---- VARREDURA anon:", pos);
   assert.ok(scan > pos, "varredura de ACL deve ser executada APÓS as funções ELUS");
-  assert.equal(baseline.slice(pos + marker.length, scan), migration + forward);
+  assert.equal(baseline.slice(pos + marker.length, scan),
+    migration + forward + marker9902 + forward9902 + "\n" + marker9903 + forward9903);
+  assert.equal(baseline.split(marker9902).length - 1, 1);
+  assert.equal(baseline.split(marker9903).length - 1, 1);
   assert.equal(baseline.split("-- ---- VARREDURA anon:").length - 1, 1);
   assert.doesNotMatch(baseline.slice(scan), /^\s*create\s+(?:or\s+replace\s+)?function/gim);
   assert.doesNotMatch(baseline.slice(scan), /^\s*grant\s+[^;]*\bto\b[^;]*\banon\b/gim);
