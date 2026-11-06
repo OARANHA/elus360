@@ -29,10 +29,10 @@
   "upstream_workflows_pending_review": [],
   "production_changed": false,
   "tests": "PENDING_CURRENT_HEAD",
-  "baseline_status": "MERGED_IN_BRANCH_SOURCE_PARITY_AND_PG_PENDING",
+  "baseline_status": "RECONCILED_ANON_SWEEP_FINAL_AWAITING_POSTGRESQL_CI",
   "baseline_official_sha256": "2610cd387c65f92ee4b893f598db4cc8a53ff032a418fbac8f455fa05762871f",
   "baseline_elus_appendix_sha256": "b1c58b7c0abdc4e09fc14ed8746e70fb5d5f02ea014910e6553c3b0cef895e97",
-  "baseline_combined_sha256": "fa0e7c1e2259a918bf013aef4a628b477695315c6316d2d7906b668b22294dc2",
+  "baseline_combined_sha256": "6f2dbe0826ddb4a3a591b481dc72c08b37e5e8eb35ff123b9b9426dd0a8990da",
   "baseline_bytes": 3966184,
   "initial_unresolved": [
     "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
@@ -82,5 +82,14 @@
       "upstream_blob_sha": "8fb967383e1460faa59831b31c7dd0130dcd1b5f",
       "reconciliation": "official verify and Postgres 15/17 invariant matrix, 12GiB full typecheck, pinned official v1.102.0 release and GitHub-hosted runners"
     }
-  ]
+  ],
+  "baseline_security_reconciliation": {
+    "upstream_v1102_exact_except_sweep_reorder": true,
+    "official_anon_sweep_preserved_byte_exact": true,
+    "elus_appendix_preserved_byte_exact": true,
+    "scanner_unique_and_after_all_elus_functions": true,
+    "postscan_function_creations": 0,
+    "postscan_grants_anon": 0,
+    "postgresql_rls_acl_validation": "PENDING_CURRENT_HEAD"
+  }
 }
