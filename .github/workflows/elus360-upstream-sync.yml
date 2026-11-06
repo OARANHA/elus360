@@ -317,6 +317,10 @@ jobs:
              r.target_graph?.summary?.new_production_modules!==45||
              r.triad12?.count!==12) throw Error("GATE5_INCOMPLETE");
           const newFiles=r.target_graph.modules,review=r.triad12.candidates;
+          const directions=r.target_graph.distance_comparison_12;
+          if(!Array.isArray(directions)||directions.length!==12||
+             directions.some(x=>x.approval!=="none"))
+            throw Error("TARGET_FORK_RISK_COMPARISON_INCOMPLETE");
           if(newFiles.some(x=>x.approval!=="none"||!x.source_in_target||x.source_in_fork))
             throw Error("NEW_MODULE_APPROVAL_VIOLATION");
           if(review.some(x=>x.approval!=="none"||!x.fork_same_as_base||!x.diff))
@@ -337,6 +341,16 @@ jobs:
               r.target_graph.summary.transitively_imported_by_protected,
             "- Novos modulos que importam superficies protegidas: "+
               r.target_graph.summary.modules_importing_protected,
+            "",
+            "## Comparacao de direcao e menor distancia: fork vs target (12 candidatos)",
+            "| Candidato | Distancia fork | Distancia target | Primeira direcao no target |",
+            "| --- | ---: | ---: | --- |",
+            ...directions.map(x=>"| "+x.path+" | "+
+              String(x.fork_distance??"sem caminho")+" | "+
+              String(x.target_distance??"sem caminho")+" | "+
+              x.target_first_hop_directions.join(", ")+" |"),
+            "",
+            "Arestas bidirecionais de imports; nao sao prova de fluxo executado.",
             "",
             "## Os 45 novos modulos (nao aprovados)",
             "| Modulo | Imports | Consumidores | Protegidos transitivos | Checks obrigatorios |",
@@ -362,7 +376,8 @@ jobs:
               "- Estado real: "+x.actual_status+"; autorizacao="+x.approval,
               "- Sinais: "+x.risk_signals.join(", "),
               "- Testes: "+x.suggested_checks.join(", "),
-              "- Distancia ate risco duro: "+String(x.nearest_hard_risk?.nearest_distance??"nao identificada"),
+              "- Distancia ate risco duro (fork): "+String(x.nearest_hard_risk?.nearest_distance??"nao identificada"),
+              "- Distancia no target: "+String(directions.find(y=>y.path===x.path)?.target_distance??"sem caminho estatico"),
               "",
               fence+"diff",x.diff,fence,""
             ])
