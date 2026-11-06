@@ -24,7 +24,7 @@ import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-v
 export const dynamic = "force-dynamic";
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,provisioning_origin,inbound_debounce_ms";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, voz_enabled, voz_quando, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,skill_names,image_vision_enabled,provisioning_origin,inbound_debounce_ms,reply_min_interval_ms";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -130,6 +130,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
     channel_session_id: patch.channel_session_id,
     pipeline_ids: patch.pipeline_ids,
     knowledge_source_ids: patch.knowledge_source_ids,
+    skill_names: patch.skill_names,
   });
   if (!escopo.ok) {
     return fail(codigoDoEscopo(escopo), mensagemDoEscopo(escopo), 422, { requestId });
@@ -175,10 +176,15 @@ export async function PATCH(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (patch.proposal_ai_draft_enabled !== undefined)
     update.proposal_ai_draft_enabled = patch.proposal_ai_draft_enabled;
   if (patch.cases_enabled !== undefined) update.cases_enabled = patch.cases_enabled;
+  if (patch.image_vision_enabled !== undefined) update.image_vision_enabled = patch.image_vision_enabled;
   if (patch.split_messages !== undefined) update.split_messages = patch.split_messages;
   if (patch.split_max_chars !== undefined) update.split_max_chars = patch.split_max_chars;
   if (patch.inbound_debounce_ms !== undefined)
     update.inbound_debounce_ms = patch.inbound_debounce_ms;
+  if (patch.reply_min_interval_ms !== undefined) update.reply_min_interval_ms = patch.reply_min_interval_ms;
+  if (patch.skill_names !== undefined) update.skill_names = patch.skill_names;
+  if (patch.voz_enabled !== undefined) update.voz_enabled = patch.voz_enabled;
+  if (patch.voz_quando !== undefined) update.voz_quando = patch.voz_quando;
   // Os dois escopos da versão entravam só no schema, não neste objeto: o PATCH
   // respondia 200 com a lista antiga e o agente seguia sem o funil ou sem o
   // material. Integrações por token chegam aqui; a tela usa
