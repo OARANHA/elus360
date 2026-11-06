@@ -31,7 +31,8 @@ export const REVIEW12 = Object.freeze([
 export function buildGate6(plan,g5) {
   if(!plan||!g5||plan.mode!=="read_only"||g5.mode!=="read_only"||
      g5.authorization!=="none"||plan.gate!=="manual_review_required"||
-     (plan.totals?.safe_to_prepare??0)!==0)
+     (plan.totals?.safe_to_prepare??0)!==0||
+     !Array.isArray(plan.files)||plan.files.some(x=>x.status==="safe_to_prepare"))
     throw Error("GATE6_FAIL_CLOSED_INPUT");
   for(const [key,sha] of Object.entries(PINNED))
     if(plan.refs?.[key]!==sha || g5.refs?.[key]!==sha)throw Error("GATE6_REF_MISMATCH:"+key);
@@ -95,7 +96,7 @@ export function buildGate6(plan,g5) {
     target_unresolved:tree.unresolved_count,
     target_sites:tree.unresolved_examples.map(x=>({path:x.path,reason:x.reason})),
     reason:"computed_module_specifier",
-    completeness:"incomplete",
+    completeness:incomplete?"incomplete":"complete",
     disposition:"investigate_demo_import_scope_without_relaxing_global_gate"
   };
   return {schema_version:1,tool:"elus-upstream-gate6-review",
