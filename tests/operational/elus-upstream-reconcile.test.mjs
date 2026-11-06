@@ -1084,3 +1084,16 @@ test("proveniencia lexical distingue sinal herdado de introduzido, sem baixar bl
   assert.ok(flags.includes("tenant_isolation"));
   assert.ok(flags.includes("exported_contract_change"));
 });
+
+test("proveniencia AST distingue import protegido retido de novo sem autorizar preparo",async()=>{
+  const {protectedImportProvenance,changedModuleSignals}=await import("../../scripts/elus-upstream-dependency-risk.mjs");
+  const before='import { guard } from "@/lib/auth/guard";\nexport const x=1;';
+  const after='import { guard } from "@/lib/auth/guard";\nimport { policy } from "@/lib/elus360/policy";\nexport const x=2;';
+  const result=protectedImportProvenance("components/example.ts",before,after);
+  assert.equal(result.inspected,true);
+  assert.deepEqual(result.retained,["@/lib/auth/guard"]);
+  assert.deepEqual(result.introduced,["@/lib/elus360/policy"]);
+  assert.deepEqual(result.removed,[]);
+  assert.ok(changedModuleSignals("components/example.ts",before,after).includes("protected_module_import_change"));
+  assert.equal(protectedImportProvenance("components/example.ts",null,after).inspected,false);
+});
