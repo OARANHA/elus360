@@ -234,25 +234,33 @@ export function transitiveProtectedDependents(changedPaths,sources,graph=depende
  * This never establishes safety; unresolved imports are blocked separately.
  */
 export function changedRiskCouplings(candidatePaths,unsafePaths,graph) {
-  const reverse=graph.reverse,adjacent=new Map();
-  for(const [dependency,consumers] of reverse) for(const consumer of consumers){
+  const adjacent=new Map();
+  for(const [dependency,consumers] of graph.reverse) for(const consumer of consumers){
     const a=adjacent.get(dependency)??new Set();a.add(consumer);adjacent.set(dependency,a);
     const b=adjacent.get(consumer)??new Set();b.add(dependency);adjacent.set(consumer,b);
   }
-  const risk=new Set(unsafePaths);
-  const results=new Map();
-  for(const candidate of candidatePaths){
-    const visited=new Set([candidate]),queue=[candidate],found=new Set();
+  const risk=new Set(unsafePaths),groups=new Map(),byNode=new Map();
+  let id=0;
+  for(const node of new Set([...adjacent.keys(),...candidatePaths,...unsafePaths])){
+    if(byNode.has(node)) continue;
+    const group=id++,queue=[node],risks=[];
+    byNode.set(node,group);
     for(let i=0;i<queue.length;i++) {
-      const node=queue[i];
-      if(risk.has(node)&&node!==candidate) found.add(node);
-      for(const next of adjacent.get(node)??[]) if(!visited.has(next)) {
-        visited.add(next);queue.push(next);
+      const current=queue[i];
+      if(risk.has(current)) risks.push(current);
+      for(const neighbor of adjacent.get(current)??[]) if(!byNode.has(neighbor)){
+        byNode.set(neighbor,group);queue.push(neighbor);
       }
     }
-    if(found.size) results.set(candidate,[...found].sort());
+    groups.set(group,risks.sort());
   }
-  return results;
+  const result=new Map();
+  for(const candidate of candidatePaths){
+    const risky=groups.get(byNode.get(candidate))??[];
+    const connected=risky.filter(path=>path!==candidate);
+    if(connected.length) result.set(candidate,connected);
+  }
+  return result;
 }
 export function protectedConsumers(path,dependents) {return dependents.get(canonical(path))??[];}
 export function directProtectedDependents(changedPaths,sources) {
