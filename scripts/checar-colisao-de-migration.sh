@@ -379,6 +379,244 @@ while IFS= read -r nome; do
   fi
 
   colisao_n="$(grep -E "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$base_arvore" || true)"
+  # In a three-way upstream upgrade, a historical fork migration can be
+  # renumbered by FILENAME ONLY to vacate the upstream NNNN. It is NOT a
+  # collision when the original path is absent from HEAD and the new path
+  # preserves the exact timestamp, slug AND Git blob (SQL byte-for-byte).
+  # Changing timestamp would re-run the migration in Supabase: never waive it.
+  if [ -n "$colisao_n" ]; then
+    candidatos_antigos="$colisao_n"; colisao_n=""
+    while IFS= read -r historica; do
+      [ -z "$historica" ] && continue
+      historica_path="supabase/migrations/$historica"
+      if git cat-file -e "HEAD:$historica_path" 2>/dev/null; then
+        colisao_n+="$historica""$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$base_arvore" || true)"
+  if [ -n "$colisao_n" ]; then
+    lista="$(tr '\n' ' ' <<<"$colisao_n" | sed 's/ *$//')"
+    echo "::error file=$caminho::NNNN=$nnnn já existe em '$BASE': $lista"
+    echo "CI REPROVADO: NNNN=$nnnn de '$nome' já existe em '$BASE': $lista"
+    escopo_do_proximo_livre | sed 's/^/  /'
+    echo "  Troque o TIMESTAMP junto (date -u +%Y%m%d%H%M%S) — renumerar só o NNNN é o que fabrica colisão de timestamp."
+    falhou=1
+  fi
+  if [ -n "$colisao_t" ]; then
+    lista="$(tr '\n' ' ' <<<"$colisao_t" | sed 's/ *$//')"
+    echo "::error file=$caminho::timestamp $ts já existe em '$BASE': $lista"
+    echo "CI REPROVADO: timestamp $ts de '$nome' já existe em '$BASE': $lista"
+    echo "  O Supabase usa o timestamp como identidade da migration; dois iguais quebram db push/reset."
+    falhou=1
+  fi
+
+  # Outro PR ABERTO (inclusive de fork) com o mesmo NNNN ou timestamp: AVISA no arquivo,
+  # não reprova — quem entrar primeiro fica; o outro PR pode nunca entrar.
+  if [ -n "$arvores_prs" ]; then
+    # Quem tem o MESMO arquivo (mesmo nome inteiro) não é outro dono: é a cabeça publicada
+    # deste PR antes de um amend/rebase, ou um PR empilhado sobre ele. Sem isso, o amend
+    # manda o autor renumerar contra ele mesmo (revisão de 19/09/2026).
+    iguais="$(awk -v f="$nome" '$2 == f { print $1 }' <<<"$arvores_prs" | sort -u)"
+    donos_n="$(grep -E "^[0-9]+ [0-9]{14}_${nnnn}_.+\.sql$" <<<"$arvores_prs" | cut -d' ' -f1 | sort -un \
+                 | { if [ -n "$iguais" ]; then grep -vxF "$iguais"; else cat; fi; } \
+                 | sed 's/^/PR aberto #/' | paste -sd, - | sed 's/,/, /g' || true)"
+    donos_t="$(grep -E "^[0-9]+ ${ts}_[0-9]{4}_.+\.sql$" <<<"$arvores_prs" | cut -d' ' -f1 | sort -un \
+                 | { if [ -n "$iguais" ]; then grep -vxF "$iguais"; else cat; fi; } \
+                 | sed 's/^/PR aberto #/' | paste -sd, - | sed 's/,/, /g' || true)"
+    if [ -n "$donos_n" ]; then
+      echo "::warning file=$caminho::NNNN=$nnnn também está em: $donos_n — não reprova: quem entrar primeiro fica, e o outro renumera (NNNN e timestamp juntos)."
+    fi
+    if [ -n "$donos_t" ]; then
+      echo "::warning file=$caminho::timestamp $ts também está em: $donos_t — o Supabase usa o timestamp como identidade; quem entrar depois troca o seu."
+    fi
+  fi
+
+  # A sonda de árvore (TRIAGEM.md:926) restrita às adições: NNNN/timestamp repetidos
+  # entre os arquivos DESTE PR — o hook do pre-commit não vê isso, o merge cego também não.
+  gemeas_n="$(grep -cE "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$adicionadas_nomes" || true)"
+  if [ "${gemeas_n:-0}" -gt 1 ]; then
+    lista="$(grep -E "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$adicionadas_nomes" | tr '\n' ' ' | sed 's/ *$//')"
+    echo "::error file=$caminho::NNNN=$nnnn repetido entre os arquivos deste PR: $lista"
+    echo "CI REPROVADO: NNNN=$nnnn aparece em $gemeas_n arquivos deste PR: $lista"
+    escopo_do_proximo_livre | sed 's/^/  /'
+    falhou=1
+  fi
+  gemeas_t="$(grep -cE "^${ts}_[0-9]{4}_.+\.sql$" <<<"$adicionadas_nomes" || true)"
+  if [ "${gemeas_t:-0}" -gt 1 ]; then
+    lista="$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$adicionadas_nomes" | tr '\n' ' ' | sed 's/ *$//')"
+    echo "::error file=$caminho::timestamp $ts repetido entre os arquivos deste PR: $lista"
+    echo "CI REPROVADO: timestamp $ts aparece em $gemeas_t arquivos deste PR: $lista"
+    echo "  O Supabase usa o timestamp como identidade da migration; dois iguais quebram db push/reset."
+    falhou=1
+  fi
+done <<<"$adicionadas_nomes"
+
+if [ "$falhou" = 1 ]; then
+  echo
+  echo "Correção: renumerar o arquivo do PR para um NNNN livre E trocar o TIMESTAMP junto, no mesmo commit."
+  echo "  Os casos legítimos (editar, renomear, merge da main, dívida antiga da base) já passam por construção — ver o cabeçalho deste script."
+  exit 1
+fi
+echo "OK — $(grep -c . <<<"$adicionadas_nomes") migration(ões) nova(s) com NNNN/timestamp livres contra '$BASE'."
+escopo_do_proximo_livre
+exit 0
+\n'
+        continue
+      fi
+      ts_historico="${historica:0:14}"
+      slug_historico="$(sed -E 's/^[0-9]{14}_[0-9]{4}_//' <<<"$historica")"
+      blob_historico="$(git rev-parse "$BASE:$historica_path" 2>/dev/null || true)"
+      migracao_renomeada=0
+      if [ -n "$blob_historico" ]; then
+        while IFS= read -r destino; do
+          [ -z "$destino" ] && continue
+          [ "$destino" = "$historica" ] && continue
+          blob_destino="$(git rev-parse "HEAD:supabase/migrations/$destino" 2>/dev/null || true)"
+          if [ "$blob_destino" = "$blob_historico" ]; then
+            migracao_renomeada=1
+            break
+          fi
+        done < <(grep -E "^${ts_historico}_[0-9]{4}_${slug_historico}$" <<<"$head_arvore" || true)
+      fi
+      if [ "$migracao_renomeada" -eq 1 ]; then
+        echo "::notice::NNNN=${nnnn} liberado em HEAD: $historica foi renomeada sem mudar timestamp, slug ou SQL"
+      else
+        colisao_n+="$historica""$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$base_arvore" || true)"
+  if [ -n "$colisao_n" ]; then
+    lista="$(tr '\n' ' ' <<<"$colisao_n" | sed 's/ *$//')"
+    echo "::error file=$caminho::NNNN=$nnnn já existe em '$BASE': $lista"
+    echo "CI REPROVADO: NNNN=$nnnn de '$nome' já existe em '$BASE': $lista"
+    escopo_do_proximo_livre | sed 's/^/  /'
+    echo "  Troque o TIMESTAMP junto (date -u +%Y%m%d%H%M%S) — renumerar só o NNNN é o que fabrica colisão de timestamp."
+    falhou=1
+  fi
+  if [ -n "$colisao_t" ]; then
+    lista="$(tr '\n' ' ' <<<"$colisao_t" | sed 's/ *$//')"
+    echo "::error file=$caminho::timestamp $ts já existe em '$BASE': $lista"
+    echo "CI REPROVADO: timestamp $ts de '$nome' já existe em '$BASE': $lista"
+    echo "  O Supabase usa o timestamp como identidade da migration; dois iguais quebram db push/reset."
+    falhou=1
+  fi
+
+  # Outro PR ABERTO (inclusive de fork) com o mesmo NNNN ou timestamp: AVISA no arquivo,
+  # não reprova — quem entrar primeiro fica; o outro PR pode nunca entrar.
+  if [ -n "$arvores_prs" ]; then
+    # Quem tem o MESMO arquivo (mesmo nome inteiro) não é outro dono: é a cabeça publicada
+    # deste PR antes de um amend/rebase, ou um PR empilhado sobre ele. Sem isso, o amend
+    # manda o autor renumerar contra ele mesmo (revisão de 19/09/2026).
+    iguais="$(awk -v f="$nome" '$2 == f { print $1 }' <<<"$arvores_prs" | sort -u)"
+    donos_n="$(grep -E "^[0-9]+ [0-9]{14}_${nnnn}_.+\.sql$" <<<"$arvores_prs" | cut -d' ' -f1 | sort -un \
+                 | { if [ -n "$iguais" ]; then grep -vxF "$iguais"; else cat; fi; } \
+                 | sed 's/^/PR aberto #/' | paste -sd, - | sed 's/,/, /g' || true)"
+    donos_t="$(grep -E "^[0-9]+ ${ts}_[0-9]{4}_.+\.sql$" <<<"$arvores_prs" | cut -d' ' -f1 | sort -un \
+                 | { if [ -n "$iguais" ]; then grep -vxF "$iguais"; else cat; fi; } \
+                 | sed 's/^/PR aberto #/' | paste -sd, - | sed 's/,/, /g' || true)"
+    if [ -n "$donos_n" ]; then
+      echo "::warning file=$caminho::NNNN=$nnnn também está em: $donos_n — não reprova: quem entrar primeiro fica, e o outro renumera (NNNN e timestamp juntos)."
+    fi
+    if [ -n "$donos_t" ]; then
+      echo "::warning file=$caminho::timestamp $ts também está em: $donos_t — o Supabase usa o timestamp como identidade; quem entrar depois troca o seu."
+    fi
+  fi
+
+  # A sonda de árvore (TRIAGEM.md:926) restrita às adições: NNNN/timestamp repetidos
+  # entre os arquivos DESTE PR — o hook do pre-commit não vê isso, o merge cego também não.
+  gemeas_n="$(grep -cE "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$adicionadas_nomes" || true)"
+  if [ "${gemeas_n:-0}" -gt 1 ]; then
+    lista="$(grep -E "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$adicionadas_nomes" | tr '\n' ' ' | sed 's/ *$//')"
+    echo "::error file=$caminho::NNNN=$nnnn repetido entre os arquivos deste PR: $lista"
+    echo "CI REPROVADO: NNNN=$nnnn aparece em $gemeas_n arquivos deste PR: $lista"
+    escopo_do_proximo_livre | sed 's/^/  /'
+    falhou=1
+  fi
+  gemeas_t="$(grep -cE "^${ts}_[0-9]{4}_.+\.sql$" <<<"$adicionadas_nomes" || true)"
+  if [ "${gemeas_t:-0}" -gt 1 ]; then
+    lista="$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$adicionadas_nomes" | tr '\n' ' ' | sed 's/ *$//')"
+    echo "::error file=$caminho::timestamp $ts repetido entre os arquivos deste PR: $lista"
+    echo "CI REPROVADO: timestamp $ts aparece em $gemeas_t arquivos deste PR: $lista"
+    echo "  O Supabase usa o timestamp como identidade da migration; dois iguais quebram db push/reset."
+    falhou=1
+  fi
+done <<<"$adicionadas_nomes"
+
+if [ "$falhou" = 1 ]; then
+  echo
+  echo "Correção: renumerar o arquivo do PR para um NNNN livre E trocar o TIMESTAMP junto, no mesmo commit."
+  echo "  Os casos legítimos (editar, renomear, merge da main, dívida antiga da base) já passam por construção — ver o cabeçalho deste script."
+  exit 1
+fi
+echo "OK — $(grep -c . <<<"$adicionadas_nomes") migration(ões) nova(s) com NNNN/timestamp livres contra '$BASE'."
+escopo_do_proximo_livre
+exit 0
+\n'
+      fi
+    done <<<"$candidatos_antigos"
+    colisao_n="${colisao_n%"$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$base_arvore" || true)"
+  if [ -n "$colisao_n" ]; then
+    lista="$(tr '\n' ' ' <<<"$colisao_n" | sed 's/ *$//')"
+    echo "::error file=$caminho::NNNN=$nnnn já existe em '$BASE': $lista"
+    echo "CI REPROVADO: NNNN=$nnnn de '$nome' já existe em '$BASE': $lista"
+    escopo_do_proximo_livre | sed 's/^/  /'
+    echo "  Troque o TIMESTAMP junto (date -u +%Y%m%d%H%M%S) — renumerar só o NNNN é o que fabrica colisão de timestamp."
+    falhou=1
+  fi
+  if [ -n "$colisao_t" ]; then
+    lista="$(tr '\n' ' ' <<<"$colisao_t" | sed 's/ *$//')"
+    echo "::error file=$caminho::timestamp $ts já existe em '$BASE': $lista"
+    echo "CI REPROVADO: timestamp $ts de '$nome' já existe em '$BASE': $lista"
+    echo "  O Supabase usa o timestamp como identidade da migration; dois iguais quebram db push/reset."
+    falhou=1
+  fi
+
+  # Outro PR ABERTO (inclusive de fork) com o mesmo NNNN ou timestamp: AVISA no arquivo,
+  # não reprova — quem entrar primeiro fica; o outro PR pode nunca entrar.
+  if [ -n "$arvores_prs" ]; then
+    # Quem tem o MESMO arquivo (mesmo nome inteiro) não é outro dono: é a cabeça publicada
+    # deste PR antes de um amend/rebase, ou um PR empilhado sobre ele. Sem isso, o amend
+    # manda o autor renumerar contra ele mesmo (revisão de 19/09/2026).
+    iguais="$(awk -v f="$nome" '$2 == f { print $1 }' <<<"$arvores_prs" | sort -u)"
+    donos_n="$(grep -E "^[0-9]+ [0-9]{14}_${nnnn}_.+\.sql$" <<<"$arvores_prs" | cut -d' ' -f1 | sort -un \
+                 | { if [ -n "$iguais" ]; then grep -vxF "$iguais"; else cat; fi; } \
+                 | sed 's/^/PR aberto #/' | paste -sd, - | sed 's/,/, /g' || true)"
+    donos_t="$(grep -E "^[0-9]+ ${ts}_[0-9]{4}_.+\.sql$" <<<"$arvores_prs" | cut -d' ' -f1 | sort -un \
+                 | { if [ -n "$iguais" ]; then grep -vxF "$iguais"; else cat; fi; } \
+                 | sed 's/^/PR aberto #/' | paste -sd, - | sed 's/,/, /g' || true)"
+    if [ -n "$donos_n" ]; then
+      echo "::warning file=$caminho::NNNN=$nnnn também está em: $donos_n — não reprova: quem entrar primeiro fica, e o outro renumera (NNNN e timestamp juntos)."
+    fi
+    if [ -n "$donos_t" ]; then
+      echo "::warning file=$caminho::timestamp $ts também está em: $donos_t — o Supabase usa o timestamp como identidade; quem entrar depois troca o seu."
+    fi
+  fi
+
+  # A sonda de árvore (TRIAGEM.md:926) restrita às adições: NNNN/timestamp repetidos
+  # entre os arquivos DESTE PR — o hook do pre-commit não vê isso, o merge cego também não.
+  gemeas_n="$(grep -cE "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$adicionadas_nomes" || true)"
+  if [ "${gemeas_n:-0}" -gt 1 ]; then
+    lista="$(grep -E "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$adicionadas_nomes" | tr '\n' ' ' | sed 's/ *$//')"
+    echo "::error file=$caminho::NNNN=$nnnn repetido entre os arquivos deste PR: $lista"
+    echo "CI REPROVADO: NNNN=$nnnn aparece em $gemeas_n arquivos deste PR: $lista"
+    escopo_do_proximo_livre | sed 's/^/  /'
+    falhou=1
+  fi
+  gemeas_t="$(grep -cE "^${ts}_[0-9]{4}_.+\.sql$" <<<"$adicionadas_nomes" || true)"
+  if [ "${gemeas_t:-0}" -gt 1 ]; then
+    lista="$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$adicionadas_nomes" | tr '\n' ' ' | sed 's/ *$//')"
+    echo "::error file=$caminho::timestamp $ts repetido entre os arquivos deste PR: $lista"
+    echo "CI REPROVADO: timestamp $ts aparece em $gemeas_t arquivos deste PR: $lista"
+    echo "  O Supabase usa o timestamp como identidade da migration; dois iguais quebram db push/reset."
+    falhou=1
+  fi
+done <<<"$adicionadas_nomes"
+
+if [ "$falhou" = 1 ]; then
+  echo
+  echo "Correção: renumerar o arquivo do PR para um NNNN livre E trocar o TIMESTAMP junto, no mesmo commit."
+  echo "  Os casos legítimos (editar, renomear, merge da main, dívida antiga da base) já passam por construção — ver o cabeçalho deste script."
+  exit 1
+fi
+echo "OK — $(grep -c . <<<"$adicionadas_nomes") migration(ões) nova(s) com NNNN/timestamp livres contra '$BASE'."
+escopo_do_proximo_livre
+exit 0
+\n'}"
+  fi
   colisao_t="$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$base_arvore" || true)"
   if [ -n "$colisao_n" ]; then
     lista="$(tr '\n' ' ' <<<"$colisao_n" | sed 's/ *$//')"
