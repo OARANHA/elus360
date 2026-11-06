@@ -768,3 +768,54 @@ test("bootstrap nao exportado que altera autorizacao ou inicializacao exige revi
   }
   assert.deepEqual(contractSignals("components/plain.ts","const ordinary=1;","const ordinary=2;"),[]);
 });
+
+test("mesmo arquivo mistura melhoria legitima e enfraquecimento RBAC: bloqueio atomico com fork corrigido",()=>{
+  const cwd=mkdtempSync(join(tmpdir(),"elus-upstream-mixed-"));
+  const prior=process.cwd(),out=join(tmpdir(),"elus-upstream-mixed-out-"+process.pid+"-"+Date.now());
+  const set=(path,content)=>{const full=join(cwd,path);mkdirSync(dirname(full),{recursive:true});writeFileSync(full,content);};
+  const commit=name=>{git(cwd,"add",".");git(cwd,"commit","-qm",name);return git(cwd,"rev-parse","HEAD");};
+  const baseMixed="export function authorize(role:string){return role==='admin';}\nconst uiVersion=1;\n";
+  const upstreamMixed="export function authorize(role:string){return true;}\nconst uiVersion=2;\n";
+  const baseShared="const upstreamPart=1;\nconst elusFixedPart=1;\n";
+  const forkShared="const upstreamPart=1;\nconst elusFixedPart='ELUS_CORRECTED';\n";
+  const upstreamShared="const upstreamPart=2;\nconst elusFixedPart=1;\n";
+  try{
+    git(cwd,"init","-q");git(cwd,"config","user.name","ELUS Tests");git(cwd,"config","user.email","tests@example.invalid");
+    set("tsconfig.json",JSON.stringify({compilerOptions:{module:"esnext",moduleResolution:"bundler",paths:{"@/*":["./*"]}}}));
+    set("components/ordinary.ts","const ordinary=1;\n");
+    set("components/mixed.ts",baseMixed);
+    set("components/shared-correction.ts",baseShared);
+    const base=commit("DeskcommCRM base");
+    set("components/ordinary.ts","const ordinary=2;\n");
+    set("components/mixed.ts",upstreamMixed);
+    set("components/shared-correction.ts",upstreamShared);
+    const target=commit("DeskcommCRM upstream mixed safe and unsafe changes");
+    git(cwd,"checkout","-q",base);
+    set("components/shared-correction.ts",forkShared);
+    const fork=commit("ELUS preserved fix in other hunk");
+    process.chdir(cwd);
+    const report=reconcile(base,target,fork);
+    const byPath=Object.fromEntries(report.files.map(f=>[f.path,f]));
+    assert.equal(byPath["components/ordinary.ts"].status,"safe_to_prepare");
+    assert.equal(byPath["components/mixed.ts"].status,"contract_requires_review");
+    assert.ok(byPath["components/mixed.ts"].signals.includes("exported_contract_change"));
+    assert.equal(byPath["components/shared-correction.ts"].status,"conflict_requires_review");
+    assert.equal(report.totals.safe_to_prepare,1);
+    const headBefore=git(cwd,"rev-parse","HEAD");
+    const worktree=prepare(base,target,fork,out);
+    assert.equal(worktree.preparedFiles,1);
+    assert.equal(readFileSync(join(out,"components/ordinary.ts"),"utf8"),"const ordinary=2;\n");
+    assert.equal(readFileSync(join(out,"components/mixed.ts"),"utf8"),baseMixed);
+    assert.equal(readFileSync(join(out,"components/shared-correction.ts"),"utf8"),forkShared);
+    assert.equal(git(cwd,"rev-parse","HEAD"),headBefore);
+    assert.equal(git(cwd,"status","--porcelain"),"");
+    const manifest=JSON.parse(readFileSync(join(out,".elus-upstream/report.json"),"utf8"));
+    assert.deepEqual(manifest.preparedFiles,["components/ordinary.ts"]);
+    assert.equal(manifest.files.find(f=>f.path==="components/mixed.ts").status,"contract_requires_review");
+  } finally {
+    process.chdir(cwd);
+    if(existsSync(out)) git(cwd,"worktree","remove","--force",out);
+    process.chdir(prior);
+    rmSync(cwd,{recursive:true,force:true});
+  }
+});
