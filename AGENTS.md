@@ -6,6 +6,15 @@
 > Precedência quando dois documentos discordam: `CLAUDE.md` > `docs/specs/` > `docs/prd/` >
 > `HANDOFF-*.md` > `README.md`.
 
+## Skills operacionais do fork ELUS360
+
+Para tarefas em OARANHA/elus360, consultar
+[elus-doutrina](.agents/skills/elus-doutrina/SKILL.md) e
+[elus-contribuir](.agents/skills/elus-contribuir/SKILL.md).
+Para contribuições ao DeskcommCRM oficial, manter as skills deskcomm-*.
+Fonte e rotina de sincronização: [adoção de skills](docs/elus360/skills-adocao.md).
+A autoridade de CLAUDE.md e das specs não muda, e uma skill não autoriza escrita ou deploy.
+
 ## Project Overview
 
 Sistema operacional de vendas open source com agentes de IA nativos, multi-nicho (e-commerce,
