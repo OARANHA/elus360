@@ -22,6 +22,9 @@ on:
       - "tests/invariants/elus-upstream-gate8-contratos-sql.test.ts"
       - "tests/invariants/elus-upstream-gate9-emit-event-boundaries.test.ts"
       - "docs/elus360/upstream-gate9-event-boundary.md"
+      - "docs/elus360/upstream-gate10-event-hardening-proposal.md"
+      - "scripts/elus-upstream-gate10-inventory.mjs"
+      - "tests/operational/elus-upstream-gate10-inventory.test.mjs"
       - "docs/elus360/upstream-gate8-contracts.md"
       - "docs/elus360/upstream-gate7-functional.md"
       - "docs/elus360/upstream-gate6-review.md"
@@ -63,6 +66,23 @@ jobs:
           node --test tests/operational/elus-upstream-reconcile.test.mjs
           node --test tests/operational/elus-upstream-gate5.test.mjs
           node --test tests/operational/elus-upstream-gate6.test.mjs
+      # Gate 10 nao certifica seguranca: scanner de fontes e testes do proprio
+      # inventario. O resultado e uma lista de CANDIDATOS para revisar.
+      - name: Gate 10 - mapa lexical do barramento (somente leitura)
+        run: |
+          node --check scripts/elus-upstream-gate10-inventory.mjs
+          node --check tests/operational/elus-upstream-gate10-inventory.test.mjs
+          node --test tests/operational/elus-upstream-gate10-inventory.test.mjs
+          mkdir -p gate10-evidence
+          node scripts/elus-upstream-gate10-inventory.mjs --output gate10-evidence/inventory.json
+      - name: Gate 10 - artefato de candidatos, nao aceite de seguranca
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elus360-gate10-inventory
+          path: gate10-evidence/inventory.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Gate 6 - testes direcionados do fork sem atualizacao upstream
         run: |
           pnpm exec vitest run \
