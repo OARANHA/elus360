@@ -497,16 +497,7 @@ export async function revertToVersionAction(
     return { ok: false, error: "tool_id_invalid", details: { invalid } };
   }
 
-  // Voltar a uma versão de quando a assinatura estava ligada regravaria o
-  // provedor que a instalação desligou — a mesma régua do salvar.
-  const escopo = await validarEscopoDaVersao(admin, activeOrg.orgId, {
-    provider: (source as { provider: string }).provider,
-  });
-  if (!escopo.ok) {
-    return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
-  }
-
-  // Cria draft idêntica com retry em 23505 (race no version_number).
+  // Reversão também é uma escrita técnica: escopo, grants e MFA continuam obrigatórios.
   type SourceRow = {
     system_prompt: string;
     provider: string;
@@ -544,81 +535,114 @@ export async function revertToVersionAction(
   };
   const src = source as unknown as SourceRow;
 
-  let createdId: string | null = null;
-  let createdNumber: number | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const { data: maxRow } = await admin
-      .from("ai_agent_versions")
-      .select("version_number")
-      .eq("agent_id", agentId)
-      .eq("organization_id", activeOrg.orgId)
-      .order("version_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const nextNumber = (maxRow?.version_number ?? 0) + 1;
-
-    const { data: created, error } = await admin
-      .from("ai_agent_versions")
-      .insert({
-        organization_id: activeOrg.orgId,
-        agent_id: agentId,
-        version_number: nextNumber,
-        system_prompt: src.system_prompt,
-        provider: src.provider,
-        model: src.model,
-        credential_id: src.credential_id,
-        tool_ids: src.tool_ids,
-        trigger_config: src.trigger_config ?? undefined,
-        channel_session_id: src.channel_session_id,
-        max_steps: src.max_steps,
-        token_budget: src.token_budget,
-        cost_budget_cents: src.cost_budget_cents,
-        history_message_window: src.history_message_window,
-        history_token_window: src.history_token_window,
-        handoff_keywords: src.handoff_keywords,
-        handoff_tool_enabled: src.handoff_tool_enabled,
-        // Reverter/duplicar leva a chave junto: voltar para uma versão sem ela
-        // seria publicar uma configuração que nunca existiu (mesma régua de
-        // `pipeline_ids` logo abaixo).
-        handoff_legal_enabled: src.handoff_legal_enabled,
-        proposal_ai_draft_enabled: src.proposal_ai_draft_enabled,
-        cases_enabled: src.cases_enabled,
-        image_vision_enabled: src.image_vision_enabled ?? true,
-        voz_enabled: src.voz_enabled,
-        voz_quando: src.voz_quando,
-        operator_enabled: src.operator_enabled,
-        operator_model: src.operator_model,
-        operator_tool_ids: src.operator_tool_ids,
-        // O revert leva o escopo junto: voltar para uma versão e NÃO voltar a
-        // permissão dela seria publicar uma configuração que nunca existiu.
-        // Vale igual para o acervo: reverter e o assistente esquecer o material
-        // que aquela versão consultava é publicar uma configuração inventada.
-        pipeline_ids: src.pipeline_ids,
-        knowledge_source_ids: src.knowledge_source_ids ?? [],
-        skill_names: src.skill_names ?? null,
-        split_messages: src.split_messages,
-        split_max_chars: src.split_max_chars,
-        inbound_debounce_ms: src.inbound_debounce_ms ?? null,
-        reply_min_interval_ms: src.reply_min_interval_ms ?? null,
-        followup: src.followup,
-        status: "draft",
-        created_by: authUser.id,
-      })
-      .select("id, version_number")
-      .single();
-
-    if (!error && created) {
-      createdId = created.id;
-      createdNumber = created.version_number;
-      break;
-    }
-    if (error?.code !== "23505") {
-      return { ok: false, error: "internal_error", message: error?.message };
-    }
+  // A versão de origem pode referenciar recursos removidos ou de outra org.
+  // A validação é a mesma do save: não publicar uma configuração parcialmente muda.
+  const escopo = await validarEscopoDaVersao(admin, activeOrg.orgId, {
+    provider: src.provider,
+    credential_id: src.credential_id,
+    channel_session_id: src.channel_session_id,
+    pipeline_ids: src.pipeline_ids,
+    knowledge_source_ids: src.knowledge_source_ids,
+    skill_names: src.skill_names,
+  });
+  if (!escopo.ok) {
+    return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
   }
-  if (!createdId || createdNumber == null) {
-    return { ok: false, error: "internal_error", message: "Conflito de versionamento." };
+
+  // Comparação contra a última versão lida DO SERVIDOR, seguida do mesmo
+  // controle dentro da RPC sob lock. Nunca comparar com metadados do browser.
+  const { data: reference, error: referenceError } = await admin
+    .from("ai_agent_versions")
+    .select("provider, model, credential_id, operator_model")
+    .eq("organization_id", activeOrg.orgId)
+    .eq("agent_id", agentId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (referenceError || !reference) {
+    return { ok: false, error: "configuracao_ia_indisponivel" };
   }
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: "session",
+    authUserId: authUser.id,
+    organizationId: activeOrg.orgId,
+    anteriorDoServidor: reference,
+    propostaValidada: src,
+  }))) {
+    return { ok: false, error: "forbidden_platform_ai" };
+  }
+
+  // Superadmin só obtém bypass com sessão própria, escopo full e MFA confirmado.
+  // O mesmo helper do saveAgentDraftAction rejeita suporte/impersonação.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    const autorizado = await escritaDeAdminOuRecusa();
+    if (!autorizado.ok) return { ok: false, error: autorizado.error };
+    platformBypass = true;
+  }
+
+  // O schema do produto comprova todos os campos antes da escrita.
+  // A RPC escolhe version_number/status e aplica autorização sob lock PostgreSQL.
+  const payloadVersion = {
+    system_prompt: src.system_prompt,
+    provider: src.provider,
+    model: src.model,
+    credential_id: src.credential_id,
+    tool_ids: src.tool_ids,
+    trigger_config: src.trigger_config ?? undefined,
+    channel_session_id: src.channel_session_id,
+    max_steps: src.max_steps,
+    token_budget: src.token_budget,
+    cost_budget_cents: src.cost_budget_cents,
+    history_message_window: src.history_message_window,
+    history_token_window: src.history_token_window,
+    handoff_keywords: src.handoff_keywords,
+    handoff_tool_enabled: src.handoff_tool_enabled,
+    handoff_legal_enabled: src.handoff_legal_enabled,
+    proposal_ai_draft_enabled: src.proposal_ai_draft_enabled,
+    cases_enabled: src.cases_enabled,
+    image_vision_enabled: src.image_vision_enabled ?? true,
+    voz_enabled: src.voz_enabled,
+    voz_quando: src.voz_quando,
+    operator_enabled: src.operator_enabled,
+    operator_model: src.operator_model,
+    operator_tool_ids: src.operator_tool_ids,
+    pipeline_ids: src.pipeline_ids,
+    knowledge_source_ids: src.knowledge_source_ids ?? [],
+    skill_names: src.skill_names ?? null,
+    split_messages: src.split_messages,
+    split_max_chars: src.split_max_chars,
+    inbound_debounce_ms: src.inbound_debounce_ms ?? null,
+    reply_min_interval_ms: src.reply_min_interval_ms ?? null,
+    followup: src.followup,
+  };
+  const validated = versionCreateSchema.safeParse(payloadVersion);
+  if (!validated.success) {
+    return { ok: false, error: "validation_failed", details: validated.error.flatten() };
+  }
+  const { data: created, error: createError } = await admin.rpc(
+    "fn_elus_ai_version_create_guarded",
+    {
+      p_org: activeOrg.orgId,
+      p_agent: agentId,
+      p_payload: { ...validated.data, created_by: authUser.id },
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
+    return { ok: false, error: "internal_error" };
+  }
+  if ("error" in created) {
+    return {
+      ok: false,
+      error: created.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "version_conflict",
+    };
+  }
+  if (typeof created.id !== "string" || typeof created.version_number !== "number") {
+    return { ok: false, error: "internal_error" };
+  }
+  const createdId = created.id;
+  const createdNumber = created.version_number;
 
   const result = await publishAgentVersion(admin, {
     orgId: activeOrg.orgId,
