@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals } from "./elus-upstream-contract-risk.mjs";
-import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals } from "./elus-upstream-dependency-risk.mjs";
+import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -82,7 +82,7 @@ function parse(args) {
   }
   return {refs, mode, out: params[7]};
 }
-function inspectForkDependencies(fork,candidatePaths) {
+function inspectForkDependencies(fork,candidatePaths,unsafePaths=[]) {
   if(!candidatePaths.length) return {dependents:new Map(),complete:true,count:0,unresolved:0};
   // One Git tree read and one batch object read (rather than three processes per source).
   const tree=git(["ls-tree","-r","-z",fork,"--","app/","lib/","components/","workers/","hooks/","types/","curso/","proxy.ts","instrumentation.ts","instrumentation-client.ts","sentry.edge.config.ts","sentry.server.config.ts"],{binary:true});
@@ -117,6 +117,7 @@ function inspectForkDependencies(fork,candidatePaths) {
   const config=configId?readSource(fork,"tsconfig.json",configId):null;
   const graph=dependencyGraph(sources,config??"",resourcePaths);
   return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
+    riskCouplings:changedRiskCouplings(candidatePaths,unsafePaths,graph),
     complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length,unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort()};
 }
 function inventoryFor(fork) {
@@ -151,13 +152,16 @@ export function reconcile(base, target, fork) {
     return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags, suggested_checks: checksForSignals(flags)};
   });
   const safe = files.filter(f=>f.status==="safe_to_prepare").map(f=>f.path);
-  const dependencyScan=inspectForkDependencies(fork,safe);
+  const unsafe=files.filter(f=>!["safe_to_prepare","already_integrated","unchanged"].includes(f.status)).map(f=>f.path);
+  const dependencyScan=inspectForkDependencies(fork,safe,unsafe);
   const uninventoried=new Set(uninventoriedAiSurfaces(paths,inventoryFor(fork)));
   for(const file of files) {
     if(file.status==="safe_to_prepare") {
       const importers=protectedConsumers(file.path,dependencyScan.dependents);
       file.protected_importers=importers;
       if(importers.length) file.signals.push("protected_reverse_dependency");
+      const coupled=dependencyScan.riskCouplings?.get(file.path)??[];
+      if(coupled.length){file.signals.push("unsafe_changed_dependency_chain");file.unsafe_changed_neighbors=coupled;}
       if(!dependencyScan.complete) file.signals.push("dependency_analysis_incomplete");
     }
     if(uninventoried.has(file.path)) file.signals.push("uninventoried_ai_surface");
