@@ -74358,6 +74358,7 @@ revoke all on function public.fn_elus_ai_credential_write_guarded(
   uuid,text,uuid,jsonb,boolean) from public,anon,authenticated;
 grant execute on function public.fn_elus_ai_credential_write_guarded(
   uuid,text,uuid,jsonb,boolean) to service_role;
+-- manifest: Reconcilia a criacao atomica de agentes IA v1.102 com campos completos de versao, preservando isolamento e autorizacao.
 
 -- ELUS360 forward migration 9901: agent creation v1.102.0.
 -- Original 9900 stays byte-exact. No RLS, MFA or tenant grants weakened.
