@@ -56,6 +56,20 @@ jobs:
           node --test tests/operational/elus-upstream-reconcile.test.mjs
           node --test tests/operational/elus-upstream-gate5.test.mjs
           node --test tests/operational/elus-upstream-gate6.test.mjs
+      - name: Gate 6 - testes direcionados do fork sem atualizacao upstream
+        run: |
+          pnpm exec vitest run \
+            lib/automation/actions/add-tag.test.ts \
+            lib/automation/texto-do-followup.test.ts \
+            lib/channels/zernio/ingest-telefone-ganho.test.ts \
+            lib/cobranca/uso.test.ts \
+            lib/cobranca/visao-geral.test.ts \
+            lib/crm-b2b/import-process.test.ts \
+            lib/wacalls/events-bridge-auth.test.ts \
+            app/api/v1/ai/agents/\[id\]/versions/\[vid\]/patch.route.test.ts \
+            app/api/v1/ai/routers/auth-dual.test.ts
+      # Baseline only: these tests do not exercise upstream changes until merged in
+      # an isolated, explicitly approved integration branch.
       - name: Benchmark AST de arvore real (read-only)
         run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
 
