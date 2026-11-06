@@ -26,6 +26,7 @@ vi.hoisted(() => {
 
 import {
   JANELA_DA_TRAVA_MS,
+  ROTULO_DO_LOGIN_CODEX,
   lerLoginCodexRenovandoSeProxima,
 } from "@/lib/ai/credenciais/login-codex";
 import type { TokensDoCodex } from "@/lib/ai/pontos/pkce-da-assinatura";
@@ -71,6 +72,7 @@ function linhaVencendoEm(ms: number) {
     id: CRED,
     organization_id: ORG,
     provider: PROVEDOR_POR_ASSINATURA,
+    label: ROTULO_DO_LOGIN_CODEX,
     is_active: true,
     validated_at: new Date().toISOString(),
     api_key_encrypted: bufToBytea(c.ciphertext),
