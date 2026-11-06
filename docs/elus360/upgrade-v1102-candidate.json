@@ -29,11 +29,11 @@
   "upstream_workflows_pending_review": [],
   "production_changed": false,
   "tests": "PENDING_NEW_HEAD_CI",
-  "baseline_status": "OFFICIAL_AND_FORWARD_9901_RECONCILED_CI_REQUIRED",
+  "baseline_status": "OFFICIAL_WITH_FORWARD_9901_9902_9903_RECONCILED_CI_REQUIRED",
   "baseline_official_sha256": "2610cd387c65f92ee4b893f598db4cc8a53ff032a418fbac8f455fa05762871f",
   "baseline_elus_appendix_sha256": "b1c58b7c0abdc4e09fc14ed8746e70fb5d5f02ea014910e6553c3b0cef895e97",
-  "baseline_combined_sha256": "5cbe52d6fad2d45bf28f98f537c1599c2013667c930802e96e085f892c33a071",
-  "baseline_bytes": 3972955,
+  "baseline_combined_sha256": "694abc9c4357d949ca4947b22c68b523d7ba80522737c6cb681afb0945a6cb9b",
+  "baseline_bytes": 3997332,
   "initial_unresolved": [
     "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
     "app/api/v1/ai/agents/[id]/versions/route.ts",
@@ -59,7 +59,7 @@
     "lib/ai/provider-validators.ts",
     "lib/audit/actions.ts"
   ],
-  "review_note": "Guarded creation rejected server-owned payload fields, then lacked five canonical v1.102 version columns. Forward-only 9901 maintains RPC atomicity and service-only permission. Revalidate CI, PG, E2E on new HEAD.",
+  "review_note": "Correcoes forward-only 9901, 9902 e 9903; preservada atomicidade e restricao service_role das RPCs. Baseline reconcilado por fonte. CI completo do novo HEAD ainda e exigido.",
   "migration_reconciliation": {
     "upstream_migration": "supabase/migrations/20261029005025_9037_grants_explicitos_das_tabelas_do_apendice.sql",
     "elus_original": "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql",
@@ -69,8 +69,13 @@
     "unchanged_sql_bytes": true,
     "sql_source_parity": "PENDING_GITHUB_ACTIONS",
     "database_install_update": "PENDING_GITHUB_ACTIONS",
-    "note": "Original 9900 unchanged; forward 9901 byte-identical in chain and fresh baseline before the final anon ACL sweep.",
-    "forward_sql": "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql"
+    "note": "9900 historica byte-exata, 9901+9902+9903 no apendice antes da varredura final anon; paridade e gates integrais dependem de novo CI.",
+    "forward_sql": "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql",
+    "forward_sql_chain": [
+      "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql",
+      "supabase/migrations/20261106160000_9902_elus_molde_chutes_pt409.sql",
+      "supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql"
+    ]
   },
   "upstream_workflows_integrated": [
     {
