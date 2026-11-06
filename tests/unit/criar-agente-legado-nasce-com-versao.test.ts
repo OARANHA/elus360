@@ -32,6 +32,7 @@ import { corpoLegadoParaVersao } from "@/lib/ai/agents/legado-para-versao";
 import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
 
 vi.mock("@/lib/api/auth-dual", () => ({
   resolveAuthDual: vi.fn(),
@@ -40,6 +41,11 @@ vi.mock("@/lib/api/auth-dual", () => ({
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
+// Os casos positivos medem a criação quando o tenant possui autonomia técnica.
+// As negações reais continuam cobertas pelas suítes ELUS de autorização e RLS.
+vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
+  podeAlterarTecnicaDeVersao: vi.fn(async () => true),
+}));
 
 const ORG = "22222222-2222-4222-8222-222222222222";
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -57,31 +63,52 @@ function gravado(tabela: string): Record<string, unknown> {
 
 function adminFake() {
   gravados = {};
-  const cliente = {
+  return {
     from(tabela: string) {
-      const fila = (gravados[tabela] ??= []);
-      const cadeia: Record<string, unknown> = {};
-      cadeia.insert = (payload: Record<string, unknown>) => {
-        fila.push(payload);
-        return cadeia;
-      };
-      cadeia.update = (payload: Record<string, unknown>) => {
-        fila.push({ __rollback: payload });
-        return cadeia;
-      };
-      cadeia.select = () => cadeia;
-      cadeia.eq = () => cadeia;
-      cadeia.single = async () => {
-        const payload = fila[fila.length - 1] ?? {};
-        return {
-          data: { id: `${tabela}-id`, organization_id: ORG, ...payload },
-          error: null,
+      if (tabela === "organizations") {
+        const q = {
+          select: () => q,
+          eq: () => q,
+          maybeSingle: async () => ({
+            data: { settings: { llm: { provider: "anthropic", default_model: "claude-sonnet-5" } } },
+            error: null,
+          }),
         };
+        return q;
+      }
+      const fila = (gravados[tabela] ??= []);
+      const q: Record<string, unknown> = {};
+      q.select = () => q;
+      q.eq = () => q;
+      q.order = () => q;
+      q.limit = () => q;
+      q.maybeSingle = async () => ({ data: null, error: null });
+      q.single = async () => ({ data: fila.at(-1) ?? null, error: null });
+      return q;
+    },
+    // A criação agora é um único RPC transacional com duas linhas, não dois
+    // inserts independentes. O dublê inspeciona o payload antes de simular a transação.
+    async rpc(name: string, args: {
+      p_org: string;
+      p_agent: Record<string, unknown>;
+      p_version: Record<string, unknown>;
+      p_platform_bypass: boolean;
+    }) {
+      if (name !== "fn_elus_ai_agent_create_guarded" || args.p_org !== ORG) {
+        return { data: null, error: { code: "42501", message: "forbidden" } };
+      }
+      const agent = { ...args.p_agent, id: "ai_agents-id", organization_id: ORG };
+      const version = {
+        ...args.p_version,
+        id: "ai_agent_versions-id",
+        organization_id: ORG,
+        agent_id: agent.id,
       };
-      return cadeia;
+      (gravados.ai_agents ??= []).push(agent);
+      (gravados.ai_agent_versions ??= []).push(version);
+      return { data: { agent, version }, error: null };
     },
   };
-  return cliente;
 }
 
 function post(corpo: unknown): NextRequest {
@@ -104,6 +131,7 @@ beforeEach(() => {
     apiTokenId: null,
   } as unknown as Awaited<ReturnType<typeof resolveAuthDual>>);
   vi.mocked(createAdminClient).mockReturnValue(adminFake() as never);
+  vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValue(true);
 });
 
 describe("POST /api/v1/ai/agents — Modo A (corpo legado, sem `version`)", () => {
@@ -202,6 +230,16 @@ describe("POST /api/v1/ai/agents — Modo A (corpo legado, sem `version`)", () =
 });
 
 describe("POST /api/v1/ai/agents — Modo B (corpo com `version`)", () => {
+  it("nega criação técnica sem autonomia antes de chamar RPC ou gravar linhas", async () => {
+    vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValueOnce(false);
+    const res = await (await import("@/app/api/v1/ai/agents/route")).POST(
+      post({ name: "Tobias", system_prompt: "Atendente de testes", model: "anthropic/claude-sonnet-4-6" }),
+    );
+    expect(res.status).toBe(403);
+    expect(gravados.ai_agents).toBeUndefined();
+    expect(gravados.ai_agent_versions).toBeUndefined();
+  });
+
   it("segue devolvendo { agent, version } e gravando as duas linhas", async () => {
     const res = await (
       await import("@/app/api/v1/ai/agents/route")
