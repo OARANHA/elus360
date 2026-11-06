@@ -15,7 +15,7 @@ type Modelo = { provider: string; model_id: string; display_name: string };
 
 // Rótulo de modelo (não de contato): mantém o fallback local ao catálogo.
 function rotuloDeModelo(m: Modelo): string {
-  return m.display_name || m.model_id;
+  return m.display_name ? m.display_name : m.model_id;
 }
 type Credencial = { id: string; provider: string; label: string; api_key_last4: string; is_active: boolean; validated_at: string | null; models_available: string[] };
 type Dados = {
