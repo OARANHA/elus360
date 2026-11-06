@@ -94,6 +94,30 @@ export function changedModuleSignals(path,before,after,rawConfig=null) {
   }
   return [...signals];
 }
+/** Detect edges introduced only in the upstream target to another unsafe
+ * changed file. The fork reverse graph cannot contain an edge not yet imported.
+ */
+export function newUnsafeImportSignals(path,before,after,unsafePaths,rawConfig=null) {
+  if(!SOURCE.test(path)||!unsafePaths.length) return [];
+  const original=astImports(before,path),incoming=astImports(after,path);
+  if(original.unresolved.length||incoming.unresolved.length) return ["dependency_analysis_incomplete"];
+  const old=new Set(original.specifiers);
+  const risky=new Set(unsafePaths.map(canonical));
+  const newImports=incoming.specifiers.filter(specifier=>!old.has(specifier));
+  if(!newImports.length) return [];
+  const sparse=unsafePaths.filter(p=>SOURCE.test(p)).map(path=>({path,content:"export {};"}));
+  const resolver=rawConfig===null?null:configuredResolver(sparse,rawConfig);
+  for(const specifier of newImports){
+    const plain=sourceModule(specifier,path);
+    if(plain&&risky.has(plain)) return ["unsafe_changed_import_edge"];
+    if(resolver){
+      const resolved=resolver.resolve(specifier,path);
+      if(resolved.path&&risky.has(canonical(resolved.path))) return ["unsafe_changed_import_edge"];
+      if(resolved.local&&!resolved.path) return ["dependency_analysis_incomplete"];
+    } else if(isLocal(specifier)) return ["dependency_analysis_incomplete"];
+  }
+  return [];
+}
 export function importPaths(content,path) {
   const data=astImports(content,path);
   return [...new Set(data.specifiers.map(s=>sourceModule(s,path)).filter(Boolean))];
