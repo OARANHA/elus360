@@ -1,5 +1,5 @@
 {
-  "status": "SOURCE_MERGED_CI_AND_POSTGRESQL_NOT_YET_VERIFIED",
+  "status": "CODE_AND_OFFICIAL_CI_WORKFLOWS_INTEGRATED_CI_PENDING",
   "base_tag": "v1.94.0",
   "base_commit": "ba24d4d366b7caf056b88553e0ed434cb0fb46de",
   "target_tag": "v1.102.0",
@@ -26,10 +26,7 @@
     "lib/env.ts"
   ],
   "unresolved": [],
-  "upstream_workflows_pending_review": [
-    ".github/workflows/ci.yml",
-    ".github/workflows/e2e.yml"
-  ],
+  "upstream_workflows_pending_review": [],
   "production_changed": false,
   "tests": "PENDING_CURRENT_HEAD",
   "baseline_status": "MERGED_IN_BRANCH_SOURCE_PARITY_AND_PG_PENDING",
@@ -62,7 +59,7 @@
     "lib/ai/provider-validators.ts",
     "lib/audit/actions.ts"
   ],
-  "review_note": "Baseline committed from official v1.102 plus ELUS SQL; independently check official prefix, exact migration appendix, SQL guards, unique names and database install/update in new PR-triggered CI. No green claimed.",
+  "review_note": "Official CI/E2E files restored from pinned v1.102 upstream. Full E2E suite, pinned CLI, 8-part upstream unit verification, PG15/17 invariants kept; ELUS-specific isolation/memory/release corrections applied. Tests must pass on the latest HEAD. No merge or production changes.",
   "migration_reconciliation": {
     "upstream_migration": "supabase/migrations/20261029005025_9037_grants_explicitos_das_tabelas_do_apendice.sql",
     "elus_original": "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql",
@@ -73,5 +70,17 @@
     "sql_source_parity": "PENDING_GITHUB_ACTIONS",
     "database_install_update": "PENDING_GITHUB_ACTIONS",
     "note": "Different NNNN labels, identical SQL and Supabase timestamp; collision checker only waives an old number when HEAD proves a byte-identical rename."
-  }
+  },
+  "upstream_workflows_integrated": [
+    {
+      "path": ".github/workflows/e2e.yml",
+      "upstream_blob_sha": "a3b0966c386d1ca1eccce205dee2dd3521ac4bfe",
+      "reconciliation": "full official v1.102.0 E2E matrix, Supabase CLI 2.117.0 preserved; runner isolated to GitHub-hosted"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "upstream_blob_sha": "8fb967383e1460faa59831b31c7dd0130dcd1b5f",
+      "reconciliation": "official verify and Postgres 15/17 invariant matrix, 12GiB full typecheck, pinned official v1.102.0 release and GitHub-hosted runners"
+    }
+  ]
 }
