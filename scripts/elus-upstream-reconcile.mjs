@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals } from "./elus-upstream-contract-risk.mjs";
-import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings } from "./elus-upstream-dependency-risk.mjs";
+import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals } from "./elus-upstream-dependency-risk.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -151,6 +151,20 @@ export function reconcile(base, target, fork) {
     ];
     return {path, impact: impact(path), status: statusFor(path, before, after, local, flags), signals: flags, suggested_checks: checksForSignals(flags)};
   });
+  // Reclassify source candidates whose NEW target imports reference another unsafe
+  // changed file: such an edge is absent from the fork-side dependency graph.
+  const batchUnsafe=files.filter(f=>!["safe_to_prepare","already_integrated","unchanged"].includes(f.status)).map(f=>f.path);
+  for(const file of files) {
+    if(file.status!=="safe_to_prepare") continue;
+    const beforeOid=oid(base,file.path),afterOid=oid(target,file.path);
+    const before=readSource(base,file.path,beforeOid),after=readSource(target,file.path,afterOid);
+    const additions=newUnsafeImportSignals(file.path,before,after,batchUnsafe,configuredTs);
+    if(additions.length) {
+      file.signals.push(...additions);
+      file.status="contract_requires_review";
+      file.suggested_checks=checksForSignals(file.signals);
+    }
+  }
   const safe = files.filter(f=>f.status==="safe_to_prepare").map(f=>f.path);
   const unsafe=files.filter(f=>!["safe_to_prepare","already_integrated","unchanged"].includes(f.status)).map(f=>f.path);
   const dependencyScan=inspectForkDependencies(fork,safe,unsafe);
