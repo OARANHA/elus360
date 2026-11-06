@@ -325,13 +325,15 @@ async function login(page: Page): Promise<void> {
 }
 
 /**
- * Cria a versão de teste com as capacidades da W4 ligadas.
+ * Cria agente e primeira versão de teste COM as capacidades da W4 ligadas.
+ * O seed E2E não garante versão inicial para o rag_bot legado; criar pela API
+ * transacional oficial garante o vínculo sem contornar grants ou MFA.
  *
  * ⚠️ A CHAVE VEM DO AMBIENTE (`QA_LLM_API_KEY`), nunca do arquivo. Ela é
  * cadastrada pela ROTA de credenciais, que a cifra — do jeito que um dono faria
  * pela tela. Chave em spec versionado é vazamento permanente: o git não esquece.
  */
-async function versaoComAsCapacidades(req: APIRequestContext, agenteId: string): Promise<string> {
+async function versaoComAsCapacidades(req: APIRequestContext): Promise<{ agenteId: string; versaoId: string }> {
   const chave = process.env.QA_LLM_API_KEY;
   const provider = (process.env.QA_LLM_PROVIDER ?? "openai") as "openai" | "anthropic";
   const modelo = process.env.QA_LLM_MODEL ?? "gpt-5.6-terra";
@@ -351,7 +353,7 @@ async function versaoComAsCapacidades(req: APIRequestContext, agenteId: string):
   const validada = existentes.data?.find((c) => c.provider === provider && c.validated_at);
   if (validada) {
     console.info(`[QA] reusando credencial ${provider} já validada`);
-    return criarVersao(req, agenteId, validada.id, canalId, provider, modelo);
+    return criarAgenteComVersao(req, validada.id, canalId, provider, modelo);
   }
 
   let credentialId: string | undefined;
@@ -383,31 +385,40 @@ async function versaoComAsCapacidades(req: APIRequestContext, agenteId: string):
   }
   if (!credentialId) throw new Error("sem credencial de LLM");
 
-  return criarVersao(req, agenteId, credentialId, canalId, provider, modelo);
+  return criarAgenteComVersao(req, credentialId, canalId, provider, modelo);
 }
 
-async function criarVersao(
+async function criarAgenteComVersao(
   req: APIRequestContext,
-  agenteId: string,
   credentialId: string,
   canalId: string,
   provider: string,
   modelo: string,
-): Promise<string> {
-  const res = await req.post(`${APP_URL}/api/v1/ai/agents/${agenteId}/versions`, {
+): Promise<{ agenteId: string; versaoId: string }> {
+  // O mesmo POST utilizado pelo produto: cria ai_agents + v1 sob uma RPC
+  // transacional, com autorização de tenant e quatro grants revalidados.
+  const res = await req.post(`${APP_URL}/api/v1/ai/agents`, {
     data: {
-      system_prompt: PROMPT,
-      provider,
-      model: modelo,
-      credential_id: credentialId,
-      channel_session_id: canalId,
-      tool_ids: CAPACIDADES_DO_TESTE,
-      max_steps: 8,
+      name: `QA W4 — ${ts}`,
+      version: {
+        system_prompt: PROMPT,
+        provider,
+        model: modelo,
+        credential_id: credentialId,
+        channel_session_id: canalId,
+        tool_ids: CAPACIDADES_DO_TESTE,
+        max_steps: 8,
+      },
     },
   });
   const corpo = await res.text();
-  if (!res.ok()) throw new Error(`criar versão → ${res.status()}: ${corpo.slice(0, 400)}`);
-  return (JSON.parse(corpo) as { data: { id: string } }).data.id;
+  if (!res.ok()) throw new Error(`criar agente e versão → ${res.status()}: ${corpo.slice(0, 400)}`);
+  const payload = JSON.parse(corpo) as { data?: { agent?: { id?: string }; version?: { id?: string } } };
+  const agenteId = payload.data?.agent?.id;
+  const versaoId = payload.data?.version?.id;
+  expect(agenteId, "a API deve devolver o ID do agente realmente criado").toMatch(/^[0-9a-f-]{36}$/i);
+  expect(versaoId, "a API deve devolver a versão inicial da mesma transação").toMatch(/^[0-9a-f-]{36}$/i);
+  return { agenteId: agenteId!, versaoId: versaoId! };
 }
 
 test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
@@ -417,29 +428,9 @@ test.describe("QA — o agente usa as mãos que a W4 entregou?", () => {
     fs.mkdirSync(TURNOS, { recursive: true });
     await login(page);
 
-    const agentesRes = await page.request.get(`${APP_URL}/api/v1/ai/agents`);
-    expect(agentesRes.ok(), "falha ao listar agentes da organização E2E").toBe(true);
-    const agentes = (await agentesRes.json()) as { data?: Array<{ id: string; name: string; kind: string }> };
-    // O primeiro da listagem pode ser um rag_bot legado sem versão. Não
-    // transformar uma pré-condição inválida em 503 da rota de versões.
-    let agenteId: string | null = null;
-    for (const agente of agentes.data ?? []) {
-      if (agente.kind !== "mcp_agent") continue;
-      const versoesRes = await page.request.get(
-        `${APP_URL}/api/v1/ai/agents/${agente.id}/versions`,
-      );
-      if (!versoesRes.ok()) {
-        throw new Error(`listar versões do agente E2E → HTTP ${versoesRes.status()}`);
-      }
-      const versoes = (await versoesRes.json()) as { data?: Array<{ id: string }> };
-      if (versoes.data?.some((v) => !!v.id)) {
-        agenteId = agente.id;
-        break;
-      }
-    }
-    expect(agenteId, "a org E2E precisa de um mcp_agent com versão de referência comprovada").toBeTruthy();
-
-    const versaoId = await versaoComAsCapacidades(page.request, agenteId!);
+    // Não reutilizar um agente aleatório/legado que pode não ter versão.
+    // A criação pela API exercita o gate real antes da prova das capacidades.
+    const { agenteId, versaoId } = await versaoComAsCapacidades(page.request);
     console.info(`[QA] versão de teste ${versaoId} com ${CAPACIDADES.length} capacidades`);
 
     /**
