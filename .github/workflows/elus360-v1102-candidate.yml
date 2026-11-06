@@ -29,7 +29,12 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "feat/elus360-deskcomm-v1102-candidate-20261106"
-          python3 scripts/elus360-v1102-integrate.py
+          if test ! -f docs/elus360/upgrade-v1102-candidate.json; then
+            python3 scripts/elus360-v1102-integrate.py
+          else
+            echo "Upstream integration exists; preserve current resolution commits"
+          fi
+          python3 scripts/elus360-v1102-sql-reconcile.py
       - name: Registrar snapshot integrado na mesma branch (sem main)
         shell: bash
         run: |
@@ -37,10 +42,13 @@ jobs:
           git add -A
           files="$(git diff --cached --name-only | wc -l)"
           echo "Changed source paths: $files"
-          test "$files" -gt 500
+          if test "$files" -eq 0; then
+            echo "No additional source changes to commit"
+            exit 0
+          fi
           git config user.name "elus360-upgrade[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "build(elus360): integrate upstream DeskcommCRM v1.102.0 into fork candidate"
+          git commit -m "build(elus360): restore official v1.102 SQL baseline with ELUS guards"
           git push origin HEAD:refs/heads/feat/elus360-deskcomm-v1102-candidate-20261106
           echo "candidate_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Desativar credenciais Git antes de executar dependências externas
