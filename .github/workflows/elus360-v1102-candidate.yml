@@ -141,6 +141,8 @@ jobs:
             tests/unit/elus360-version-governance.test.ts \
             app/api/v1/admin/tenants/'[id]'/ai-permissions/route.test.ts \
             tests/unit/versao-do-agente-referencias-da-org.test.ts
+      - name: Validate syntax of migration collision checker
+        run: bash -n scripts/checar-colisao-de-migration.sh
       - run: pnpm checar:colisao-de-migration
 
   build:
