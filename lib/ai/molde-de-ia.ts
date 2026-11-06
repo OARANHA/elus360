@@ -48,12 +48,12 @@
  * copiada com credencial nula continua funcionando na empresa nova.
  *
  * É a mesma lista de `VARIAVEL_DA_CHAVE` em `lib/instalacao/ambiente.ts`
- * (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`); o par é
+ * (`ANTHROPIC_API_KEY`, `CHUTES_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`); o par é
  * cobrado em `tests/unit/molde-de-ia.test.ts`. O gatilho do banco
  * (`fn_molde_de_ia_na_org_nova` e `fn_llm_do_molde_de_ia`) escreve os mesmos
- * três literais.
+ * quatro literais após a migration ELUS 9902 (9096 preservada).
  */
-export const PROVEDORES_DO_MOLDE = ["anthropic", "openai", "openrouter"] as const;
+export const PROVEDORES_DO_MOLDE = ["anthropic", "chutes", "openai", "openrouter"] as const;
 
 /** Uma linha de `ai_purpose_bindings` do molde, só com o que a regra lê. */
 export interface FuncaoDoMolde {
