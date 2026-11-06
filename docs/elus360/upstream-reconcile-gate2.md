@@ -242,6 +242,26 @@ O teste exige **um único arquivo preparado**, relatório `.elus-upstream/report
 
 **Hindsight `Elus360`:** `recall` retornou `UNAVAILABLE` antes da etapa. Não afirmar sincronização de memória concluída sem retorno explícito de `sync_retain`. Evidências versionadas neste documento e na discussão da PR.
 
+## Gate 1 GREEN — multiversão detalhada e simulação de alterações mistas (05/11/2026)
+
+Workflow [42133021290](https://github.com/OARANHA/elus360/actions/runs/42133021290) para HEAD `979c7f16e4ec3c063dc3060b358ffca6741c8afd`: **SUCCESS**, `contrato-upstream` PASS, **12/12 testes de preparação** PASS e **49/49 testes operacionais** PASS. Evidência individual no log: **#48** `simulacao DeskcommCRM v1-v2-v3 preserva correcoes ELUS no fork e aplica somente patches ordinarios` PASS; **#49** `bootstrap nao exportado que altera autorizacao ou inicializacao exige revisao sem novos imports` PASS. No teste #48 o relatório exige **exatamente 1 arquivo** `safe_to_prepare`, preserva em worktree detached `components/fork-custom.ts` (correção ELUS), `lib/elus360/identity.ts`, `lib/auth/require-role.ts`, `lib/tenant/scope.ts`, `lib/ai/agent-policy.ts` e `app/api/v1/ai/agents/route.ts`; também compara os conteúdos literais esperados, o HEAD e o estado limpo do checkout de origem. O teste #49 exige `module_initialization_change` para mudanças em inicializações sem exports e nenhum sinal para mudança ordinária em constante sem export.
+
+O benchmark dessa execução usou checkout de merge `7879d41e31315163d799f3ddc7c744d59162bb4c`: 3.194 fontes, 15.290 arestas, 15.284 anteriores preservadas, `lost_prior_edges:0`, `added_module_edges:6`, 239 recursos inventariados e quatro imports de recursos reconhecidos; tempo **6.790 ms**, RSS **297,2 MiB**, heap **190,0 MiB** e delta **168,6 MiB**. Inconclusão única `computed_module_specifier` em `curso/semear-demonstracao.ts`; `complete:false`, sem liberação automática.
+
+### Novo caso adversarial — mistura dentro de um arquivo
+
+Publicado em commit posterior um teste Git triádico com upstream modificando simultaneamente: (a) arquivo ordinário `components/ordinary.ts`; (b) `components/mixed.ts`, com melhoria de interface e remoção da exigência `role==='admin'` no mesmo arquivo; (c) `components/shared-correction.ts`, cuja outra região já foi corrigida localmente pelo ELUS360. Matriz de resultados **exigidos**, com execução ainda pendente na nova CI:
+
+| Caminho | Classificação exigida | Resultado exigido na worktree destacada |
+| --- | --- | --- |
+| `components/ordinary.ts` | `safe_to_prepare` | Aplicar conteúdo upstream |
+| `components/mixed.ts` | `contract_requires_review` / `exported_contract_change` | **Preservar arquivo completo da base**, sem aplicar parcialmente a melhoria misturada |
+| `components/shared-correction.ts` | `conflict_requires_review` | **Preservar literalmente a correção `ELUS_CORRECTED`**, ainda que o upstream altere outro trecho |
+
+O teste adicional exige `preparedFiles: ["components/ordinary.ts"]`, preservação do `HEAD` original, `git status --porcelain` vazio e conteúdo exato dos três arquivos. Não foram consultadas APIs reais, nenhuma versão oficial do DeskcommCRM foi atualizada e nenhuma mudança de produção foi realizada.
+
+**Riscos e aceite:** o mecanismo é conservador **por arquivo**, não faz merge semântico de hunks em arquivos contendo contratos; uma melhoria legítima misturada com alteração perigosa exige revisão manual integral. A classificação AST não substitui autorização, RLS, modelos de IA ou comportamento de endpoint em execução, e o import computado conhecido mantém o grafo inconclusivo. O Gate 1 GREEN anterior valida somente testes já existentes naquele SHA; o novo caso misto requer CI própria. O Hindsight `Elus360` permaneceu `UNAVAILABLE` na consulta antes desta etapa, sendo a sincronização ainda pendente.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
