@@ -112,7 +112,7 @@ test("providers PUT/PATCH gravam somente via RPC transacional de grants", () => 
 
 test("credenciais reutilizam cifragem e RPC transacional, com refresh estreito", () => {
   const helper = readFileSync("lib/ai/credenciais/guardar.ts", "utf8");
-  const sql = readFileSync("supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql", "utf8");
+  const sql = readFileSync("supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql", "utf8");
   const refresh = readFileSync("lib/ai/credenciais/login-codex.ts", "utf8");
   const change = readFileSync("app/api/v1/ai/credentials/[id]/route.ts", "utf8");
   assert.equal((helper.match(/fn_elus_ai_credential_write_guarded/g) ?? []).length, 2);
@@ -124,7 +124,7 @@ test("credenciais reutilizam cifragem e RPC transacional, com refresh estreito",
 });
 
 test("novos RPCs têm permissão apenas para service_role", () => {
-  const sql = readFileSync("supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql", "utf8");
+  const sql = readFileSync("supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql", "utf8");
   for (const rpc of ["purpose_binding_write", "default_write", "credential_write"]) {
     assert.match(sql, new RegExp("create or replace function public\\.fn_elus_ai_" + rpc + "_guarded"));
     assert.match(sql, new RegExp("grant execute on function public\\.fn_elus_ai_" + rpc +
