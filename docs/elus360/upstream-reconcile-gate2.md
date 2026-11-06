@@ -262,6 +262,34 @@ O teste adicional exige `preparedFiles: ["components/ordinary.ts"]`, preservaç�
 
 **Riscos e aceite:** o mecanismo é conservador **por arquivo**, não faz merge semântico de hunks em arquivos contendo contratos; uma melhoria legítima misturada com alteração perigosa exige revisão manual integral. A classificação AST não substitui autorização, RLS, modelos de IA ou comportamento de endpoint em execução, e o import computado conhecido mantém o grafo inconclusivo. O Gate 1 GREEN anterior valida somente testes já existentes naquele SHA; o novo caso misto requer CI própria. O Hindsight `Elus360` permaneceu `UNAVAILABLE` na consulta antes desta etapa, sendo a sincronização ainda pendente.
 
+## Gate adversarial distribuído — resultados confirmados e novos bloqueios (05/11/2026)
+
+A execução [42134125381](https://github.com/OARANHA/elus360/actions/runs/42134125381), para HEAD `85071b32d2f7dae1085b5355ad8b13a42dcd158b`, foi confirmada **SUCCESS**: **12/12 testes de preparação** e **50/50 testes operacionais**. O teste específico **#50** `mesmo arquivo mistura melhoria legitima e enfraquecimento RBAC: bloqueio atomico com fork corrigido` retornou **PASS**. Suas asserções exigem que `components/mixed.ts` contenha melhoria legítima e bypass RBAC, receba `contract_requires_review` e fique integralmente intocado; `components/shared-correction.ts` receba `conflict_requires_review` e conserve `ELUS_CORRECTED`; `preparedFiles` contenha apenas `components/ordinary.ts`; a worktree detached aplique somente esse arquivo e o HEAD/checkout de origem permaneçam intactos.
+
+O benchmark desse run: checkout de merge `f03e87dd0cf12ba880a1d13519160f86ed53e655`, **3.194 fontes, 15.290 arestas resolvidas, 15.284 preservadas, zero perdidas, seis acrescentadas, 239 recursos rastreados, quatro imports verificados, 3.709 ms, RSS 297,7 MiB, heap 177,7 MiB**, `complete:false` por um import computado em `curso/semear-demonstracao.ts`.
+
+### Novos riscos identificados (commits posteriores, CI pendente)
+
+**Risco 1 — lote perigoso distribuído:** dois arquivos modificados podem compartilhar uma dependência intermediária; cada arquivo isoladamente pode parecer seguro, embora a atualização simultânea altere autorização/tenant/IA. O gate `changedRiskCouplings` agora forma componentes conectados sobre pares de imports reais do fork e sinaliza `unsafe_changed_dependency_chain` para qualquer candidato ligado transitivamente a arquivos do mesmo lote já classificados para revisão. A análise é conservadora em **ambas direções** da dependência. O teste usa `components/feature.ts` → `hooks/useFlag.ts` → `components/shared.ts` (cadeia de importação) conectada a mudanças perigosas em `components/unsafe.ts` (RBAC), `components/tenant-policy.ts` (tenant) e `components/ai-policy.ts` (grant IA). Exige bloqueio do candidato relacionado, preservação das três políticas e preparação exclusiva de `components/ordinary.ts`.
+
+**Risco 2 — ligação criada somente no target upstream:** o grafo do fork não detecta imports que ainda não existiam em sua versão. O gate `newUnsafeImportSignals` examina a diferença de imports base→target do candidato; um import recém-introduzido para outro arquivo perigoso alterado no lote gera `unsafe_changed_import_edge` e impede `safe_to_prepare`. Aplica resolução configurada por `tsconfig.paths` para aliases e falha fechado quando a nova referência local não puder ser resolvida. Testes cobrem import novo direto `@/components/unsafe` e alias `#risk/*` → `components/*`.
+
+### Matriz de aceitação
+
+| Propriedade | Resultado esperado | Evidência observada | Estado |
+| --- | --- | --- | --- |
+| Um arquivo contém UI legítima e bypass RBAC | Bloqueio atômico, sem patch parcial | Teste #50 no run 42134125381 PASS | **Demonstrado em fixture** |
+| Correção local ELUS em trecho distinto | `conflict_requires_review` e conteúdo ELUS intacto | Teste #50 PASS | **Demonstrado em fixture** |
+| Somente melhoria independente entra em `preparedFiles` | Exatamente um arquivo, checkout e HEAD preservados | Teste #50 PASS | **Demonstrado em fixture** |
+| Lote com regressões RBAC, tenant e IA ligadas por hook | `unsafe_changed_dependency_chain`, nenhum arquivo relacionado preparado | Fixture adicional publicada, CI não executada/confirmada | **Pendente** |
+| Import novo no target para arquivo do lote inseguro | `unsafe_changed_import_edge`; candidato bloqueado | Fixture adicional publicada, CI não executada/confirmada | **Pendente** |
+| Alias configurado conecta novo import a arquivo inseguro | Alvo inferido pelo TS, candidato bloqueado | Fixture `#risk/*` publicada, CI não executada/confirmada | **Pendente** |
+| Candidato independente do lote perigoso | Preparação em worktree isolada | Fixture adicional publicada, CI não executada/confirmada | **Pendente** |
+| Import computado em código do fork | `complete:false`, bloqueio | Benchmark real e testes anteriores PASS | **Demonstrado como bloqueio** |
+| Atualização oficial real DeskcommCRM | Contratos ELUS preservados em runtime | Não realizada | **Não demonstrado** |
+
+**Limites de cobertura:** a conectividade transitiva do lote é intencionalmente conservadora e pode bloquear candidatos legítimos em grandes componentes compartilhados (falso positivo). Não detecta todas as ligações de runtime, reflection, chamadas remotas ou efeitos sem imports estáticos; o segundo gate para imports novos do target reduz, mas não elimina, falsos negativos. Os testes usam Git temporário com SHAs pinados e não substituem validações negativas de auth/RLS/IA ou um release oficial. A PR permanece Draft, sem merge, deploy ou mudanças de banco. Hindsight `Elus360` permanece com sincronização pendente se as tentativas continuarem `UNAVAILABLE`.
+
 ## Preparação isolada
 
 Opcionalmente, depois da análise e revisão preliminar, executar:
