@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const PINNED = Object.freeze({
   base:"ba24d4d366b7caf056b88553e0ed434cb0fb46de",
   target:"ca37cb7f2a35c1a0f6abc968139dd263b20ccb36",
-  fork:"749aaf8fbb25b46dddd9138219e2ac032cc83336b"
+  fork:"749aaf8fbb25b46dddd9138219e2ac032cc83336"
 });
 const A="compatible_for_human_review", B="requires_adaptation", C="blocked_pending_contract_proof";
 export const REVIEW12 = Object.freeze([
