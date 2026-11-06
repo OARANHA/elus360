@@ -331,7 +331,16 @@ describe("POST /api/v1/ai/agents — o par efetivo gravado (issue #2377)", () =>
     llmDaOrganizacao = { provider: "openai", default_model: "gpt-5.6-luna" };
     vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValueOnce(false);
     const res = await (await import("@/app/api/v1/ai/agents/route")).POST(
-      post({ name: "Tobias", system_prompt: "Atendente de testes" }),
+      post({
+        name: "Tobias",
+        version: {
+          system_prompt: "Atendente de testes",
+          provider: "openai",
+          model: "gpt-5.6-luna",
+          credential_id: null,
+          channel_session_id: null,
+        },
+      }),
     );
     expect(res.status).toBe(403);
     expect(gravados.ai_agents).toBeUndefined();

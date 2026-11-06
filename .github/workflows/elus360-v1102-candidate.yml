@@ -132,8 +132,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Guarded AI/tenant write boundaries
         run: |
-          node --test tests/operational/elus360-ai-write-boundary.test.mjs
-          node --test tests/operational/elus360-ai-autonomy-triple.test.mjs
+          pnpm test:operational
           pnpm exec vitest run \
             lib/elus360/ai-managed/authorize-version-write.test.ts \
             lib/elus360/ai-managed/server.test.ts \

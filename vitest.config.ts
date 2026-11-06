@@ -39,6 +39,8 @@ export default defineConfig({
       "tests/invariants/**",
       "tests/mysql/**",
       "tests/journeys/**",
+      // Os arquivos .mjs em tests/operational usam node:test e têm runner próprio.
+      "tests/operational/**",
       // Bancada opcional: usa node:test, PostgreSQL próprio e Playwright com
       // configuração dedicada. Não depende do ambiente da suíte do produto.
       "experiments/extensoes/**",

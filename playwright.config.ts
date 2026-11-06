@@ -122,6 +122,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup-elus360.ts",
   globalTeardown: "./tests/e2e/global-teardown.ts",
   timeout: 30_000,
   fullyParallel: false,

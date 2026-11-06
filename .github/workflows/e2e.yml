@@ -2444,6 +2444,13 @@ jobs:
           cp .env.e2e .env.local
           pnpm exec tsx scripts/seed-e2e-credentials.ts
 
+      # A organização de teste recebe autonomia apenas pelo endpoint de
+      # superadmin com sessão full+MFA no globalSetup do Playwright. Este seed
+      # prepara a identidade de plataforma (dono), sem promover e2e-admin.
+      - if: matrix.parte != 4
+        name: Preparar identidade de superadmin descartável
+        run: pnpm exec tsx scripts/seed-e2e-system-update.ts
+
       - if: matrix.parte == 8
         name: Semear funil de nascimento para a prova causal
         run: pnpm exec tsx scripts/seed-e2e-nascimento-do-lead.ts

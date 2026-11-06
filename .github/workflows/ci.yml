@@ -284,6 +284,12 @@ jobs:
         if: matrix.parte == 7
         run: pnpm cercas
 
+      # Provas operacionais ELUS em node:test: não são suítes Vitest.
+      # O runner é obrigatório no check oficial, além da candidata ELUS360.
+      - name: ELUS operational tests (node:test)
+        if: matrix.parte == 7
+        run: pnpm test:operational
+
       - name: Typecheck
         if: matrix.parte == 1
         # O tsc do projeto inteiro passou a encostar no teto padrão do V8
