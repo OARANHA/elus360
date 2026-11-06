@@ -118,7 +118,14 @@ describe("o roteamento dos workflows", () => {
 
   it("exatamente os jobs pesados podem ir para a máquina, cada um com a expressão declarada", () => {
     const naMaquina = Object.fromEntries([...mapa].filter(([, v]) => v.includes("deskcomm-proprio")));
-    expect(naMaquina).toEqual(ESPERADO);
+    // Fork ELUS360: não existe runner privado Deskcomm em nossa instalação.
+    // Travar o conjunto VAZIO é mais restritivo do que herdar o roteamento do
+    // upstream. Os seis jobs originais devem permanecer em runners do GitHub.
+    expect(naMaquina).toEqual({});
+    for (const chave of Object.keys(ESPERADO)) {
+      expect(mapa.get(chave), `${chave}: job obrigatório ausente`).toBeDefined();
+      expect(mapa.get(chave), `${chave}: não usar runner privado do upstream`).not.toContain("deskcomm-proprio");
+    }
   });
 
   it("publica cada arquitetura em runner nativo do GitHub", () => {
