@@ -87,14 +87,14 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
       {loading ? <p>{t("Consultando configuração…")}</p> : dados ? <>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <label htmlFor="elus-padrao-provider" className="text-sm font-medium">{t("Provedor padrão")}</label>
+            <label htmlFor="elus-padrao-provider" className="block text-sm font-medium">{t("Provedor padrão")}</label>
             <Select value={provider} disabled={bloqueado} onValueChange={(v) => { setProvider(v); setModel(""); setCredentialId(""); }}>
               <SelectTrigger id="elus-padrao-provider"><SelectValue placeholder={t("Escolha o provedor")}/></SelectTrigger>
               <SelectContent>{dados.provedores.map((id) => <SelectItem key={id} value={id}>{PROVEDOR_POR_ID.get(id)?.rotulo ?? id}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <label htmlFor="elus-padrao-model" className="text-sm font-medium">{t("Modelo padrão")}</label>
+            <label htmlFor="elus-padrao-model" className="block text-sm font-medium">{t("Modelo padrão")}</label>
             {modelos.length && (!model || modelos.some((m) => m.model_id === model)) ?
               <Select value={model || undefined} disabled={bloqueado} onValueChange={setModel}>
                 <SelectTrigger id="elus-padrao-model"><SelectValue placeholder={t("Escolha o modelo")}/></SelectTrigger>
@@ -103,7 +103,7 @@ export function TenantAiPlatformDefault({ organizationId }: { organizationId: st
           </div>
         </div>
         <div className="space-y-1">
-          <label htmlFor="elus-padrao-credencial" className="text-sm font-medium">{t("Credencial da organização")}</label>
+          <label htmlFor="elus-padrao-credencial" className="block text-sm font-medium">{t("Credencial da organização")}</label>
           <Select value={credentialId || (provider === "custom" ? undefined : "__installation__")} disabled={bloqueado}
             onValueChange={(id) => { setCredentialId(id === "__installation__" ? "" : id); setModel(""); }}>
             <SelectTrigger id="elus-padrao-credencial"><SelectValue placeholder={t("Escolha a credencial")}/></SelectTrigger>
