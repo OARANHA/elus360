@@ -10,7 +10,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals, heuristicSignalProvenance } from "./elus-upstream-contract-risk.mjs";
-import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals, protectedImportProvenance } from "./elus-upstream-dependency-risk.mjs";
+import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals, protectedImportProvenance, nearestUnsafeRiskEvidence } from "./elus-upstream-dependency-risk.mjs";
+import { diagnoseAstPrecision } from "./elus-upstream-precision-diagnostics.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -82,10 +83,10 @@ function parse(args) {
   }
   return {refs, mode, out: params[7]};
 }
-function inspectForkDependencies(fork,candidatePaths,unsafePaths=[]) {
+function inspectForkDependencies(fork,candidatePaths,unsafePaths=[],hardUnsafePaths=[]) {
   // A lack of candidates is NOT a successful AST graph scan.
   const notRun=(reason,inventoryCount=0,unresolved=0,complete=false)=>({
-    dependents:new Map(),riskCouplings:new Map(),seenCandidates:new Set(),
+    dependents:new Map(),riskCouplings:new Map(),nearestHardRisk:new Map(),seenCandidates:new Set(),
     executed:false,not_run_reason:reason,complete,count:0,
     inventory_count:inventoryCount,unresolved
   });
@@ -123,9 +124,11 @@ function inspectForkDependencies(fork,candidatePaths,unsafePaths=[]) {
   const configId=oid(fork,"tsconfig.json");
   const config=configId?readSource(fork,"tsconfig.json",configId):null;
   const graph=dependencyGraph(sources,config??"",resourcePaths);
+  const seenCandidates=new Set(candidatePaths.filter(path=>sourcePaths.has(path)));
   return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
     riskCouplings:changedRiskCouplings(candidatePaths,unsafePaths,graph),
-    seenCandidates:new Set(candidatePaths.filter(path=>sourcePaths.has(path))),
+    nearestHardRisk:nearestUnsafeRiskEvidence([...seenCandidates],hardUnsafePaths,graph),
+    seenCandidates,
     executed:true,not_run_reason:null,inventory_count:entries.length,
     complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length,unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort()};
 }
@@ -164,6 +167,9 @@ export function reconcile(base, target, fork) {
       source_contract_scan: flags.includes("uninspectable_content")||flags.includes("semantic_analysis_incomplete") ? "incomplete" : "evaluated",
       lexical_signal_provenance: heuristicSignalProvenance(original,incoming),
       protected_import_provenance: protectedImportProvenance(path,original,incoming,configuredTs),
+      ast_precision: diagnoseAstPrecision(path,original,incoming),
+      fork_has_blob: local!==null,
+      source_is_test: /(?:test|spec)\.[cm]?[jt]sx?$/.test(path),
       blocked_by_initial_signals: flags.length>0
     } : null;
     return {path, impact: impact(path), preliminary_status:preliminary,
@@ -189,16 +195,27 @@ export function reconcile(base, target, fork) {
   const unsafe=files.filter(f=>!["safe_to_prepare","already_integrated","unchanged"].includes(f.status)).map(f=>f.path);
   // Inspect the graph for ALL initially ordinary candidates, even when lexical
   // or source AST signals already blocked them. This is evidence, not approval.
-  const dependencyScan=inspectForkDependencies(fork,preliminaryCandidates,unsafe);
+  const hardUnsafe=files.filter(f=>f.preliminary_status!=="safe_to_prepare" &&
+    !["already_integrated","unchanged","safe_to_prepare"].includes(f.status)).map(f=>f.path);
+  const dependencyScan=inspectForkDependencies(fork,preliminaryCandidates,unsafe,hardUnsafe);
   const uninventoried=new Set(uninventoriedAiSurfaces(paths,inventoryFor(fork)));
   for(const file of files) {
     const initialCandidate=file.preliminary_status==="safe_to_prepare";
     const importers=initialCandidate?protectedConsumers(file.path,dependencyScan.dependents):[];
     const coupled=initialCandidate?(dependencyScan.riskCouplings?.get(file.path)??[]):[];
+    const nearest=initialCandidate?(dependencyScan.nearestHardRisk?.get(file.path)??null):null;
     if(initialCandidate) {
-      file.candidate_analysis.dependency_graph={
+      const inGraph=dependencyScan.seenCandidates?.has(file.path)??false;
+      const a=file.candidate_analysis;
+      const missingReason=inGraph?null: a.source_is_test?
+        (a.fork_has_blob?"existing_test_excluded":"new_upstream_test_excluded"):
+        !a.fork_has_blob?"new_upstream_source_not_in_fork":
+        !/^(?:app|lib|components|workers|hooks|types|curso)\//.test(file.path)?
+          "existing_source_out_of_scope":"existing_source_not_inspected";
+      a.fork_graph_absence_reason=missingReason;
+      a.dependency_graph={
         executed:dependencyScan.executed,complete:dependencyScan.complete,
-        present_in_fork:dependencyScan.seenCandidates?.has(file.path)??false,
+        present_in_fork:inGraph,nearest_hard_risk:nearest,
         protected_importers_count:importers.length,protected_importers_sample:importers.slice(0,12),
         unsafe_changed_neighbors_count:coupled.length,unsafe_changed_neighbors_sample:coupled.slice(0,12)
       };
@@ -215,8 +232,29 @@ export function reconcile(base, target, fork) {
     file.signals=[...new Set(file.signals)];
     file.suggested_checks=checksForSignals(file.signals);
     if(initialCandidate) {
-      file.candidate_analysis.final_status=file.status;
-      file.candidate_analysis.blocking_signals=[...file.signals];
+      const a=file.candidate_analysis;
+      a.final_status=file.status;
+      a.blocking_signals=[...file.signals];
+      // Review priority is strictly advisory, and cannot override fail-closed.
+      // In particular, absent and uninspected graph evidence is NOT approval.
+      const lex=a.lexical_signal_provenance,imp=a.protected_import_provenance;
+      const precision=a.ast_precision,near=a.dependency_graph.nearest_hard_risk;
+      const hasNonHistoricalSignal=a.blocking_signals.some(s=>![
+        "tenant_isolation","authentication_authorization","managed_ai",
+        "agent_runtime","messaging_events","sensitive_import",
+        "protected_module_import_change","exported_contract_change",
+        "module_initialization_change","exported_module_internal_change"
+      ].includes(s));
+      const possibleReview=!a.source_is_test && precision.executed &&
+        lex.inspected && lex.introduced.length===0 &&
+        imp.inspected && imp.introduced.length===0 &&
+        precision.export_relation!=="export_declaration_shape_changed" &&
+        precision.export_relation!=="export_shape_inferred_or_unmodeled" &&
+        precision.initialization_relation!=="eager_effect_expression_changed" &&
+        !hasNonHistoricalSignal && (near===null||near.nearest_distance!==1);
+      a.review_bucket=possibleReview?"potential_compatibility_manual_review":
+        "requires_targeted_contract_review";
+      a.authorization="none";
     }
   }
   const counts = {};
@@ -225,6 +263,24 @@ export function reconcile(base, target, fork) {
   const initialFiles=files.filter(f=>f.preliminary_status==="safe_to_prepare");
   const candidateFinalStatuses={};
   for(const file of initialFiles) candidateFinalStatuses[file.status]=(candidateFinalStatuses[file.status]??0)+1;
+  const absenceReasons={};const reviewBuckets={};const nearDistances={};
+  const astRelations={export:{},initialization:{}};
+  for(const file of initialFiles) {
+    const a=file.candidate_analysis;
+    const reason=a.fork_graph_absence_reason??"present_in_fork_graph";
+    absenceReasons[reason]=(absenceReasons[reason]??0)+1;
+    reviewBuckets[a.review_bucket]=(reviewBuckets[a.review_bucket]??0)+1;
+    const distance=a.dependency_graph.nearest_hard_risk?.classification??"no_hard_risk_evidence";
+    nearDistances[distance]=(nearDistances[distance]??0)+1;
+    if(file.signals.includes("exported_contract_change")) {
+      const relation=a.ast_precision.export_relation;
+      astRelations.export[relation]=(astRelations.export[relation]??0)+1;
+    }
+    if(file.signals.includes("module_initialization_change")) {
+      const relation=a.ast_precision.initialization_relation;
+      astRelations.initialization[relation]=(astRelations.initialization[relation]??0)+1;
+    }
+  }
   const candidate_coverage={
     preliminary_ordinary:initialFiles.length,
     source_contract_scans_evaluated:initialFiles.filter(f=>f.candidate_analysis.source_contract_scan==="evaluated").length,
@@ -240,6 +296,10 @@ export function reconcile(base, target, fork) {
     candidates_with_introduced_protected_imports:initialFiles.filter(f=>f.candidate_analysis.protected_import_provenance.introduced.length>0).length,
     candidates_coupled_to_unsafe_changes:initialFiles.filter(f=>f.candidate_analysis.dependency_graph.unsafe_changed_neighbors_count>0).length,
     final_statuses:candidateFinalStatuses,
+    fork_graph_absence_reasons:absenceReasons,
+    nearest_hard_risk_distances:nearDistances,
+    ast_precision_relations:astRelations,
+    manual_review_buckets:reviewBuckets,
     authorization:"not_an_approval"
   };
   return {
