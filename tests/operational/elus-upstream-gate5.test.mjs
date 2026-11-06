@@ -12,7 +12,11 @@ function fakePlan() {
     files.push({path:"components/new-gate5-"+i+".ts",status:"contract_requires_review",
       candidate_analysis:{fork_graph_absence_reason:"new_upstream_source_not_in_fork"}});
   }
-  for(let i=45;i<787;i++) files.push({path:"docs/noise-"+i+".md",status:"protected_requires_review"});
+  for(let i=45;i<787;i++) files.push({path:"docs/noise-"+i+".md",
+    status:i<57?"contract_requires_review":"protected_requires_review",
+    preliminary_status:i<57?"safe_to_prepare":"protected_requires_review",
+    ...(i<57?{candidate_analysis:{review_bucket:"potential_compatibility_manual_review",
+      dependency_graph:{nearest_hard_risk:null}}}:{})});
   return {mode:"read_only",gate:"manual_review_required",totals:{changed:787},
     files};
 }
@@ -33,6 +37,8 @@ test("Gate5 inspeciona os 45 modulos no target e diferencia dependente protegido
   const m0=result.modules[0],m1=result.modules[1];
   assert.equal(result.target_graph.complete,true,JSON.stringify(result.target_graph));
   assert.equal(result.summary.new_production_modules,45);
+  assert.equal(result.distance_comparison_12.length,12);
+  assert.ok(result.distance_comparison_12.every(x=>x.approval==="none"));
   assert.ok(m0.imports_protected.includes("lib/auth/guard.ts"));
   assert.equal(m1.direct_protected_consumers.length,0);
   assert.ok(m0.transitive_protected_consumer_count>0);
