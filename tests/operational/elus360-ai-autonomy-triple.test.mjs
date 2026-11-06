@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const sqlFile = "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql";
+const sqlFile = "supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql";
 const marker = "-- ---- ELUS 360 — autonomia tecnica IA (migration 9037) ----\n";
 const migration = readFileSync(resolve(ROOT, sqlFile), "utf8");
 const baseline = readFileSync(resolve(ROOT, "supabase/baseline.sql"), "utf8");
 
 test("migration possui identidade, manifest e DDL de coluna separada", () => {
-  assert.match(sqlFile, /\/\d{14}_9037_/);
+  assert.match(sqlFile, /\/\d{14}_9900_/);
   assert.match(migration, /^-- manifest: [^\n]+/);
   assert.match(migration, /alter table public\.organizations\s+add column if not exists ai_autonomy jsonb not null default '\{\}'::jsonb;/i);
   assert.doesNotMatch(migration, /alter table[^;]+settings\s*=/i);
