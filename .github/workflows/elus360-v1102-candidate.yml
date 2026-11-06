@@ -1,0 +1,96 @@
+name: "ELUS360 — integrar DeskcommCRM v1.102.0 em candidata isolada"
+
+on:
+  push:
+    branches:
+      - feat/elus360-deskcomm-v1102-candidate-20261106
+    paths:
+      - .github/workflows/elus360-v1102-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: elus360-v1102-candidate
+  cancel-in-progress: false
+
+jobs:
+  integracao-e-validacao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout somente da candidata ELUS360
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Conferir base, tags oficiais e integrar arquivos reais
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "feat/elus360-deskcomm-v1102-candidate-20261106"
+          python3 scripts/elus360-v1102-integrate.py
+      - name: Registrar snapshot integrado na mesma branch (sem main)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          files="$(git diff --cached --name-only | wc -l)"
+          echo "Changed source paths: $files"
+          test "$files" -gt 500
+          git config user.name "elus360-upgrade[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build(elus360): integrate upstream DeskcommCRM v1.102.0 into fork candidate"
+          git push origin HEAD:refs/heads/feat/elus360-deskcomm-v1102-candidate-20261106
+          echo "candidate_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Desativar credenciais Git antes de executar dependências externas
+        shell: bash
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: pnpm 10
+        uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+          run_install: false
+      - name: Dependências reproduzíveis
+        id: install
+        run: pnpm install --frozen-lockfile
+      - name: TypeScript global
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm typecheck
+      - name: ESLint
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm lint
+      - name: Guard de canais e providers
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm lint:channels
+      - name: Testes unitários completos
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm test:unit
+      - name: Testes de shell, instalador e atualização
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm test:shell
+      - name: Build Next.js
+        if: always() && steps.install.outcome == 'success'
+        run: pnpm build
+      - name: PostgreSQL descartável, schema e RLS
+        if: always() && steps.install.outcome == 'success'
+        timeout-minutes: 25
+        run: pnpm test:db
+      - name: PostgreSQL descartável, atualização com dados
+        if: always() && steps.install.outcome == 'success'
+        timeout-minutes: 25
+        run: pnpm test:db:update
+      - name: Reportar manifesto e diff efetivamente integrados
+        if: always()
+        shell: bash
+        run: |
+          git log -1 --oneline
+          git diff --stat 749aaf8fbb25b46dddd9138219e2ac032cc83336..HEAD | tail -n 5
+          if test -f docs/elus360/upgrade-v1102-candidate.json; then
+            python3 -c 'import json; d=json.load(open("docs/elus360/upgrade-v1102-candidate.json")); print({k:v for k,v in d.items() if k not in ("merged_paths",)})'
+          fi
