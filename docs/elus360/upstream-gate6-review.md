@@ -85,6 +85,15 @@ O workflow passou a solicitar Vitest para **nove arquivos de teste existentes** 
 
 ## Testes e aceite
 
+### CI RED funcional — 079cc38c1fa4bc2ef8d56524e2f50f438c8c9f82 (06/11/2026)
+
+- [Workflow 42157102998](https://github.com/OARANHA/elus360/actions/runs/42157102998) do SHA exato: preparação **12/12**, reconciliação **64/64**, Gate 5 **5/5**, Gate 6 **6/6**. Testes funcionais direcionados **56/60**; quatro falhas de `patch.route.test.ts` com `cookies was called outside a request scope`; ensaio oficial e benchmark AST **SKIPPED**.
+- Código verificado: a rota PATCH lê a versão por `organization_id`/`agent_id`/`id`, valida escopo e autonomia da IA, e grava pelo RPC `fn_elus_ai_version_patch_guarded` com `p_expected`, `p_patch` e `p_platform_bypass`. O teste antigo simulava `.update()` e uma sessão sem dublês de `loadAuthUser` e `requirePlatformAdminEscrita`; assim falhava antes de aferir a RPC e o MFA.
+- Correção limitada a `app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts`: I/O de sessão e MFA isolados **somente no teste**, mantendo o `podeAlterarTecnicaDeVersao` real, dublê da RPC fail-closed com retorno estrutural, asserts para `p_org`, `p_expected`, `p_platform_bypass` e 14 casos (4 existentes + 10 negativos/positivos: sessão comum, Superadmin full MFA aprovado/reprovado, negação auth, token com/sem grant/teto, cross-tenant e escopo incorreto). Nenhum guard ou código de produção foi relaxado; dublê de RPC **não prova SQL real**.
+- **Validação pendente do novo commit**: execução nativa dos 14 casos, nove suítes direcionadas, gates operacionais, ensaio oficial read-only e benchmark. CI do SHA anterior não pode ser reutilizado. Não foram executados DB, E2E, Supabase ou alterações de produção; aceite funcional da v1.95.0 permanece NO-GO.
+- Hindsight `Elus360`: `recall` e `search_knowledge_base` retornaram `UNAVAILABLE`; registrar sincronização pendente.
+
+
 ### Incidente Gate 6 — RED no HEAD `51312e821b540250152b8e03caff57ed46242ded` (06/11/2026)
 
 - Evidência gerencial: [workflow #42155757269](https://github.com/OARANHA/elus360/actions/runs/42155757269), 3/6 testes do Gate 6 passaram e 3/6 falharam por `GATE6_REF_MISMATCH:target`. Preparação 12/12, reconciliação 64/64 e Gate 5 5/5 foram relatados verdes **apenas nesse HEAD anterior**; suites funcionais direcionadas e ensaio de reconciliação ficaram `SKIPPED`.
