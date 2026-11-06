@@ -20,11 +20,16 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
 import { decryptKey, byteaToBuffer } from "@/lib/crypto/aes_gcm";
+import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/server", () => ({
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+  podeGerenciarIaDaPlataforma: vi.fn(() => false),
+}));
 vi.mock("@/lib/ai/provider-validators", () => ({
   validateProviderKey: vi.fn(async () => ({ ok: true, models: ["claude-x"] })),
 }));
@@ -37,6 +42,7 @@ type Resposta = { data?: unknown; error?: unknown };
 type Patch = Record<string, unknown>;
 type Fake = {
   from: (table: string) => unknown;
+  rpc: (name: string, args: Record<string, unknown>) => Promise<Resposta>;
   updates: Patch[];
 };
 
@@ -44,6 +50,16 @@ function fakeAdmin(config: Record<string, Resposta>): Fake {
   const updates: Patch[] = [];
   return {
     updates,
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name !== "fn_elus_ai_credential_write_guarded" ||
+          args.p_org !== org || args.p_id !== id ||
+          args.p_op !== "update") {
+        return { data: null, error: { code: "42501", message: "forbidden" } };
+      }
+      const patch = (args.p_patch ?? {}) as Patch;
+      updates.push(patch);
+      return config["ai_provider_credentials:update"] ?? { data: { id }, error: null };
+    },
     from(table: string) {
       let op = "select";
       const respond = () => config[`${table}:${op}`] ?? config[table] ?? { data: null, error: null };
@@ -108,6 +124,7 @@ function invocar(body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(recusaConfiguracaoDeIa).mockResolvedValue(null);
   vi.mocked(requireRole).mockResolvedValue({
     ok: true,
     org: { orgId: org, role: "admin", name: "Org" },
@@ -208,6 +225,18 @@ describe("PATCH /api/v1/ai/credentials/:id", () => {
     const res = await invocar({});
     expect(res.status).toBe(422);
     expect(fake.updates).toHaveLength(0);
+  });
+
+  it("sem grant para credenciais, retorna 403 sem gravar segredo", async () => {
+    const { fail } = await import("@/lib/api/wrappers");
+    const fake = fakeAdmin({ "ai_provider_credentials:select": { data: cred, error: null } });
+    vi.mocked(createAdminClient).mockReturnValue(fake as unknown as ReturnType<typeof createAdminClient>);
+    vi.mocked(recusaConfiguracaoDeIa).mockResolvedValueOnce(
+      fail("forbidden_platform_ai", "Gerenciamento reservado à plataforma.", 403),
+    );
+    const r = await invocar({ api_key: CHAVE_NOVA });
+    expect(r.status).toBe(403);
+    expect(fake.updates).toEqual([]);
   });
 
   it("credencial de outra organização responde 404 e não grava", async () => {
