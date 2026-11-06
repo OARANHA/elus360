@@ -19800,6 +19800,12 @@ export const DICIONARIO: Traducoes = {
   "A Meta não concluiu a conexão. Tente de novo.": { es: "Meta no completó la conexión. Inténtalo de nuevo." },
   "Chave da conta da instalação no provedor parceiro": { es: "Clave de la cuenta de la instalación en el proveedor asociado" },
   "Com ela, cada empresa conecta o número oficial do WhatsApp com um clique, sem ter conta no provedor. Os números ficam na conta da instalação e entram na fatura dela.": { es: "Con ella, cada empresa conecta el número oficial de WhatsApp con un clic, sin tener cuenta en el proveedor. Los números quedan en la cuenta de la instalación y entran en su factura." },
+  // ELUS360: textos próprios da IA gerenciada e catálogo Chutes.ai.
+  "A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.": { es: "La IA ELUS360 de esta empresa debe ser configurada por el administrador de la plataforma." },
+  "A IA ELUS360 desta empresa precisa ser validada pelo administrador da plataforma.": { es: "La IA ELUS360 de esta empresa debe ser validada por el administrador de la plataforma." },
+  "Inteligência artificial ELUS360": { es: "Inteligencia artificial ELUS360" },
+  "Configurada e gerenciada pela plataforma.": { es: "Configurada y gestionada por la plataforma." },
+  "IA incluída pela instalação ELUS 360 ou credencial própria da empresa, com catálogo OpenAI-compatível de modelos.": { es: "IA incluida en la instalación ELUS 360 o credencial propia de la empresa, con un catálogo de modelos compatible con OpenAI." },
 };
 
 /**
