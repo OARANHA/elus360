@@ -9,6 +9,7 @@ const sqlFile = "supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarde
 const marker = "-- ---- ELUS 360 — autonomia tecnica IA (migration 9037) ----\n";
 const migration = readFileSync(resolve(ROOT, sqlFile), "utf8");
 const baseline = readFileSync(resolve(ROOT, "supabase/baseline.sql"), "utf8");
+const forward = readFileSync(resolve(ROOT, "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql"), "utf8");
 
 test("migration possui identidade, manifest e DDL de coluna separada", () => {
   assert.match(sqlFile, /\/\d{14}_9900_/);
@@ -24,7 +25,7 @@ test("baseline preserva migration integral e única no apêndice final", () => {
   assert.ok(pos > 3_000_000, "baseline parece truncado ou substituído");
   const scan = baseline.indexOf("-- ---- VARREDURA anon:", pos);
   assert.ok(scan > pos, "varredura de ACL deve ser executada APÓS as funções ELUS");
-  assert.equal(baseline.slice(pos + marker.length, scan), migration);
+  assert.equal(baseline.slice(pos + marker.length, scan), migration + forward);
   assert.equal(baseline.split("-- ---- VARREDURA anon:").length - 1, 1);
   assert.doesNotMatch(baseline.slice(scan), /^\s*create\s+(?:or\s+replace\s+)?function/gim);
   assert.doesNotMatch(baseline.slice(scan), /^\s*grant\s+[^;]*\bto\b[^;]*\banon\b/gim);
@@ -34,6 +35,11 @@ test("baseline preserva migration integral e única no apêndice final", () => {
 test("trigger é invoker e somente serviço/admin banco pode mudar grants", () => {
   assert.match(migration, /create or replace function public\.fn_guard_organizations_ai_autonomy\(\)/i);
   assert.match(migration, /security invoker/i);
+  assert.match(forward, /security invoker/i);
+  assert.match(forward, /image_vision_enabled/i);
+  assert.match(forward, /reply_min_interval_ms/i);
+  assert.match(forward, /skill_names/i);
+  assert.match(forward, /voz_quando/i);
   assert.match(migration, /if v_changed then/i);
   assert.match(migration, /current_user\s*=\s*'service_role'/i);
   assert.match(migration, /current_user\s*=\s*'service_role'\s+and\s+auth\.role\(\)\s*=\s*'service_role'/i);

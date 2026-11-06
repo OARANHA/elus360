@@ -29,11 +29,11 @@
   "upstream_workflows_pending_review": [],
   "production_changed": false,
   "tests": "PENDING_NEXT_HEAD",
-  "baseline_status": "RECONCILED_ANON_SWEEP_FINAL_AWAITING_POSTGRESQL_CI",
+  "baseline_status": "OFFICIAL_AND_FORWARD_9901_RECONCILED_CI_REQUIRED",
   "baseline_official_sha256": "2610cd387c65f92ee4b893f598db4cc8a53ff032a418fbac8f455fa05762871f",
   "baseline_elus_appendix_sha256": "b1c58b7c0abdc4e09fc14ed8746e70fb5d5f02ea014910e6553c3b0cef895e97",
-  "baseline_combined_sha256": "6f2dbe0826ddb4a3a591b481dc72c08b37e5e8eb35ff123b9b9426dd0a8990da",
-  "baseline_bytes": 3966184,
+  "baseline_combined_sha256": "be0ea5e9db6128a2042e0695b62b92596ffab481769d03c61a21244bd253b503",
+  "baseline_bytes": 3972822,
   "initial_unresolved": [
     "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
     "app/api/v1/ai/agents/[id]/versions/route.ts",
@@ -59,7 +59,7 @@
     "lib/ai/provider-validators.ts",
     "lib/audit/actions.ts"
   ],
-  "review_note": "CI official prior HEAD cde5d784c1d14ca156cbe84888ee231218a189e3 had failures (verify-parte 3,4,6,7). Latest candidate corrects anon sweep ordering without modifying scanner/ELUS SQL, adds missing official workflows with fork-safe write blocks, and reconciles selected official test fixtures to ELUS guarded RPCs without altering central platform authorization policies. Full CI/E2E/PG15/17 required on latest HEAD. No GREEN claimed.",
+  "review_note": "Guarded creation rejected server-owned payload fields, then lacked five canonical v1.102 version columns. Forward-only 9901 maintains RPC atomicity and service-only permission. Revalidate CI, PG, E2E on new HEAD.",
   "migration_reconciliation": {
     "upstream_migration": "supabase/migrations/20261029005025_9037_grants_explicitos_das_tabelas_do_apendice.sql",
     "elus_original": "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql",
@@ -69,7 +69,8 @@
     "unchanged_sql_bytes": true,
     "sql_source_parity": "PENDING_GITHUB_ACTIONS",
     "database_install_update": "PENDING_GITHUB_ACTIONS",
-    "note": "Different NNNN labels, identical SQL and Supabase timestamp; collision checker only waives an old number when HEAD proves a byte-identical rename."
+    "note": "Original 9900 unchanged; forward 9901 byte-identical in chain and fresh baseline before the final anon ACL sweep.",
+    "forward_sql": "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql"
   },
   "upstream_workflows_integrated": [
     {

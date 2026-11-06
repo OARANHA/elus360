@@ -152,7 +152,7 @@ const INSERT_SQL = /insert\s+into\s+ai_agent_versions\s*\(/i;
 // o nome do RPC, seu payload de versão e a pré-validação do schema.
 const RPC_DE_VERSAO: Record<string, { rpc: string; payload: string; schema: string }> = {
   "app/api/v1/ai/agents/route.ts": {
-    rpc: "fn_elus_ai_agent_create_guarded", payload: "p_version: { ...records.version", schema: "agentMcpCreateSchema.safeParse",
+    rpc: "fn_elus_ai_agent_create_guarded", payload: "p_version: { id: records.version.id, ...input.version", schema: "agentMcpCreateSchema.safeParse",
   },
   "app/api/v1/ai/agents/[id]/versions/route.ts": {
     rpc: "fn_elus_ai_version_create_guarded", payload: "p_payload: {", schema: "versionCreateSchema.safeParse",

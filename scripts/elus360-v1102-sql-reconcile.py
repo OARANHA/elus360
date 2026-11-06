@@ -18,6 +18,7 @@ TARGET = "4b5815721710c9b1e99078322593838fda1ee740"
 FILE = "supabase/baseline.sql"
 ORIGINAL_MIGRATION = "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql"
 RENAMED_MIGRATION = "supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql"
+FORWARD_MIGRATION = "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql"
 GUARDS = (
     b"fn_elus_ai_version_patch_guarded",
     b"fn_elus_ai_version_create_guarded",
@@ -63,6 +64,11 @@ def main() -> None:
     fork = read(FORK, FILE)
     upstream = read(TARGET, FILE)
     elus_migration = read(FORK, ORIGINAL_MIGRATION)
+    forward_migration = Path(FORWARD_MIGRATION).read_bytes()
+    require(b"fn_elus_ai_agent_create_guarded" in forward_migration and
+            b"security invoker" in forward_migration and
+            b"to service_role;" in forward_migration,
+            "9901 must preserve the service-only guarded RPC")
     require(not Path(ORIGINAL_MIGRATION).exists(), "legacy 9037 migration path still present")
     require(Path(RENAMED_MIGRATION).read_bytes() == elus_migration,
             "renamed 9900 migration differs from the original SQL bytes")
@@ -105,9 +111,9 @@ def main() -> None:
     scan = upstream[scan_start:scan_end]
     require(b"revoke" in scan.lower() and b"anon" in scan.lower(),
             "official anon sweep has unexpected content")
-    expected = upstream[:scan_start] + upstream[scan_end:] + appendix + scan
+    expected = upstream[:scan_start] + upstream[scan_end:] + appendix + forward_migration + scan
     require(committed == expected,
-            "committed baseline must be exact official v1.102 (only anon sweep moved after unchanged ELUS appendix)")
+            "committed baseline must preserve upstream, untouched 9900 and byte-exact 9901 before final anon ACL sweep")
     after_sweep = committed[committed.find(scan_start_marker):]
     require(not re.search(rb"^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?function", after_sweep, re.I | re.M),
             "functions created after final anon sweep")
@@ -132,6 +138,7 @@ def main() -> None:
         "bytes": len(expected),
         "migration_byte_exact": True,
         "migration_filename": RENAMED_MIGRATION,
+        "forward_migration": FORWARD_MIGRATION,
         "migration_timestamp_unchanged": True,
         "guards_present": len(GUARDS),
         **hashes,

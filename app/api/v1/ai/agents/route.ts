@@ -324,8 +324,21 @@ export async function POST(req: NextRequest): Promise<Response> {
   // uma única transação; nunca pode restar agente órfão após falha.
   const { data: criado, error: erroCriacao } = await admin.rpc("fn_elus_ai_agent_create_guarded", {
     p_org: organizationId,
-    p_agent: { ...records.agent, created_by: authUserId },
-    p_version: { ...records.version, created_by: authUserId },
+    // Tenant, agent FK, version_number and status are server-derived by the SQL
+    // transaction and must never be accepted as mutable input.
+    p_agent: {
+      id: records.agent.id,
+      name: records.agent.name,
+      description: records.agent.description,
+      model: records.agent.model,
+      system_prompt: records.agent.system_prompt,
+      kind: records.agent.kind,
+      priority: records.agent.priority,
+      is_active: records.agent.is_active,
+      is_default: records.agent.is_default,
+      created_by: authUserId,
+    },
+    p_version: { id: records.version.id, ...input.version, created_by: authUserId },
     p_platform_bypass: authz.via === "session" && (await (async () => {
       const { loadAuthUser } = await import("@/lib/auth/server");
       const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
