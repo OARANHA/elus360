@@ -1,5 +1,5 @@
 {
-  "status": "INTEGRATED_CODE_UNVALIDATED",
+  "status": "CODE_MERGED_SQL_RECONCILIATION_AND_TESTS_PENDING",
   "base_tag": "v1.94.0",
   "base_commit": "ba24d4d366b7caf056b88553e0ed434cb0fb46de",
   "target_tag": "v1.102.0",
@@ -26,6 +26,20 @@
     "lib/env.ts"
   ],
   "unresolved": [
+    "supabase/baseline.sql"
+  ],
+  "upstream_workflows_pending_review": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/e2e.yml"
+  ],
+  "production_changed": false,
+  "tests": "PENDING_LATEST_HEAD",
+  "baseline_status": "PENDING_ISOLATED_RECONCILIATION",
+  "baseline_official_sha256": "2610cd387c65f92ee4b893f598db4cc8a53ff032a418fbac8f455fa05762871f",
+  "baseline_elus_appendix_sha256": "b1c58b7c0abdc4e09fc14ed8746e70fb5d5f02ea014910e6553c3b0cef895e97",
+  "baseline_combined_sha256": "fa0e7c1e2259a918bf013aef4a628b477695315c6316d2d7906b668b22294dc2",
+  "baseline_bytes": 3966184,
+  "initial_unresolved": [
     "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
     "app/api/v1/ai/agents/[id]/versions/route.ts",
     "app/api/v1/ai/agents/route.ts",
@@ -38,15 +52,17 @@
     "lib/audit/actions.ts",
     "supabase/baseline.sql"
   ],
-  "upstream_workflows_pending_review": [
-    ".github/workflows/ci.yml",
-    ".github/workflows/e2e.yml"
+  "manually_resolved": [
+    "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
+    "app/api/v1/ai/agents/[id]/versions/route.ts",
+    "app/api/v1/ai/agents/route.ts",
+    "app/api/v1/cron/sync-model-catalog/route.ts",
+    "app/app/ai/agents/[id]/_actions.ts",
+    "app/app/ai/agents/[id]/page.tsx",
+    "app/app/ai/agents/new/page.tsx",
+    "lib/ai/credenciais/login-codex.ts",
+    "lib/ai/provider-validators.ts",
+    "lib/audit/actions.ts"
   ],
-  "production_changed": false,
-  "tests": "PENDING",
-  "baseline_status": "CONSTRUCTED_NOT_DATABASE_VALIDATED",
-  "baseline_official_sha256": "2610cd387c65f92ee4b893f598db4cc8a53ff032a418fbac8f455fa05762871f",
-  "baseline_elus_appendix_sha256": "b1c58b7c0abdc4e09fc14ed8746e70fb5d5f02ea014910e6553c3b0cef895e97",
-  "baseline_combined_sha256": "fa0e7c1e2259a918bf013aef4a628b477695315c6316d2d7906b668b22294dc2",
-  "baseline_bytes": 3966184
+  "review_note": "Manual resolution paths preserve ELUS guarded RPCs and official new version fields. No build or database verification yet; official CI/E2E workflow updates held for review."
 }
