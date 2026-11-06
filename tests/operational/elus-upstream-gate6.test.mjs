@@ -72,6 +72,9 @@ test("Gate6 reprova autorização inserida no plano e referências divergentes",
  plan.totals.safe_to_prepare=1;
  assert.throws(()=>buildGate6(plan,gate5),/GATE6_FAIL_CLOSED_INPUT/);
  plan.totals.safe_to_prepare=0;
+ plan.files[0].status="safe_to_prepare";
+ assert.throws(()=>buildGate6(plan,gate5),/GATE6_FAIL_CLOSED_INPUT/);
+ plan.files[0].status="contract_requires_review";
  gate5.refs.target="0".repeat(40);
  assert.throws(()=>buildGate6(plan,gate5),/GATE6_REF_MISMATCH/);
 });
