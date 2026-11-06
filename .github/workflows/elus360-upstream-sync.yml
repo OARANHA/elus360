@@ -19,6 +19,8 @@ on:
       - "tests/operational/elus-upstream-gate5.test.mjs"
       - "tests/operational/elus-upstream-gate6.test.mjs"
       - "tests/operational/elus-upstream-gate7-functional-compare.test.mjs"
+      - "tests/invariants/elus-upstream-gate8-contratos-sql.test.ts"
+      - "docs/elus360/upstream-gate8-contracts.md"
       - "docs/elus360/upstream-gate7-functional.md"
       - "docs/elus360/upstream-gate6-review.md"
       - "docs/elus360/upstream-gate5-review.md"
@@ -85,6 +87,37 @@ jobs:
             lib/automation/actions/send-ai-message-restricao-comercial.test.ts
       - name: Benchmark AST de arvore real (read-only)
         run: node scripts/elus-upstream-real-tree-benchmark.mjs --require-reduction --require-edge-preservation
+
+  gate8-contratos-postgresql-descartavel:
+    name: Gate 8 - contratos SQL reais (PostgreSQL descartavel)
+    needs: contrato-upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.9"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Instalar dependencias do fork sem executar scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Gate 8 - baseline instalado/reaplicado e invariantes em Docker efemero
+        env:
+          TEST_DB_IMAGE: pgvector/pgvector:pg15
+        run: |
+          pnpm test:db \
+            tests/invariants/elus-upstream-gate8-contratos-sql.test.ts \
+            tests/invariants/add-tag-concorrente-nao-apaga.test.ts \
+            tests/invariants/cobranca-reconciliacao.test.ts \
+            tests/invariants/cobranca-isolamento.test.ts
+      # scripts/test-db.sh cria container efemero, valida baseline em duas
+      # aplicacoes e remove container+volume via trap mesmo sob falha.
+      # Nao conecta a banco externo nem ao Supabase do usuario.
 
   ensaio-oficial-real-readonly:
     name: Ensaio oficial de reconcile plan (read-only)
