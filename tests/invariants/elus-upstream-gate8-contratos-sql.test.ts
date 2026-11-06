@@ -84,12 +84,16 @@ describe("Gate 8 — assinaturas e privilégios SQL reais", () => {
     )).toBe("t");
   });
 
-  it("anon e authenticated não executam as duas RPCs; service_role executa", () => {
-    for (const fn of [EMIT, COBRANCA]) {
-      expect(executavel("anon", fn), fn + " anon").toBe(false);
-      expect(executavel("authenticated", fn), fn + " authenticated").toBe(false);
-      expect(executavel("service_role", fn), fn + " service_role").toBe(true);
-    }
+  it("GRANT real: emit_event permite authenticated com guarda interna; cobrança só service_role", () => {
+    // EXECUTE não é autorização para emissão: emit_event exige vínculo ativo e
+    // fn_support_write_allowed no corpo. O ACL das duas RPCs é DIFERENTE.
+    expect(executavel("anon", EMIT)).toBe(false);
+    expect(executavel("authenticated", EMIT)).toBe(true);
+    expect(executavel("service_role", EMIT)).toBe(true);
+
+    expect(executavel("anon", COBRANCA)).toBe(false);
+    expect(executavel("authenticated", COBRANCA)).toBe(false);
+    expect(executavel("service_role", COBRANCA)).toBe(true);
   });
 
   it("execução negativa sob sessão de A e anon recusa a função global de cobrança", () => {
@@ -160,18 +164,21 @@ describe("Gate 8 — evento, autorização e idempotência no banco", () => {
     ))) as {
       organization_id: string; event_type: string; entity_kind: string;
       payload: { added_tags: string[]; tags: string[] };
-      metadata: { caused_by_rule: string }; status: string;
+      metadata: { caused_by_rule: string; emitted_at: number }; status: string;
     };
     expect(row.organization_id).toBe(A);
     expect(row.event_type).toBe("lead.tag_added");
     expect(row.entity_kind).toBe("crm_lead");
     expect(row.payload.added_tags).toEqual(["gate8"]);
     expect(row.payload.tags).toEqual(["gate8"]);
-    expect(row.metadata).toEqual({ caused_by_rule: "gate8-rule" });
+    expect(row.metadata.caused_by_rule).toBe("gate8-rule");
+    expect(Object.keys(row.metadata).sort()).toEqual(["caused_by_rule", "emitted_at"]);
+    expect(Number.isFinite(row.metadata.emitted_at)).toBe(true);
+    expect(row.metadata.emitted_at).toBeGreaterThan(0);
     expect(row.status).toBe("pending");
   });
 
-  it("metadata sem caused_by_rule permanece objeto vazio (contrato do target)", () => {
+  it("metadata sem caused_by_rule ganha apenas emitted_at do SQL, sem criar anti-loop", () => {
     const eventId = valor(comoServidor(
       "select public.emit_event('lead.tag_added','crm_lead','" + ENTIDADE +
       "'::uuid,'{}'::jsonb,'{}'::jsonb,'" + A + "'::uuid);"
@@ -179,7 +186,10 @@ describe("Gate 8 — evento, autorização e idempotência no banco", () => {
     const metadata = JSON.parse(valor(comoServidor(
       "select metadata::text from public.event_log where id='" + eventId + "'::uuid;"
     ))) as Record<string, unknown>;
-    expect(metadata).toEqual({});
+    expect(Object.keys(metadata)).toEqual(["emitted_at"]);
+    expect(typeof metadata.emitted_at).toBe("number");
+    expect(Number.isFinite(metadata.emitted_at)).toBe(true);
+    expect(metadata.emitted_at).toBeGreaterThan(0);
     expect(Object.hasOwn(metadata, "caused_by_rule")).toBe(false);
   });
 
@@ -190,15 +200,75 @@ describe("Gate 8 — evento, autorização e idempotência no banco", () => {
     ));
     const stmt = "select public.emit_event('lead.tag_added','crm_lead','" + ENTIDADE +
       "'::uuid,'{}'::jsonb,'{}'::jsonb,'" + B + "'::uuid)";
-    for (const script of [comoUsuario(USER_A, stmt), comoAnon(stmt)]) {
+    // authenticated alcança o corpo SECURITY DEFINER, que recusa por vínculo;
+    // anon nem tem EXECUTE e é negado antes do corpo (42501).
+    for (const [script, sqlState, marker] of [
+      [comoUsuario(USER_A, stmt), "P0001", "caller_not_authorized_for_org"],
+      [comoAnon(stmt), "42501", "permission denied"],
+    ]) {
       const error = erroDe(script);
-      expect(error).toContain("42501");
-      expect(error).toContain("permission denied");
+      expect(error).toContain(sqlState);
+      expect(error).toContain(marker);
     }
     expect(numero(comoServidor(
       "select count(*) from public.event_log where entity_id='" + ENTIDADE +
       "'::uuid and organization_id='" + B + "'::uuid;"
     ))).toBe(before);
+  });
+
+  it("authenticated com membership em A executa em A e recebe emitted_at do banco", () => {
+    // O teste caracteriza a chamada permitida sem alegar validação de entidade:
+    // emit_event NÃO consulta a tabela de entidade; isso é risco documentado.
+    const statement = "select public.emit_event('lead.tag_added','crm_lead','" +
+      ENTIDADE + "'::uuid,'{}'::jsonb,'{}'::jsonb,'" + A + "'::uuid)";
+    const eventId = valor(comoUsuario(USER_A, statement));
+    expect(eventId).toMatch(/^[0-9a-f-]{36}$/);
+    const row = JSON.parse(valor(comoServidor(
+      "select jsonb_build_object('org', organization_id, 'metadata', metadata, " +
+      "'status',status)::text from public.event_log where id='" + eventId + "'::uuid;"
+    ))) as { org: string; metadata: { emitted_at: number }; status: string };
+    expect(row.org).toBe(A);
+    expect(row.status).toBe("pending");
+    expect(Number.isFinite(row.metadata.emitted_at)).toBe(true);
+  });
+
+  it("authenticated não pode forjar message.received nem origem operacional reservada", () => {
+    // Guardas de emit_event na migration 0223. Ambos devem falhar antes de
+    // gravar, mesmo para membro ativo da própria organização.
+    const before = numero(comoServidor(
+      "select count(*) from public.event_log where entity_id='" + ENTIDADE +
+      "'::uuid and organization_id='" + A + "'::uuid;"
+    ));
+    const attempts = [
+      "select public.emit_event('message.received','message','" + ENTIDADE +
+        "'::uuid,'{}'::jsonb,'{}'::jsonb,'" + A + "'::uuid)",
+      "select public.emit_event('lead.tag_added','crm_lead','" + ENTIDADE +
+        "'::uuid,'{\"service_origin\":{}}'::jsonb,'{}'::jsonb,'" + A + "'::uuid)",
+      "select public.emit_event('lead.tag_added','crm_lead','" + ENTIDADE +
+        "'::uuid,'{}'::jsonb,'{\"service_boundary\":{}}'::jsonb,'" + A + "'::uuid)",
+    ];
+    for (const stmt of attempts) {
+      const error = erroDe(comoUsuario(USER_A, stmt));
+      expect(error).toContain("42501");
+      expect(error).toMatch(/reserved_message_received|reserved_service_origin/);
+    }
+    expect(numero(comoServidor(
+      "select count(*) from public.event_log where entity_id='" + ENTIDADE +
+      "'::uuid and organization_id='" + A + "'::uuid;"
+    ))).toBe(before);
+  });
+
+  it("emitted_at não pode ser escolhido pelo chamador da organização A", () => {
+    const statement = "select public.emit_event('lead.tag_added','crm_lead','" +
+      ENTIDADE + "'::uuid,'{}'::jsonb,'{\"emitted_at\":-1}'::jsonb,'" + A + "'::uuid)";
+    const eventId = valor(comoUsuario(USER_A, statement));
+    const row = JSON.parse(valor(comoServidor(
+      "select metadata::text from public.event_log where id='" + eventId + "'::uuid;"
+    ))) as { emitted_at: number };
+    expect(Object.keys(row)).toEqual(["emitted_at"]);
+    expect(Number.isFinite(row.emitted_at)).toBe(true);
+    expect(row.emitted_at).toBeGreaterThan(0);
+    expect(row.emitted_at).not.toBe(-1);
   });
 
   it("falha RPC real de etiquetas vazias: SQLSTATE 22023, sem escrita ou evento", () => {
