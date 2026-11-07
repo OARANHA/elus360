@@ -1015,7 +1015,12 @@ restaurar_servicos() {
   # `declare -F` porque quem carrega o aviso é só o update.sh: install.sh e
   # agent.sh também sourceiam este arquivo e não têm o que derrubar.
   declare -F manutencao_desce >/dev/null 2>&1 && manutencao_desce
-  dc up -d app worker scheduler >/dev/null 2>&1 || true
+  # Restauração do parque sem qualquer build no host. Voz é incluída apenas
+  # quando o profile telefonia está ativo; nunca subir profile desativado.
+  case ",${COMPOSE_PROFILES:-}," in
+    *,telefonia,*) dc up -d --no-build app worker scheduler voice-agent >/dev/null 2>&1 || true ;;
+    *)            dc up -d --no-build app worker scheduler >/dev/null 2>&1 || true ;;
+  esac
   # Por ÚLTIMO: assim o diagnóstico mostra o estado DEPOIS da volta, que é o
   # que interessa a quem for ler o arquivo depois (#1955, critério 5).
   diagnostico_de_atualizacao "$rc_da_execucao"
@@ -1429,7 +1434,7 @@ recriar_o_proxy() {
     c_ylw "  e só com a conferência limpa aplique: docker compose $(dc_files) up -d --force-recreate caddy"
     return 1
   fi
-  dc up -d --force-recreate --no-deps caddy >/dev/null 2>&1 \
+  dc up -d --no-build --force-recreate --no-deps caddy >/dev/null 2>&1 \
     && c_grn "✓ proxy recarregado com a configuração desta versão" \
     || c_ylw "⚠ não consegui recriar o proxy — rode: docker compose $(dc_files) up -d --force-recreate caddy"
 }
@@ -3187,10 +3192,10 @@ trocar_segredo_do_cron_vazado() {
   step "$(t "Trocando a senha interna das rotinas (a antiga ficou no log do sistema)")"
   set_env_var "$envfile" "$chave" "$novo"
   export "${chave}=${novo}"
-  if ! dc up -d >/dev/null 2>&1; then
+  if ! dc up -d --no-build >/dev/null 2>&1; then
     set_env_var "$envfile" "$chave" "$velho"
     export "${chave}=${velho}"
-    dc up -d >/dev/null 2>&1 || true
+    dc up -d --no-build >/dev/null 2>&1 || true
     [ -n "$tem_cadeado" ] && exec 8>&-
     c_ylw "$(t "⚠ não consegui reiniciar o app com a senha nova — mantive a antiga e tento de novo na próxima atualização.")"
     return 1
