@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 COMMON = ROOT / "hostgator-setup-kit" / "_common.sh"
 UPDATER = ROOT / "hostgator-setup-kit" / "update.sh"
 INSTALLER = ROOT / "hostgator-setup-kit" / "install.sh"
+SCRIPT = ROOT / "scripts" / "elus360-distribution-guard.py"
 TAG = "a" * 40
 
 SHELL = r'''
@@ -119,7 +120,9 @@ class ReleaseGateShell(unittest.TestCase):
         self.assertLess(resolve, provenance)
         self.assertLess(provenance, quartet)
         self.assertLess(quartet, clone)
-        self.assertIn('VERSAO_ALVO="$ELUS_RELEASE_PREVALIDADA"', source)
+        # The published tag is vX.Y.Z; Docker image tags must be X.Y.Z.
+        self.assertIn('VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"', source)
+        self.assertNotIn('VERSAO_ALVO="$ELUS_RELEASE_PREVALIDADA"', source)
         self.assertIn('|| ! trio_publicado "$VERSAO_ALVO"', source)
         self.assertIn('git fetch --no-tags --quiet origin "refs/tags/v', source)
         self.assertIn('elus360_release_tag_comprovada "v${VERSAO_ALVO}"', source)
