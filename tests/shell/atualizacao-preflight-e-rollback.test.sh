@@ -20,9 +20,8 @@
 #   2. SEM REGISTRO NO MEIO DO UPDATE — o build local NÃO é disparado por
 #      padrão, o run termina com diagnóstico persistido, e NENHUM serviço
 #      encerra em `Created`/`Exited` (o rollback devolve a versão anterior);
-#   3. CONTROLE — com `DESKCOMM_BUILD_LOCAL=1` (quem quer de propósito) o
-#      build acontece e a atualização fecha no ar. Sem este controle, um
-#      código que nunca construísse passaria no caso 2 por acidente.
+#   3. CONTROLE — uma release com imagens publicadas e pull disponível
+#      atualiza sem compilar; DESKCOMM_BUILD_LOCAL=1 nunca autoriza build.
 #
 # Nada aqui toca a máquina de quem roda: `docker`, `crontab`, `flock`, `curl`
 # e `uname` são dublês, nenhum contêiner sobe, nenhum crontab real é escrito, e
@@ -56,6 +55,7 @@ if [ -z "$WORK" ] || [ ! -d "$WORK" ] || [ "$WORK" = / ]; then
 fi
 trap 'rm -rf "$WORK"' EXIT
 REAL_UNAME="$(command -v uname)"
+REAL_GIT="$(command -v git)"; export REAL_GIT
 
 # ── Dublês ──────────────────────────────────────────────────────────────────
 mkdir -p "$WORK/bin"
@@ -90,9 +90,9 @@ reg() {  # reg <serviço> <estado>
 
 # Caso 5: a versão NOVA sobe o app, mas o worker cai (`exited`) ou nem chega
 # a existir no `ps` (`some`) — o critério 6 da issue. Vale para todo `up` da
-# 0.9.0 (o do build e o do proxy); o da volta, na 0.8.0, sobe inteiro.
+# 1.102.0 (o do build e o do proxy); o da volta, na 1.101.0, sobe inteiro.
 queda_da_versao_nova() {
-  [ "${APP_IMAGE##*:}" = 0.9.0 ] || return 0
+  [ "${APP_IMAGE##*:}" = 1.102.0 ] || return 0
   if [ -f "$DUB/worker-exited" ]; then reg worker exited; fi
   if [ -f "$DUB/worker-some" ]; then
     grep -v '^worker ' "$ESTADO" > "$ESTADO.tmp.$$"; mv "$ESTADO.tmp.$$" "$ESTADO"
@@ -109,8 +109,10 @@ case "${1:-}" in
     # enquanto `$DUB/registro` existir — e, com ele de pé, só para as imagens
     # cuja publicação TERMINOU (`$DUB/voz-pronta` é o interruptor do caso 4).
     [ -f "$DUB/registro" ] || exit 1
+    case "$*" in *elus360-voice-agent*) [ -f "$DUB/voz-pronta" ] || exit 1 ;; esac
     case "$*" in
-      *deskcomm-voice-agent*) [ -f "$DUB/voz-pronta" ] || exit 1 ;;
+      *" imagetools inspect --raw "*) printf '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}}]}'; exit 0 ;;
+      *" imagetools inspect --format "*) printf 'linux/amd64\n'; exit 0 ;;
     esac
     exit 0 ;;
 esac
@@ -119,17 +121,16 @@ if [ "${1:-}" = compose ]; then
   args="$*"
   case "$args" in
     *"docker-compose.build.yml"*)
-      # O overlay de build local: o `build` publica a tag no disco e o `up`
-      # sobe tudo, como numa VPS de verdade depois da construção.
-      case "$args" in *" build"*) printf '0.9.0\n' >> "$DUB/imagens-locais" ;; esac
-      for s in app worker scheduler caddy; do reg "$s" running; done
-      queda_da_versao_nova
-      exit 0 ;;
+      : > "$DUB/build-proibido"
+      exit 99 ;;
     *" exec "*)
-      printf 'healthy\n{"data":{"status":"healthy","version":"0.9.0","checks":{"supabase":{"status":"ok","latency_ms":12}}}}\n'
+      printf 'healthy\n{"data":{"status":"healthy","version":"1.102.0","checks":{"supabase":{"status":"ok","latency_ms":12}}}}\n'
       exit 0 ;;
     *" pull"*)
-      # O pull falha E o registro cai junto: o apagão que a issue descreve.
+      if [ -f "$DUB/pull-ok" ]; then
+        printf '1.102.0\n' >> "$DUB/imagens-locais"
+        exit 0
+      fi
       rm -f "$DUB/registro"
       exit 1 ;;
     *" stop "*)
@@ -170,7 +171,16 @@ STUB
 # curl: nenhuma saída deste arquivo toca a rede.
 cat > "$WORK/bin/curl" <<'STUB'
 #!/usr/bin/env bash
-printf '{"tag_name":"v0.9.0"}\n'
+case "$*" in
+  *api.github.com/repos/OARANHA/elus360/releases/tags/v1.102.0*)
+    printf '{\n "tag_name":"v1.102.0",\n "draft":false,\n "prerelease":false,\n "published_at":"2026-11-07T00:00:00Z"\n}\n' ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...v1.102.0*)
+    printf '{\n "status":"behind"\n}\n' ;;
+  *api.github.com/*) exit 90 ;;
+  *ghcr.io/token*) printf '{"token":"fixture"}' ;;
+  *ghcr.io/v2/*) printf 200 ;;
+  *) printf '{"data":{}}\n200' ;;
+esac
 STUB
 # `uname -m` responde x86_64: o _common.sh recusa update.sh fora de amd64/arm64,
 # e o processador de quem roda a suíte não é o alvo de nenhuma destas provas.
@@ -179,11 +189,32 @@ cat > "$WORK/bin/uname" <<STUB
 [ "\$*" = "-m" ] && { printf 'x86_64\n'; exit 0; }
 exec "$REAL_UNAME" "\$@"
 STUB
-chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname"
+# Git remoto sintético. Checkout de arquivos do repo temporário é real.
+cat > "$WORK/bin/git" <<'STUB'
+#!/usr/bin/env bash
+args=("$@")
+while [ "${args[0]:-}" = "-C" ]; do args=("${args[@]:2}"); done
+case "${args[0]:-}" in
+  ls-remote)
+    case " ${args[*]} " in
+      *" refs/tags/v1.102.0 "*)
+        sha="$("$REAL_GIT" rev-parse --verify refs/tags/v1.102.0)" || exit 91
+        printf '%s\trefs/tags/v1.102.0\n' "$sha" ;;
+      *) exit 92 ;;
+    esac ;;
+  fetch)
+    [ "${args[1]:-}" = "--tags" ] && [ "${args[2]:-}" = "--quiet" ] &&
+      [ "${args[3]:-}" = origin ] || exit 93
+    "$REAL_GIT" rev-parse --verify refs/tags/v1.102.0 >/dev/null || exit 94 ;;
+  push|pull|clone|submodule) exit 95 ;;
+  *) exec "$REAL_GIT" "$@" ;;
+esac
+STUB
+chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname" "$WORK/bin/git"
 export PATH="$WORK/bin:$PATH"
 
 # ── Fixture ─────────────────────────────────────────────────────────────────
-# Uma VPS que JÁ ESTÁ no ar, na 0.8.0, com as quatro imagens pinadas no .env —
+# Uma VPS que JÁ ESTÁ no ar, na 1.101.0, com as quatro imagens pinadas no .env —
 # é o estado de quem clica em "Atualizar" na tela.
 montar_instalacao() {  # montar_instalacao <raiz>
   local raiz="$1" proj="$1/deskcommcrm"
@@ -201,17 +232,15 @@ STUB
   chmod +x "$proj/hostgator-setup-kit/backup.sh"
   printf 'select 1;\n' > "$proj/supabase/baseline.sql"
   printf 'services:\n  app:\n    image: \${APP_IMAGE:-x}\n' > "$proj/docker-compose.prod.yml"
-  # O overlay de build precisa EXISTIR no projeto: sem ele o `-f` morre antes
-  # de qualquer construção e o caso 3 (controle) mediria outra coisa.
-  cp "$RAIZ/docker-compose.build.yml" "$proj/"
+  # ELUS360 nunca usa overlay de build local.
   cat > "$proj/.env" <<ENV
-APP_IMAGE=${NS}/deskcommcrm:0.8.0
+APP_IMAGE=${NS}/elus360:1.101.0
 APP_PULL_POLICY=missing
-WORKER_IMAGE=${NS}/deskcomm-worker:0.8.0
+WORKER_IMAGE=${NS}/elus360-worker:1.101.0
 WORKER_PULL_POLICY=missing
-SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:0.8.0
+SCHEDULER_IMAGE=${NS}/elus360-scheduler:1.101.0
 SCHEDULER_PULL_POLICY=missing
-VOICE_AGENT_IMAGE=${NS}/deskcomm-voice-agent:0.8.0
+VOICE_AGENT_IMAGE=${NS}/elus360-voice-agent:1.101.0
 VOICE_AGENT_PULL_POLICY=missing
 WAHA_IMAGE=devlikeapro/waha:latest-2026.7.2
 SUPABASE_DB_URL=postgresql://x/y
@@ -228,26 +257,27 @@ ENV
     printf 'alvo\n' > versao.txt
     printf 'nova\n' > so-na-versao.txt
     git add -A
-    git commit --quiet -m "v0.9.0"
-    git tag v0.9.0
+    git commit --quiet -m "v1.102.0"
+    git tag v1.102.0
     echo topo > topo.txt
     printf 'topo\n' > versao.txt
     git rm --quiet so-na-versao.txt
     git add -A
     git commit --quiet -m "topo da main"
+    git remote add origin https://github.com/OARANHA/elus360.git
   ) >/dev/null 2>&1
 }
 
-# O estado da "VPS" entre casos: registro alcançável, 0.8.0 no disco, tudo no ar.
+# O estado da "VPS" entre casos: registro alcançável, 1.101.0 no disco, tudo no ar.
 preparar_vps() {
   : > "$DOCKER_LOG"
   : > "$DUB/estado.txt"
   local s
   for s in app worker scheduler caddy; do printf '%s running\n' "$s" >> "$DUB/estado.txt"; done
-  printf '0.8.0\n' > "$DUB/imagens-locais"
+  printf '1.101.0\n' > "$DUB/imagens-locais"
   : > "$DUB/registro"                          # o registro está alcançável
   : > "$DUB/voz-pronta"                        # e as QUATRO imagens publicadas
-  rm -f "$DUB/worker-exited" "$DUB/worker-some" "$DUB/trava" "$DUB/sem-buildx"
+  rm -f "$DUB/worker-exited" "$DUB/worker-some" "$DUB/trava" "$DUB/sem-buildx" "$DUB/pull-ok" "$DUB/build-proibido"
 }
 
 # rodar_update <raiz> <saída> [VAR=valor ...] → status em RC
@@ -256,7 +286,7 @@ rodar_update() {
   local raiz="$1" saida="$2"; shift 2
   RC=0
   ( cd "$raiz" && env "$@" bash deskcommcrm/hostgator-setup-kit/update.sh \
-      --to v0.9.0 --force ) > "$saida" 2>&1 < /dev/null || RC=$?
+      --to v1.102.0 --force ) > "$saida" 2>&1 < /dev/null || RC=$?
 }
 
 fora_do_ar() { grep -cE ' (created|exited)$' "$DUB/estado.txt" 2>/dev/null || true; }
@@ -275,10 +305,10 @@ if [ "$RC1" -eq 3 ]; then
 else
   nao "recusa antes de tudo" "RC 3" "RC $RC1"
 fi
-if grep -qiE 'registro de imagens|DNS|preflight' "$OUT1"; then
-  ok "e diz o MOTIVO (registro/DNS), não uma falha muda"
+if grep -q 'ELUS_DISTRIBUTION_NO_GO.*imagens' "$OUT1"; then
+  ok "motivo menciona as quatro imagens, sem iniciar atualização"
 else
-  nao "motivo da recusa" "frase citando registro/DNS" "$(tail -3 "$OUT1" | tr '\n' ' ')"
+  nao "motivo da recusa" "ELUS_DISTRIBUTION_NO_GO em imagens" "$(tail -3 "$OUT1" | tr '\n' ' ')"
 fi
 if [ ! -f "$R1/marca-backup" ]; then
   ok "o backup NUNCA rodou (a recusa veio antes dele)"
@@ -291,20 +321,17 @@ if grep -qE ' stop | up -d| rm -f' "$DOCKER_LOG"; then
 else
   ok "nenhum serviço foi parado, recriado ou removido"
 fi
-if grep -q "^APP_IMAGE=$NS/deskcommcrm:0.8.0$" "$R1/deskcommcrm/.env"; then
-  ok "o .env segue apontando para a versão de antes (0.8.0)"
+if grep -q "^APP_IMAGE=$NS/elus360:1.101.0$" "$R1/deskcommcrm/.env"; then
+  ok "o .env segue apontando para a versão de antes (1.101.0)"
 else
-  nao ".env intocado" "APP_IMAGE=:0.8.0" "$(grep '^APP_IMAGE=' "$R1/deskcommcrm/.env")"
+  nao ".env intocado" "APP_IMAGE=:1.101.0" "$(grep '^APP_IMAGE=' "$R1/deskcommcrm/.env")"
 fi
-if [ -f "$DIAG1" ]; then
-  ok "o run terminou com diagnóstico PERSISTIDO"
+# A origem/release/OCI é validada ANTES do trap que escreveria diagnóstico.
+# Criar rastro de 'atualização iniciada' em recusa read-only seria falso.
+if [ ! -e "$DIAG1" ]; then
+  ok "recusa de release/OCI sem criar estado de atualização"
 else
-  nao "diagnóstico persistido" ".deskcomm-update-diagnostico.log existe" "arquivo ausente"
-fi
-if [ -f "$DIAG1" ] && grep -qiE 'registro|falha' "$DIAG1"; then
-  ok "e o diagnóstico é legível (cita a causa e o status)"
-else
-  nao "diagnóstico legível" "cita registro/falha" "$(tail -3 "$DIAG1" 2>/dev/null | tr '\n' ' ')"
+  nao "sem diagnóstico de atualização iniciada" "arquivo ausente" "arquivo criado"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -334,10 +361,10 @@ else
   ok "NENHUM serviço saiu em Created/Exited — o rollback religou o que estava no ar"
 fi
 for chave in APP WORKER SCHEDULER VOICE_AGENT; do
-  if grep -q "^${chave}_IMAGE=$NS/.*:0.8.0$" "$R2/deskcommcrm/.env"; then
-    ok "o pin ${chave}_IMAGE voltou para a versão anterior (0.8.0)"
+  if grep -q "^${chave}_IMAGE=$NS/.*:1.101.0$" "$R2/deskcommcrm/.env"; then
+    ok "o pin ${chave}_IMAGE voltou para a versão anterior (1.101.0)"
   else
-    nao "rollback do pin ${chave}_IMAGE" "…:0.8.0" \
+    nao "rollback do pin ${chave}_IMAGE" "…:1.101.0" \
         "$(grep "^${chave}_IMAGE=" "$R2/deskcommcrm/.env" 2>/dev/null)"
   fi
 done
@@ -347,65 +374,69 @@ else
   nao "diagnóstico da falha" "arquivo com status de falha" \
       "$(tail -4 "$DIAG2" 2>/dev/null | tr '\n' ' ')"
 fi
-if grep -qiE 'registro|DESKCOMM_BUILD_LOCAL' "$OUT2"; then
-  ok "a saída explica POR QUE não construiu e como construir de propósito"
+if grep -q 'ELUS_DISTRIBUTION_NO_GO: pull incompleto' "$OUT2"; then
+  ok "a saída explica que pull incompleto não autoriza build local"
 else
-  nao "explicação na saída" "menção ao registro ou a DESKCOMM_BUILD_LOCAL" \
+  nao "explicação na saída" "NO-GO explícito do pull" \
       "$(tail -3 "$OUT2" | tr '\n' ' ')"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-echo "── caso 3 — CONTROLE: com DESKCOMM_BUILD_LOCAL=1 o build ACONTECE"
-# Sem este controle, um código que nunca construísse passaria no caso 2 por
-# acidente (o log do docker estaria vazio de build por qualquer outro motivo).
+echo "── caso 3 — imagens oficiais completas: o pull atualiza SEM build"
 preparar_vps
+: > "$DUB/pull-ok"
 R3="$WORK/caso3"; mkdir -p "$R3"; montar_instalacao "$R3"
 OUT3="$WORK/saida3.txt"
+# Override hostil: mesmo explicitamente solicitado, o ELUS360 não constrói.
 rodar_update "$R3" "$OUT3" DESKCOMM_BUILD_LOCAL=1; RC3="$RC"
 DIAG3="$R3/deskcommcrm/.deskcomm-update-diagnostico.log"
-
-if grep -q -- '-f docker-compose.build.yml build' "$DOCKER_LOG"; then
-  ok "o build local foi EXECUTADO (prova que o que trava o caso 2 é o portão)"
-else
-  nao "build local executado" "docker compose … -f docker-compose.build.yml build" \
-      "$(grep -c 'docker-compose.build.yml' "$DOCKER_LOG") ocorrência(s)"
-fi
 if [ "$RC3" -eq 0 ] && grep -q 'Atualização concluída' "$OUT3"; then
-  ok "a atualização fechou no ar (RC 0, 'Atualização concluída')"
+  ok "release oficial com pull conclui sem precisar de build local"
 else
-  nao "atualização concluída" "RC 0 com a frase final" "RC $RC3"
+  nao "atualização por imagem" "RC=0 e Atualização concluída" "RC=$RC3"
+fi
+if grep -q 'docker-compose.build.yml' "$DOCKER_LOG" || [ -e "$DUB/build-proibido" ]; then
+  nao "sem construção local" "nenhum build Docker" "$(grep -m1 docker-compose.build.yml "$DOCKER_LOG")"
+else
+  ok "DESKCOMM_BUILD_LOCAL=1 não contorna a proibição de build"
 fi
 if grep -qE ' (created|exited)$' "$DUB/estado.txt"; then
-  nao "todos os serviços de pé" "sem created/exited" \
-      "$(grep -E ' (created|exited)$' "$DUB/estado.txt" | tr '\n' ' ')"
+  nao "serviços disponíveis" "nenhum created/exited" "$(cat "$DUB/estado.txt")"
 else
-  ok "app, worker, scheduler e proxy saíram SAUDÁVEIS"
+  ok "app, worker, scheduler e proxy saíram saudáveis"
 fi
-if grep -q "^APP_IMAGE=$NS/deskcommcrm:0.9.0$" "$R3/deskcommcrm/.env"; then
-  ok "sem rollback: o .env ficou na versão nova (0.9.0)"
+if grep -q "^APP_IMAGE=$NS/elus360:1.102.0$" "$R3/deskcommcrm/.env"; then
+  ok "nova tag imutável ELUS360 pinada no .env"
 else
-  nao ".env na versão nova" "APP_IMAGE=:0.9.0" "$(grep '^APP_IMAGE=' "$R3/deskcommcrm/.env")"
+  nao "pin da release" "app 1.102.0" "$(grep '^APP_IMAGE=' "$R3/deskcommcrm/.env")"
 fi
 if [ -f "$DIAG3" ] && grep -qiE 'concluído|sucesso' "$DIAG3"; then
-  ok "o run de sucesso TAMBÉM deixa diagnóstico (status legível)"
+  ok "sucesso deixou diagnóstico persistido"
 else
-  nao "diagnóstico do sucesso" "status de concluído" \
-      "$(tail -4 "$DIAG3" 2>/dev/null | tr '\n' ' ')"
+  nao "diagnóstico positivo" "status concluído" "$(tail -4 "$DIAG3" 2>/dev/null | tr '\n' ' ')"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-echo "── caso 3b — a saída de escape vale com o registro FORA desde o início"
-# A recusa do portão ensina `DESKCOMM_BUILD_LOCAL=1 … --force`. Com o registro
-# ainda fora, o preflight não pode recusar justamente esse pedido.
+echo "── caso 3b — nem override autoriza build com registro indisponível"
 preparar_vps
 rm -f "$DUB/registro"
 R3B="$WORK/caso3b"; mkdir -p "$R3B"; montar_instalacao "$R3B"
 OUT3B="$WORK/saida3b.txt"
 rodar_update "$R3B" "$OUT3B" DESKCOMM_BUILD_LOCAL=1; RC3B="$RC"
-if [ "$RC3B" -eq 0 ] && grep -q -- '-f docker-compose.build.yml build' "$DOCKER_LOG"; then
-  ok "com DESKCOMM_BUILD_LOCAL=1 o preflight não recusa: construiu e concluiu (RC 0)"
+if [ "$RC3B" -eq 3 ] && [ ! -f "$R3B/marca-backup" ]; then
+  ok "override recusado antes de backup, checkout e banco (RC=3)"
 else
-  nao "saída de escape aceita" "RC 0 com build local" "RC $RC3B; $(grep -m1 'Motivo' "$OUT3B")"
+  nao "override proibido" "RC 3 sem backup" "RC $RC3B"
+fi
+if grep -q 'docker-compose.build.yml' "$DOCKER_LOG" || [ -e "$DUB/build-proibido" ]; then
+  nao "construção proibida" "nenhum build" "houve tentativa de build"
+else
+  ok "registro fora não desencadeou build nem com override"
+fi
+if grep -qE ' (created|exited)$' "$DUB/estado.txt"; then
+  nao "serviços preservados na recusa" "todos running" "$(cat "$DUB/estado.txt")"
+else
+  ok "serviços atuais intactos na recusa"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -416,19 +447,20 @@ echo "── caso 5 — critério 6: app saudável com outro serviço fora do ar
 for jeito in exited some; do
   preparar_vps
   : > "$DUB/worker-$jeito"
+  : > "$DUB/pull-ok"
   R5="$WORK/caso5-$jeito"; mkdir -p "$R5"; montar_instalacao "$R5"
   OUT5="$WORK/saida5-$jeito.txt"
-  rodar_update "$R5" "$OUT5" DESKCOMM_BUILD_LOCAL=1; RC5="$RC"
+  rodar_update "$R5" "$OUT5"; RC5="$RC"
   if [ "$RC5" -ne 0 ] && grep -q 'NÃO subiram: worker' "$OUT5"; then
     ok "worker $jeito: a atualização FALHOU e nomeou o worker (RC $RC5)"
   else
     nao "worker $jeito acusado" "RC≠0 e 'NÃO subiram: worker'" "RC $RC5; $(tail -2 "$OUT5" | tr '\n' ' ')"
   fi
-  if grep -q "^APP_IMAGE=$NS/deskcommcrm:0.8.0$" "$R5/deskcommcrm/.env" \
-     && grep -q "^WORKER_IMAGE=$NS/deskcomm-worker:0.8.0$" "$R5/deskcommcrm/.env"; then
-    ok "worker $jeito: os pins voltaram para a versão anterior (0.8.0)"
+  if grep -q "^APP_IMAGE=$NS/elus360:1.101.0$" "$R5/deskcommcrm/.env" \
+     && grep -q "^WORKER_IMAGE=$NS/elus360-worker:1.101.0$" "$R5/deskcommcrm/.env"; then
+    ok "worker $jeito: os pins voltaram para a versão anterior (1.101.0)"
   else
-    nao "worker $jeito: pins de volta" "…:0.8.0" "$(grep -E '^(APP|WORKER)_IMAGE=' "$R5/deskcommcrm/.env" | tr '\n' ' ')"
+    nao "worker $jeito: pins de volta" "…:1.101.0" "$(grep -E '^(APP|WORKER)_IMAGE=' "$R5/deskcommcrm/.env" | tr '\n' ' ')"
   fi
 done
 
@@ -438,20 +470,20 @@ echo "── caso 4 — critério 1: release com imagem faltando NÃO é ofereci
 . "$RAIZ/hostgator-setup-kit/_common.sh"
 set +e
 preparar_vps
-v="$(veredito_das_imagens_da_release 0.9.0)"
+v="$(veredito_das_imagens_da_release 1.102.0)"
 if [ "$v" = "prontas" ]; then ok "as quatro prontas: a release pode ser anunciada"
 else nao "as quatro prontas" "prontas" "$v"; fi
 
 rm -f "$DUB/voz-pronta"
-v="$(veredito_das_imagens_da_release 0.9.0)"
+v="$(veredito_das_imagens_da_release 1.102.0)"
 if [ "$v" = "incompleta" ]; then ok "voz sem publicar: a release está INCOMPLETA e não se oferece"
 else nao "release incompleta" "incompleta" "$v"; fi
-v="$(veredito_das_imagens_da_release v0.9.0)"
+v="$(veredito_das_imagens_da_release v1.102.0)"
 if [ "$v" = "incompleta" ]; then ok "e o 'v' da tag não confunde a sonda"
 else nao "sonda com o v da tag" "incompleta" "$v"; fi
 
 rm -f "$DUB/registro"
-v="$(veredito_das_imagens_da_release 0.9.0)"
+v="$(veredito_das_imagens_da_release 1.102.0)"
 if [ "$v" = "indisponivel" ]; then
   ok "CONTROLE: registro fora → indisponível, que é o estado que NÃO cala o agente"
 else nao "registro fora" "indisponivel" "$v"; fi
@@ -506,7 +538,7 @@ PATH="$PATH_ANTES"
 echo "── caso 7 — sem o plugin buildx, o motivo diz buildx, não DNS"
 preparar_vps
 : > "$DUB/sem-buildx"
-motivo7="$(preflight_atualizacao 0.9.0)"; rc7=$?
+motivo7="$(preflight_atualizacao 1.102.0)"; rc7=$?
 if [ "$rc7" -ne 0 ] && printf '%s' "$motivo7" | grep -q 'buildx' \
    && ! printf '%s' "$motivo7" | grep -q 'DNS'; then
   ok "recusa nomeando o plugin buildx ausente"
@@ -553,7 +585,7 @@ chmod +x "$WORK/bin-apt-ubuntu/apt-cache" "$WORK/bin-apt-repo-docker/apt-cache" 
 PATH_ANTES7="$PATH"
 
 PATH="$WORK/bin-apt-ubuntu:$PATH"
-motivo7b="$(preflight_atualizacao 0.9.0)"; rc7b=$?
+motivo7b="$(preflight_atualizacao 1.102.0)"; rc7b=$?
 PATH="$PATH_ANTES7"
 if [ "$rc7b" -ne 0 ] && printf '%s' "$motivo7b" | grep -qE 'Instale o pacote docker-buildx\.( |$)'; then
   ok "com o pacote do Ubuntu no cache, manda instalar docker-buildx"
@@ -567,7 +599,7 @@ else
 fi
 
 PATH="$WORK/bin-apt-repo-docker:$PATH"
-motivo7c="$(preflight_atualizacao 0.9.0)"; rc7c=$?
+motivo7c="$(preflight_atualizacao 1.102.0)"; rc7c=$?
 PATH="$PATH_ANTES7"
 if [ "$rc7c" -ne 0 ] && printf '%s' "$motivo7c" | grep -qE 'Instale o pacote docker-buildx-plugin\.( |$)'; then
   ok "com o repo do Docker habilitado, manda instalar docker-buildx-plugin"
@@ -576,7 +608,7 @@ else
 fi
 
 PATH="$WORK/bin-apt-ambos:$PATH"
-motivo7e="$(preflight_atualizacao 0.9.0)"; rc7e=$?
+motivo7e="$(preflight_atualizacao 1.102.0)"; rc7e=$?
 PATH="$PATH_ANTES7"
 if [ "$rc7e" -ne 0 ] && printf '%s' "$motivo7e" | grep -qE 'Instale o pacote docker-buildx-plugin\.( |$)'; then
   ok "com os dois nomes no índice (docker-ce + universe), manda instalar docker-buildx-plugin"
@@ -585,7 +617,7 @@ else
 fi
 
 PATH="$WORK/bin-apt-vazio:$PATH"
-motivo7d="$(preflight_atualizacao 0.9.0)"; rc7d=$?
+motivo7d="$(preflight_atualizacao 1.102.0)"; rc7d=$?
 PATH="$PATH_ANTES7"
 # O 'docker-buildx' tem de aparecer SOZINHO (o 'docker-buildx-plugin' já
 # o contém como prefixo — um grep solto passaria com um nome só).
@@ -606,7 +638,7 @@ echo "── caso 8 — árvore suja: recusa ANTES do backup, nomeando o arquivo
 # atualizar?" — e a resposta era não.
 preparar_vps
 R8="$WORK/caso8"; mkdir -p "$R8"; montar_instalacao "$R8"
-# `topo.txt` existe no topo e NÃO existe na v0.9.0: é um dos arquivos que a troca
+# `topo.txt` existe no topo e NÃO existe na v1.102.0: é um dos arquivos que a troca
 # de versão mexe, e é por ele que o `git checkout` recusaria (medido: o git
 # recusa exatamente nos arquivos que `git diff HEAD <tag>` lista).
 printf 'ajuste local de quem opera\n' >> "$R8/deskcommcrm/topo.txt"
@@ -649,16 +681,17 @@ fi
 # ════════════════════════════════════════════════════════════════════════════
 echo "── caso 8b — CONTROLE: alteração local que a versão alvo NÃO troca não trava"
 # O par do caso 8 isola a variável: mesma instalação, mesma sujeira, arquivo
-# outro. `hostgator-setup-kit/install.sh` é IDÊNTICO na 0.8.0 (HEAD) e na 0.9.0
+# outro. `hostgator-setup-kit/install.sh` é IDÊNTICO na 1.101.0 (HEAD) e na 1.102.0
 # (a tag), e é isso que o git mede antes de recusar um checkout — então este
 # update tem de SEGUIR. Sem este controle, um preflight que recusasse por
 # qualquer arquivo alterado passaria no caso 8 e travaria quem só editou um
 # arquivo que a versão nova nem toca.
 preparar_vps
+: > "$DUB/pull-ok"
 R8B="$WORK/caso8b"; mkdir -p "$R8B"; montar_instalacao "$R8B"
 printf '# ajuste local de quem opera\n' >> "$R8B/deskcommcrm/hostgator-setup-kit/install.sh"
 OUT8B="$WORK/saida8b.txt"
-rodar_update "$R8B" "$OUT8B" DESKCOMM_BUILD_LOCAL=1; RC8B="$RC"
+rodar_update "$R8B" "$OUT8B"; RC8B="$RC"
 
 if [ "$RC8B" -eq 0 ] && grep -q 'Atualização concluída' "$OUT8B"; then
   ok "a atualização SEGUIU e fechou no ar (RC 0, 'Atualização concluída')"
@@ -681,10 +714,11 @@ fi
 segue_8() {
   local nome="$1" desc="$2" preparo="$3" r out
   preparar_vps
+  : > "$DUB/pull-ok"
   r="$WORK/caso$nome"; mkdir -p "$r"; montar_instalacao "$r"
   ( cd "$r/deskcommcrm" && eval "$preparo" ) >/dev/null 2>&1
   out="$WORK/saida$nome.txt"
-  rodar_update "$r" "$out" DESKCOMM_BUILD_LOCAL=1
+  rodar_update "$r" "$out"
   if [ "$RC" -eq 0 ] && grep -q 'Atualização concluída' "$out"; then
     ok "$desc: a atualização SEGUIU e fechou no ar"
   else
@@ -735,4 +769,11 @@ recusa_8 8g "vários de uma vez" \
 printf '\n'
 if [ "$falhas" -eq 0 ]; then echo "TUDO VERDE"; exit 0; fi
 echo "$falhas caso(s) vermelho(s)"
+# Diagnóstico apenas de mensagens emitidas pelo updater; não imprimir .env,
+# conexão SQL, tokens, credenciais ou todo o log Docker.
+for output in "$WORK"/saida*.txt; do
+  [ -f "$output" ] || continue
+  echo "--- $(basename "$output") ---"
+  grep -E 'ELUS_DISTRIBUTION_NO_GO|preflight|Atualização concluída|Não consegui|ERRO|Aviso|rollback|versão anterior|Motivo:|mock git|imagem publicada|APP_IMAGE' "$output" | tail -n 12 || true
+done
 exit 1

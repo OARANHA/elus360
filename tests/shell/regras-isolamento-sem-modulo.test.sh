@@ -59,6 +59,8 @@ fi
 trap 'rm -rf "$WORK"' EXIT
 
 REAL_UNAME="$(command -v uname)"
+REAL_GIT="$(command -v git)"; export REAL_GIT
+# As árvores Git são descartáveis. Só ls-remote/fetch oficiais são simulados.
 
 FAILS=0
 check() {  # check <descrição> <comando de verificação...>
@@ -115,7 +117,13 @@ STUB
 # está sob prova aqui).
 cat > "$WORK/bin/curl" <<'STUB'
 #!/usr/bin/env bash
+# Respostas sintéticas da API oficial: não depender de tags/releases reais.
 case "$*" in
+  *api.github.com/repos/OARANHA/elus360/releases/tags/v1.102.0*)
+    printf '{\n "tag_name":"v1.102.0",\n "draft":false,\n "prerelease":false,\n "published_at":"2026-11-07T00:00:00Z"\n}\n' ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...v1.102.0*)
+    printf '{\n "status":"behind"\n}\n' ;;
+  *api.github.com/*) printf 'mock: API GitHub desconhecida\n' >&2; exit 90 ;;
   *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
   *ghcr.io/v2/*) printf 200 ;;
   *) printf '{"data":{}}\n200' ;;
@@ -130,7 +138,30 @@ cat > "$WORK/bin/uname" <<STUB
 [ "\$*" = "-m" ] && { printf 'x86_64\n'; exit 0; }
 exec "$REAL_UNAME" "\$@"
 STUB
-chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname"
+# Todas as consultas Git ao remoto confiável permanecem sintéticas.
+# O checkout LOCAL da tag é real: o teste precisa continuar até conferir RLS.
+cat > "$WORK/bin/git" <<'STUB'
+#!/usr/bin/env bash
+args=("$@")
+while [ "${args[0]:-}" = "-C" ]; do args=("${args[@]:2}"); done
+case "${args[0]:-}" in
+  ls-remote)
+    case " ${args[*]} " in
+      *" refs/tags/v1.102.0 "*)
+        sha="$("$REAL_GIT" rev-parse --verify refs/tags/v1.102.0)" || exit 91
+        printf '%s\trefs/tags/v1.102.0\n' "$sha" ;;
+      *) printf 'mock git: ls-remote inesperado\n' >&2; exit 92 ;;
+    esac ;;
+  fetch)
+    [ "${args[1]:-}" = "--tags" ] && [ "${args[2]:-}" = "--quiet" ] &&
+      [ "${args[3]:-}" = origin ] || exit 93
+    "$REAL_GIT" rev-parse --verify refs/tags/v1.102.0 >/dev/null || exit 94 ;;
+  push|pull|clone|submodule)
+    printf 'mock git: operação remota inesperada\n' >&2; exit 95 ;;
+  *) exec "$REAL_GIT" "$@" ;;
+esac
+STUB
+chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname" "$WORK/bin/git"
 export DOCKER_LOG="$WORK/docker.log" FAKE_CRONTAB="$WORK/crontab.txt"
 export PATH="$WORK/bin:$PATH"
 # O baseline do teste é aplicado por um dublê que não dorme entre tentativas.
@@ -212,8 +243,11 @@ STUB
   # recuperação do update.sh o referencia por nome.
   printf 'services:\n  app:\n    pull_policy: never\n    build:\n      context: .\n' > "$proj/docker-compose.build.yml"
   cat > "$proj/.env" <<ENV
-APP_IMAGE=${NS}/deskcommcrm:latest
-APP_PULL_POLICY=always
+APP_IMAGE=${NS}/elus360:1.101.0
+WORKER_IMAGE=${NS}/elus360-worker:1.101.0
+SCHEDULER_IMAGE=${NS}/elus360-scheduler:1.101.0
+APP_PULL_POLICY=missing
+WAHA_IMAGE=devlikeapro/waha:latest-2026.7.2
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
 INTERNAL_SECRET=segredo
@@ -224,13 +258,14 @@ ENV
     cd "$proj" || exit 1
     git init --quiet
     git add -A
-    git commit --quiet -m "v0.9.0"
-    git tag v0.9.0
+    git commit --quiet -m "release sintética ELUS360"
+    git tag v1.102.0
     # Instalação que SEGUE A MAIN: HEAD à frente da última tag publicada — o
     # estado de quem acabou de instalar e recebeu um aviso de atualização.
     echo topo > topo.txt
     git add -A
     git commit --quiet -m "topo da main"
+    git remote add origin https://github.com/OARANHA/elus360.git
   ) >/dev/null 2>&1
 }
 
@@ -240,7 +275,7 @@ rodar() {
   local raiz="$WORK/$1"
   shift
   POLICIAS_EXISTENTES="$1" TABELAS_EXISTENTES="$2" \
-    bash -c 'cd "$1/deskcommcrm" && exec bash hostgator-setup-kit/update.sh --to v0.9.0 --force' \
+    bash -c 'cd "$1/deskcommcrm" && exec bash hostgator-setup-kit/update.sh --to v1.102.0 --force' \
     _ "$raiz" > "$OUTFILE" 2>&1 < /dev/null || RC=$?
 }
 
@@ -301,5 +336,15 @@ check "e NÃO é um ✓ com zero regras conferidas" \
   nao_contem "✓ regras de isolamento conferidas (0 declaradas" "$OUTFILE"
 
 printf '\n'
-if [ "$FAILS" -eq 0 ]; then echo "OK — todas as provas passaram."; else echo "FALHOU — $FAILS prova(s)."; fi
+if [ "$FAILS" -eq 0 ]; then
+  echo "OK — todas as provas passaram."
+else
+  echo "FALHOU — $FAILS prova(s)."
+  # Diagnóstico filtrado para identificar a etapa sem despejar .env nem URLs
+  # do banco. Os valores de políticas são exclusivamente sintéticos.
+  for output in "$WORK"/saida*.txt; do
+    echo "--- $(basename "$output") ---"
+    grep -E 'ELUS_DISTRIBUTION_NO_GO|preflight|regras de isolamento|REGRAS DE ISOLAMENTO|Atualização concluída|Atualização NÃO começou|mock git|Backup de segurança|script falhou|erro de isolamento|não foi possível|Não consegui' "$output" | tail -n 18 || true
+  done
+fi
 exit $((FAILS > 0))
