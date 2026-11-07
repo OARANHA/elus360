@@ -108,7 +108,8 @@ class DisposableEntrypoints(unittest.TestCase):
         )
 
     def assert_no_mutation_before_proof(self, result):
-        self.assertNotEqual(result.returncode, 0)
+        # Refusal code 3 prevents agent.sh from rolling back an untouched stack.
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
         self.assertIn("ELUS_DISTRIBUTION_NO_GO", result.stdout + result.stderr)
         self.assertEqual(self.env_path.read_text(), self.env_initial)
         self.assertFalse((self.project / ".deskcomm-update-diagnostico.log").exists())
@@ -119,6 +120,14 @@ class DisposableEntrypoints(unittest.TestCase):
         for call in calls:
             self.assertFalse(call.startswith(("docker:", "crontab:", "git:fetch", "git:clone")),
                              f"side effect before attestation: {call}")
+
+    def test_agent_refusal_does_not_rollback_untouched_installation(self):
+        agent = (ROOT / "hostgator-setup-kit" / "agent.sh").read_text()
+        refusal = agent.index('if [ $RC -eq "$REFUSED_RC" ]; then')
+        rollback = agent.index('if [ -n "$PREV_IMAGE" ]; then', refusal)
+        self.assertLess(refusal, rollback)
+        self.assertIn('STATUS="failed"', agent[refusal:rollback])
+        self.assertNotIn('dc up -d', agent[refusal:rollback])
 
     def test_updater_404_before_cron_gotrue_and_env(self):
         result = self.run_script(UPDATE, "--to", "v1.102.0", ELUS_MODE="404")
