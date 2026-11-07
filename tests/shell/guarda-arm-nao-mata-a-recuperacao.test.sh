@@ -49,6 +49,6 @@ DESKCOMM_BUILD_LOCAL=1
 check 'unsupported architecture cannot force host build' negate build_local_permitido v1.102.0
 unset DESKCOMM_BUILD_LOCAL
 check 'platform chooser rejects riscv64' negate plataforma_oci_do_host riscv64
-check 'platform chooser admits aarch64' bash -c '[ "$(plataforma_oci_do_host aarch64)" = linux/arm64 ]'
+check 'platform chooser admits aarch64' test "$(plataforma_oci_do_host aarch64)" = linux/arm64
 printf '\n%s failed checks\n' "$fails"
 [ "$fails" -eq 0 ]
