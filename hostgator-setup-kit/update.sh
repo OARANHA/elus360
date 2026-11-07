@@ -782,30 +782,11 @@ VOZ_CRIADA="$(completar_segredos_da_voz .env)" || VOZ_CRIADA=""
 # imagem dele não veio, o `up -d` logo abaixo FALHA e quem decide é o portão
 # `build_local_permitido` — construir aqui ou recusar, conforme o registro
 # responde ou não.
+# Uma falha depois do DDL não autoriza build no host: o trap recupera
+# o checkpoint de imagens anterior sem fingir reversão do schema.
 if ! dc pull; then
-  # A mensagem distingue os dois casos porque a CAUSA é diferente, e uma frase
-  # tranquilizadora sobre o caso errado é o pior desfecho possível. Se a do app
-  # veio, o que faltar em worker, scheduler ou voz o Compose constrói sozinho no
-  # `up -d` (medido: qualquer falha de pull, não só a de arquitetura). Se a do
-  # app NÃO veio, ele não tem `build:` no compose de produção de propósito: o
-  # `up -d` falha e quem decide é o portão `build_local_permitido` — com o
-  # registro respondendo ele constrói a versão aqui; sem resposta do registro ele
-  # RECUSA, de propósito (guarda da #1955). "Construído aqui" sem essa ressalva
-  # prometeria justamente o que o portão nega no pior caso. Os dois diagnósticos
-  # também contam coisas distintas: "o app veio e falta outra peça" × "o app não
-  # veio", que aponta para a versão ainda não publicada (ou o pacote privado).
-  if dc pull app >/dev/null 2>&1; then
-    c_ylw "⚠ Não consegui puxar todas as imagens da versão ${VERSAO_ALVO}."
-    c_ylw "  A do app veio; o que faltar é construído aqui (mais lento, mesmo resultado)."
-  else
-    c_ylw "⚠ Não consegui puxar a imagem do APP na versão ${VERSAO_ALVO}."
-    c_ylw "  Causas comuns: a versão ainda está publicando, ou o pacote está privado no GHCR."
-    c_ylw "  Vou tentar subir mesmo assim — se o up -d falhar, quem decide o passo"
-    c_ylw "  seguinte é a recuperação: com o registro respondendo ela constrói as"
-    c_ylw "  imagens desta versão aqui (15 a 25 min); sem resposta do registro ela"
-    c_ylw "  recusa, de propósito, para não gastar a memória desta VPS."
-    c_ylw "  Se não subir, rode de novo em alguns minutos."
-  fi
+  c_red "ELUS_DISTRIBUTION_NO_GO: pull incompleto; não vou construir imagens na VPS."
+  exit 1
 fi
 # A rede do proxy externo é declarada como EXTERNA no compose: se ela sumiu
 # (um `docker network prune`, ou o `down -v` que o próprio kit ensina como
@@ -853,34 +834,8 @@ esac
 manutencao_desce
 CONSTRUIU_AQUI=""
 if ! subir_o_parque; then
-  # ── O PORTÃO DO BUILD LOCAL (#1955, critério 2) ─────────────────────────
-  # O gatilho continua sendo o CÓDIGO DE SAÍDA do `up -d` (nunca o texto do
-  # erro — arquitetura, tag publicando, pacote privado e registro fora caem no
-  # mesmo caminho), mas a CONSTRUÇÃO deixou de ser o que acontece SOZINHO
-  # quando quem falhou é o REGISTRO: foi o que transformou um apagão de DNS em
-  # OOM no `next-build` e a instalação em 502.
-  #
-  # Quem tem registro respondendo continua se recuperando sozinho — é a
-  # recuperação de arquitetura do #1060/#1143 e ela não pode sumir. Quem quer
-  # construir de propósito pede com DESKCOMM_BUILD_LOCAL=1.
-  if ! build_local_permitido "$VERSAO_ALVO"; then
-    c_red "✖ A atualização não terminou: o registro de imagens não responde, e a construção local está DESLIGADA por padrão."
-    c_ylw "  Sem resposta do registro (DNS/rede) a construção local gastaria a memória"
-    c_ylw "  desta VPS e deixaria os serviços parados — é exatamente o defeito da #1955."
-    c_ylw "  A versão anterior volta sozinha no fim desta saída; o diagnóstico fica em:"
-    c_ylw "    .deskcomm-update-diagnostico.log"
-    c_ylw "  Para construir as imagens aqui DE PROPÓSITO (mais lento, exige memória):"
-    c_ylw "    DESKCOMM_BUILD_LOCAL=1 bash hostgator-setup-kit/update.sh --to $TARGET_TAG --force"
-    exit 1
-  fi
-  if construir_aqui_e_subir "$VERSAO_ALVO"; then
-    CONSTRUIU_AQUI=1
-  else
-    c_red "✖ A atualização não terminou: nem as imagens prontas desta versão nem a construção aqui funcionaram."
-    c_ylw "  A versão anterior volta sozinha no fim desta saída. O erro está logo acima;"
-    c_ylw "  para reproduzir só a construção: docker compose $(dc_files) -f ${COMPOSE_BUILD} build"
-    exit 1
-  fi
+  c_red "ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build."
+  exit 1
 fi
 
 # O Caddyfile entra no container por bind mount de UM ARQUIVO, e bind mount de
