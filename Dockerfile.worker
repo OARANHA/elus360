@@ -8,7 +8,7 @@ WORKDIR /app
 # Procedência (doutrina de packaging, invariante 2).
 LABEL org.opencontainers.image.source="https://github.com/OARANHA/elus360" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.title="DeskcommCRM worker"
+      org.opencontainers.image.title="ELUS360 worker"
 
 # pnpm fixado na versão do lockfile do repo (pnpm 10 bloquearia build scripts).
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
