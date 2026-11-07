@@ -22,8 +22,8 @@ source "$KIT_DIR/manutencao.sh"
 enter_project
 # A origem é comprovada ANTES de cron, notificações, autenticação ou DDL.
 elus360_origem_confiavel "$(git config --get remote.origin.url 2>/dev/null || true)" \
-  || die "ELUS_DISTRIBUTION_NO_GO: remote.origin não é OARANHA/elus360; nenhuma atualização será executada."
-[ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || die "ELUS_DISTRIBUTION_NO_GO: override de release externa é proibido."
+  || refuse "ELUS_DISTRIBUTION_NO_GO: remote.origin não é OARANHA/elus360; nenhuma atualização será executada."
+[ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || refuse "ELUS_DISTRIBUTION_NO_GO: override de release externa é proibido."
 
 # PROVENIÊNCIA PRIMEIRO: somente leituras (origin, API HTTPS GitHub e
 # ls-remote) até esta decisão. Uma release inválida não altera .env, cron,
@@ -34,16 +34,16 @@ while [ $# -gt 0 ]; do
     --force) FORCE=1 ;;
     --skip-backup) SKIP_BACKUP=1 ;;
     --to)
-      [ "$#" -ge 2 ] || die "ELUS_DISTRIBUTION_NO_GO: --to exige tag vX.Y.Z"
+      [ "$#" -ge 2 ] || refuse "ELUS_DISTRIBUTION_NO_GO: --to exige tag vX.Y.Z"
       shift; TARGET_TAG="$1" ;;
     *) die "ELUS_DISTRIBUTION_NO_GO: argumento de atualização desconhecido" ;;
   esac
   shift
 done
 [ -n "$TARGET_TAG" ] || TARGET_TAG="$(ultima_release_estavel)"
-[ -n "$TARGET_TAG" ] || die "ELUS_DISTRIBUTION_NO_GO: o fork ELUS360 não tem release estável publicada acessível."
+[ -n "$TARGET_TAG" ] || refuse "ELUS_DISTRIBUTION_NO_GO: o fork ELUS360 não tem release estável publicada acessível."
 elus360_release_publicada_no_main "$TARGET_TAG" \
-  || die "ELUS_DISTRIBUTION_NO_GO: release ELUS360 inválida, não publicada, fora de main ou inacessível (antes de qualquer mutação)."
+  || refuse "ELUS_DISTRIBUTION_NO_GO: release ELUS360 inválida, não publicada, fora de main ou inacessível (antes de qualquer mutação)."
 
 # Gate 2: esta árvore é dona dos serviços? Consultas apenas de metadados
 # sem alterar cron, banco, .env nem reiniciar contêineres.
@@ -51,17 +51,17 @@ elus360_release_publicada_no_main "$TARGET_TAG" \
 # Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
 # parque com o .env DELA. Foi o que deixou o WhatsApp de uma VPS real três dias
 # em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
-recusar_projeto_de_outra_arvore || die "Atualização interrompida para não quebrar a instalação que está no ar."
+recusar_projeto_de_outra_arvore || refuse "Atualização interrompida para não quebrar a instalação que está no ar."
 
 # Gate 3: após a prova remota, buscar refs para conferir OBJETO LOCAL com tag
 # oficial. Falha de fetch ou objeto divergente recusa ANTES do cron/GoTrue/
 # VAPID/backup/DDL. Somente a base de metadados Git (.git) poderá mudar.
 git fetch --tags --quiet origin 2>/dev/null \
-  || die "ELUS_DISTRIBUTION_NO_GO: falha ao buscar tag remota verificada; atualização bloqueada."
+  || refuse "ELUS_DISTRIBUTION_NO_GO: falha ao buscar tag remota verificada; atualização bloqueada."
 git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
-  || die "ELUS_DISTRIBUTION_NO_GO: tag não encontrada no checkout local após fetch."
+  || refuse "ELUS_DISTRIBUTION_NO_GO: tag não encontrada no checkout local após fetch."
 elus360_release_tag_comprovada "$TARGET_TAG" \
-  || die "ELUS_DISTRIBUTION_NO_GO: objeto Git local/remoto divergente ou release sem procedência oficial."
+  || refuse "ELUS_DISTRIBUTION_NO_GO: objeto Git local/remoto divergente ou release sem procedência oficial."
 
 
 # ── 0-. O laço do diagnóstico (#1955) ───────────────────────────────────────
