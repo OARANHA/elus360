@@ -178,6 +178,13 @@ ENV
       SUPABASE_ACCESS_TOKEN= "$@" \
       bash hostgator-setup-kit/install.sh --yes
   ) 2>&1 < /dev/null | sed -E 's/\x1b\[[0-9;]*m//g' > "$OUT" || RC=$?
+  # Em caso de falha, mostrar SOMENTE mensagens de recusa/erro do cenário
+  # descartável. Sem isso, a suíte informa "✗" sem a causa e não permite
+  # distinguir bloqueio esperado de dublê incompleto.
+  if [ "$RC" -ne 0 ]; then
+    printf '  [fixture %s: rc=%s]\n' "$caso" "$RC"
+    grep -E 'ELUS_DISTRIBUTION_NO_GO|^fatal:|^✖|^Erro:|^ERRO:' "$OUT" | tail -4 || true
+  fi
 }
 sobras() { find "$TMPD" -mindepth 1 | sed "s#^$TMPD/#  sobra: #"; }
 vazio() { [ -z "$(find "$TMPD" -mindepth 1 -print -quit)" ] || { sobras; return 1; }; }

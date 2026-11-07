@@ -55,6 +55,24 @@ def call_gate(**changes):
 
 
 class ReleaseGateShell(unittest.TestCase):
+    def test_installer_library_import_does_not_require_published_release(self):
+        """Apenas importar validadores não instala nem consulta GitHub/GHCR."""
+        script = r'''
+curl() { echo "network was called" >&2; return 91; }
+git() { echo "git was called" >&2; return 92; }
+INSTALL_SH_LIB=1 . ./hostgator-setup-kit/install.sh
+declare -F v_domain >/dev/null
+declare -F v_email >/dev/null
+declare -F v_supabase_url >/dev/null
+'''
+        result = subprocess.run(
+            ["bash", "-c", "set -euo pipefail\n" + script],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("network was called", result.stderr)
+        self.assertNotIn("git was called", result.stderr)
+
     def test_valid_synthetic_tag(self):
         self.assertEqual(call_gate().returncode, 0)
 

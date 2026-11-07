@@ -28,6 +28,11 @@ esac
 # .env, clone, container ou banco antes da release própria ser comprovada.
 # _common.sh é apenas sourced; não executa comandos de instalação.
 source "$KIT_DIR/_common.sh"
+# INSTALL_SH_LIB=1 é usado exclusivamente para carregar os validadores como
+# biblioteca, sem instalar nada (test-validators.sh). Não consulte release ou
+# registry nesse modo: o retorno seguro da biblioteca continua na linha 968.
+# Na execução normal, todas as provas de origem/release/GHCR são obrigatórias.
+if [ "${INSTALL_SH_LIB:-}" != "1" ]; then
 ELUS_RELEASE_PREVALIDADA="$(elus360_ultima_release_do_fork)" \
   || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: nenhuma release ELUS360 publicada verificável' >&2; exit 3; }
 elus360_release_publicada_no_main "$ELUS_RELEASE_PREVALIDADA" "$REPO_URL" \
@@ -40,6 +45,7 @@ if ! trio_publicado "$ELUS_RELEASE_NUMERICA"; then
   printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: pacote ELUS360 inexistente, privado ou inacessível; nenhuma instalação iniciada.' >&2
   exit 3
 fi
+fi # fim do preflight de release: execução normal apenas
 
 # Uma constante, dois usos (o fim feliz e o fim travado) — e o comecar.sh tem a
 # gêmea. Link repetido à mão vira link divergente na primeira troca.
