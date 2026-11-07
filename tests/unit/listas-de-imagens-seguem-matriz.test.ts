@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const RAIZ = process.cwd();
-const publish = readFileSync(join(RAIZ, ".github/workflows/publish-image.yml"), "utf8");
+const publish = readFileSync(join(RAIZ, ".github/workflows/build-elus360.yml"), "utf8");
 const common = readFileSync(join(RAIZ, "hostgator-setup-kit/_common.sh"), "utf8");
 const manifestos = readFileSync(join(RAIZ, "hostgator-setup-kit/_manifestos.sh"), "utf8");
-const tagSoNasceDaMain = readFileSync(join(RAIZ, "tests/unit/tag-so-nasce-da-main.test.ts"), "utf8");
+const tagSoNasceDaMain = readFileSync(join(RAIZ, "tests/unit/elus360-tag-so-nasce-da-main.test.ts"), "utf8");
 const packaging = readFileSync(join(RAIZ, "tests/unit/packaging-artefato-do-cliente.test.ts"), "utf8");
 
 function job(yml: string, nome: string): string {
@@ -23,9 +23,8 @@ function job(yml: string, nome: string): string {
 }
 
 function imagensDaMatriz(yml = publish): string[] {
-  const corpo = job(yml, "build-and-push");
-  const bloco = /matrix:\s*\n\s+include:\s*\n([\s\S]*?)(?=\n {4}steps:)/.exec(corpo)?.[1] ?? "";
-  return [...bloco.matchAll(/^\s*-\s+name:\s*([A-Za-z0-9._-]+)\s*$/gm)]
+  const corpo = job(yml, "smoke-images");
+  return [...corpo.matchAll(/^\s+- \{name: ([A-Za-z0-9._-]+), file:/gm)]
     .map((match) => match[1]!)
     .sort();
 }
@@ -67,10 +66,10 @@ function imagensDoTesteDePackaging(): string[] {
 
 const IMAGENS = imagensDaMatriz();
 
-describe("listas de imagens Docker seguem a matriz de publicação", () => {
+describe("listas de imagens Docker seguem a matriz segura ELUS360", () => {
   it("o instrumento está vivo e encontra a fonte de verdade", () => {
-    expect(job(publish, "build-and-push"), "o job build-and-push sumiu").not.toBe("");
-    expect(IMAGENS.length, "não consegui extrair imagens da matriz build-and-push").toBeGreaterThan(0);
+    expect(job(publish, "smoke-images"), "o job smoke-images sumiu").not.toBe("");
+    expect(IMAGENS.length, "não consegui extrair as quatro imagens da matriz de smoke").toBe(4);
     expect(new Set(IMAGENS).size, "a matriz contém nomes duplicados").toBe(IMAGENS.length);
   });
 
@@ -88,7 +87,7 @@ describe("listas de imagens Docker seguem a matriz de publicação", () => {
   it("a guarda de criação de tag usa exatamente as imagens publicadas", () => {
     expect(
       imagensDoTesteDaTag(),
-      "tag-so-nasce-da-main ficou com uma cópia diferente da matriz de imagens",
+      "guarda de tag do fork ELUS360 divergiu das quatro imagens (guarda upstream independente)",
     ).toEqual(IMAGENS);
   });
 

@@ -113,10 +113,16 @@ describe("painel do Operador — disciplina de informação", () => {
   it("o modelo herdado tem NOME, e o caminho de volta existe", async () => {
     // Um Select não oferece "nenhum" como item. Sem o botão, escolher um modelo
     // seria de mão única — e o usuário não teria como saber por quê.
-    const props = renderPainel({ enabled: true, model: "claude-haiku-4-5-20251001" });
+    const props = renderPainel({ enabled: true, model: "claude-haiku-4-5-20251001", permitirModeloTecnico: true });
     const voltar = screen.getByTestId("operador-modelo-herdar");
     await userEvent.click(voltar);
     expect(props.onModelChange).toHaveBeenCalledWith("");
+  });
+
+  it("sem autonomia para modelo técnico, não oferece editor nem botão de herança", () => {
+    renderPainel({ enabled: true, model: "claude-haiku-4-5-20251001", permitirModeloTecnico: false });
+    expect(screen.queryByTestId("operador-modelo-herdar")).toBeNull();
+    expect(screen.queryByText("A inteligência que ele usa para organizar")).toBeNull();
   });
 
   it("sem modelo escolhido, não oferece o botão de voltar — não há para onde voltar", () => {

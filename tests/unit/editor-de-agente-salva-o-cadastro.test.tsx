@@ -73,6 +73,10 @@ vi.mock("@/lib/auth/server", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
+  // A política de acesso é testada separadamente; aqui medimos o cadastro.
+  podeAlterarTecnicaDeVersao: vi.fn(async () => true),
+}));
 vi.mock("@/lib/ai/agents/escopo", () => ({
   validarEscopoDaVersao: vi.fn(async () => cena.escopo),
   mensagemDoEscopo: () => "Escopo inválido.",
@@ -80,6 +84,7 @@ vi.mock("@/lib/ai/agents/escopo", () => ({
 }));
 
 import { AgentForm } from "@/app/app/ai/agents/[id]/_components/AgentForm";
+import { IdiomaProvider } from "@/lib/i18n/IdiomaProvider";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
@@ -148,9 +153,10 @@ const VERSAO = {
   created_by: null,
 };
 
-function abrirEditor() {
+function abrirEditor(locale?: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const { container } = render(
+    <IdiomaProvider locale={locale}>
     <QueryClientProvider client={qc}>
       <AgentForm
         mode="edit"
@@ -162,7 +168,8 @@ function abrirEditor() {
         base={VERSAO as never}
         draftObsoleto={null}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
+    </IdiomaProvider>,
   );
   const campo = (id: string) => {
     const el = container.querySelector(`#${id}`);
@@ -194,6 +201,22 @@ describe("editor de agente — a tela", () => {
       "o envio não levou o cadastro: a pessoa digita o nome, vê 'Rascunho salvo.' e o nome continua o antigo",
     ).toBeDefined();
     expect(cadastro).toHaveProperty("name", "Vitória da Recepção");
+  });
+
+  it("nome repetido no Salvar rascunho: a frase vai ao campo no idioma de quem usa (#3952)", async () => {
+    // A `message` da Action é pt; a tela monta a frase com `t()`.
+    acoes.salvar.mockResolvedValue({
+      ok: false,
+      error: "agent_name_taken",
+      message: "Já existe um agente com esse nome. O rascunho foi salvo; o nome do agente não mudou.",
+    });
+    const { campo } = abrirEditor("es");
+    fireEvent.change(campo("name"), { target: { value: "Recepción" } });
+    fireEvent.click(screen.getByRole("button", { name: /guardar borrador/i }));
+    await waitFor(() => expect(acoes.salvar).toHaveBeenCalled());
+    expect(await screen.findByTestId("erro-do-nome")).toHaveTextContent(
+      "Ya existe un agente con este nombre. El borrador se guardó; el nombre del agente no cambió.",
+    );
   });
 
   it("leva também a descrição e a ordem de preferência", async () => {
@@ -229,13 +252,124 @@ describe("editor de agente — a tela", () => {
   });
 });
 
+describe("editor de agente — skills por agente (9107)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    acoes.salvar.mockResolvedValue({ ok: true, data: { version_id: "v2", version_number: 2 } });
+  });
+
+  async function versaoSalva(skillNames: string[] | null | undefined) {
+    const versao = skillNames === undefined ? VERSAO : { ...VERSAO, skill_names: skillNames };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <AgentForm
+          mode="edit"
+          agent={AGENTE_ROW as never}
+          credentials={CREDENCIAIS as never}
+          channelSessions={SESSOES as never}
+          draft={null}
+          published={versao as never}
+          base={versao as never}
+          draftObsoleto={null}
+          skills={[{ name: "agendamento", description: "Marca horário." }]}
+        />
+      </QueryClientProvider>,
+    );
+    const nome = container.querySelector("#name");
+    if (!nome) throw new Error("campo #name não existe na tela");
+    fireEvent.change(nome, { target: { value: "Recepção 2" } });
+    fireEvent.click(screen.getByRole("button", { name: /salvar rascunho/i }));
+    await waitFor(() => expect(acoes.salvar).toHaveBeenCalled());
+    return acoes.salvar.mock.calls[0]?.[1] as Record<string, unknown>;
+  }
+
+  it("versão de antes da 9107 (sem a coluna) salva com skill_names null = todas", async () => {
+    expect(await versaoSalva(undefined)).toHaveProperty("skill_names", null);
+  });
+
+  it("a lista própria da versão volta intacta no rascunho salvo", async () => {
+    expect(await versaoSalva(["agendamento"])).toHaveProperty("skill_names", ["agendamento"]);
+  });
+});
+
+describe("editor de agente — ver as fotos que o cliente envia (9108)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    acoes.salvar.mockResolvedValue({ ok: true, data: { version_id: "v2", version_number: 2 } });
+  });
+
+  async function salvar(visao: boolean | undefined, clicarNaChave: boolean) {
+    const versao = visao === undefined ? VERSAO : { ...VERSAO, image_vision_enabled: visao };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <AgentForm
+          mode="edit"
+          agent={AGENTE_ROW as never}
+          credentials={CREDENCIAIS as never}
+          channelSessions={SESSOES as never}
+          draft={null}
+          published={versao as never}
+          base={versao as never}
+          draftObsoleto={null}
+        />
+      </QueryClientProvider>,
+    );
+    const chave = container.querySelector("#image_vision_enabled");
+    if (!chave) throw new Error("a chave #image_vision_enabled não existe na tela");
+    if (clicarNaChave) fireEvent.click(chave);
+    else {
+      const nome = container.querySelector("#name");
+      if (!nome) throw new Error("campo #name não existe na tela");
+      fireEvent.change(nome, { target: { value: "Recepção 2" } });
+    }
+    fireEvent.click(screen.getByRole("button", { name: /salvar rascunho/i }));
+    await waitFor(() => expect(acoes.salvar).toHaveBeenCalled());
+    return acoes.salvar.mock.calls[0]?.[1] as Record<string, unknown>;
+  }
+
+  it("a ajuda diz o custo e o que acontece desligado", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <AgentForm
+          mode="edit"
+          agent={AGENTE_ROW as never}
+          credentials={CREDENCIAIS as never}
+          channelSessions={SESSOES as never}
+          draft={null}
+          published={VERSAO as never}
+          base={VERSAO as never}
+          draftObsoleto={null}
+        />
+      </QueryClientProvider>,
+    );
+    const ajuda = screen.getByTestId("visao-de-foto-ajuda").textContent ?? "";
+    expect(ajuda).toContain("chamada paga");
+    expect(ajuda).toContain("não vê o que ela mostra");
+  });
+
+  it("versão de antes da 9108 (sem a coluna) abre LIGADA e salva true", async () => {
+    expect(await salvar(undefined, false)).toHaveProperty("image_vision_enabled", true);
+  });
+
+  it("desligar a chave e salvar grava false no rascunho", async () => {
+    expect(await salvar(true, true)).toHaveProperty("image_vision_enabled", false);
+  });
+
+  it("religar a chave de uma versão desligada grava true", async () => {
+    expect(await salvar(false, true)).toHaveProperty("image_vision_enabled", true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 2. O SERVIDOR
 // ---------------------------------------------------------------------------
 
 interface Gravacoes {
   cadastro: Record<string, unknown> | null;
-  filtros: Array<[string, unknown]>;
+  rpcArgs: Record<string, unknown> | null;
   versao: Record<string, unknown> | null;
 }
 
@@ -243,60 +377,51 @@ let gravado: Gravacoes;
 
 function adminDuble(agente: Record<string, unknown>) {
   return {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      expect(name).toBe("fn_elus_ai_draft_save_guarded");
+      expect(args).toMatchObject({
+        p_org: ORG,
+        p_agent: AGENTE,
+        p_mode: "create",
+        p_version: null,
+        p_platform_bypass: false,
+      });
+      gravado.rpcArgs = args;
+      const cadastro = args.p_agent_patch as Record<string, unknown>;
+      gravado.cadastro = Object.keys(cadastro).length ? cadastro : null;
+      gravado.versao = args.p_version_payload as Record<string, unknown>;
+      return { data: { id: "v2", version_number: 2 }, error: null };
+    },
     from: (tabela: string) => {
       if (tabela === "ai_agents") {
-        const sel: Record<string, unknown> = {
-          eq: () => sel,
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
           maybeSingle: async () => ({ data: agente, error: null }),
         };
-        const upd = {
-          eq: (col: string, val: unknown) => {
-            gravado.filtros.push([col, val]);
-            return upd;
-          },
-          then: (r: (v: { error: null }) => unknown) => r({ error: null }),
-        };
-        return {
-          select: () => sel,
-          update: (payload: Record<string, unknown>) => {
-            gravado.cadastro = payload;
-            return upd;
-          },
-        };
+        return chain;
       }
-      // ai_agent_versions. As DUAS consultas da action passam por aqui e se
-      // distinguem pela FORMA de terminar: a LISTA de versões — de onde
-      // `escolherVersoesDaTela` tira o rascunho vigente — é aguardada direto,
-      // sem `.maybeSingle()`; a do maior número termina em `.maybeSingle()`.
-      // Aqui a lista é VAZIA ("nenhuma versão ainda"), o que manda a action pelo
-      // ramo da criação. Um dublê que devolvesse rascunho na lista a mandaria
-      // pelo PATCH, e este arquivo mediria o caminho errado.
-      //
-      // O `then` é obrigatório e não enfeite: sem ele o `await` da lista devolve
-      // o próprio objeto, `data` vem `undefined`, e o vazio acontece por
-      // acidente — verde que não mede nada.
-      const selDe = () => {
-        const sel: Record<string, unknown> = {
-          eq: () => sel,
-          order: () => sel,
-          limit: () => sel,
-          maybeSingle: async () => ({ data: { version_number: 1 }, error: null }),
-          then: (r: (v: { data: unknown[]; error: null }) => unknown) =>
-            r({ data: [], error: null }),
-        };
-        return sel;
+      if (tabela !== "ai_agent_versions") throw new Error("Tabela inesperada " + tabela);
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        order: () => chain,
+        limit: () => chain,
+        maybeSingle: async () => ({
+          data: {
+            version_number: 1,
+            provider: VERSAO.provider,
+            model: VERSAO.model,
+            credential_id: VERSAO.credential_id,
+            operator_model: VERSAO.operator_model,
+          },
+          error: null,
+        }),
+        then: (resolve: (v: unknown) => unknown) =>
+          Promise.resolve({ data: [], error: null }).then(resolve),
+        insert: () => { throw new Error("INSERT direto de versão não permitido"); },
       };
-      return {
-        select: () => selDe(),
-        insert: (payload: Record<string, unknown>) => {
-          gravado.versao = payload;
-          return {
-            select: () => ({
-              single: async () => ({ data: { id: "v2", version_number: 2 }, error: null }),
-            }),
-          };
-        },
-      };
+      return chain;
     },
   };
 }
@@ -347,7 +472,7 @@ describe("saveAgentDraftAction — o cadastro do agente", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     cena.escopo = { ok: true };
-    gravado = { cadastro: null, filtros: [], versao: null };
+    gravado = { cadastro: null, rpcArgs: null, versao: null };
   });
 
   it("grava nome, descrição e ordem em ai_agents, filtrando a organização", async () => {
@@ -364,12 +489,14 @@ describe("saveAgentDraftAction — o cadastro do agente", () => {
       description: "primeiro contato",
       priority: 700,
     });
-    // Service role não tem RLS: o filtro de organização é manual e obrigatório.
-    expect(
-      gravado.filtros,
-      "UPDATE em ai_agents sem filtro de organização — service role bypassa RLS",
-    ).toContainEqual(["organization_id", ORG]);
-    expect(gravado.filtros).toContainEqual(["id", AGENTE]);
+    // O RPC transacional recebe org + agente do contexto confiável e não
+    // faz UPDATE direto sob service_role; o SQL reaplica o isolamento.
+    expect(gravado.rpcArgs).toMatchObject({
+      p_org: ORG,
+      p_agent: AGENTE,
+      p_agent_patch: { name: "Vitória", description: "primeiro contato", priority: 700 },
+      p_platform_bypass: false,
+    });
     expect(vi.mocked(audit).mock.calls.map((c) => (c[0] as { action: string }).action)).toContain(
       "ai_agent.updated",
     );

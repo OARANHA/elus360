@@ -66,13 +66,13 @@ const DIR = join(process.cwd(), ".github/workflows");
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
   // --- a cadeia que leva o conserto até a VPS ---------------------------------
   "release.yml::abrir-pr-de-release": {
-    condicao: "github.event_name == 'workflow_dispatch'",
+    condicao: "github.repository == 'melgarafael/DeskcommCRM' && github.event_name == 'workflow_dispatch'",
     efeito:
       "Este job é quem monta o PR de release a partir dos fragmentos de `.changes/`. " +
       "Desligá-lo faz nenhuma versão ser fechada — sem erro em lugar nenhum.",
   },
   "release.yml::cortar-tag": {
-    condicao: "github.event_name == 'push'",
+    condicao: "github.repository == 'melgarafael/DeskcommCRM' && github.event_name == 'push'",
     efeito:
       "Este job é quem CRIA E EMPURRA a tag `vX.Y.Z`, que é o gatilho da atualização " +
       "do parque instalado inteiro. Desligá-lo faz a release parar em silêncio: nenhuma " +
@@ -91,13 +91,13 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   // nada a mais. A condição tira só o PR; o `imagens-ok` exige `success` dele
   // em todo outro evento e aceita `skipped` só em pull_request.
   "publish-image.yml::build-and-push": {
-    condicao: "github.event_name != 'pull_request'",
+    condicao: "github.repository == 'melgarafael/DeskcommCRM' && github.event_name != 'pull_request'",
     efeito:
       "Este job PUBLICA as quatro imagens no GHCR — é o artefato que o self-hoster instala. " +
       "Desligá-lo faz a tag existir sem imagem por trás dela.",
   },
   "publish-image.yml::juntar-manifestos": {
-    condicao: "github.event_name != 'pull_request'",
+    condicao: "github.repository == 'melgarafael/DeskcommCRM' && github.event_name != 'pull_request'",
     efeito:
       "Este job junta os builds nativos AMD64 e ARM64 em cada tag que o cliente puxa. " +
       "Desligá-lo deixa as tags finais sem um manifesto multi-arquitetura utilizável.",
@@ -121,7 +121,7 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   // versão anterior sem que nada tenha ficado vermelho.
   "publish-image.yml::promover-stable": {
     condicao:
-      "github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')",
+      "github.repository == 'melgarafael/DeskcommCRM' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')",
     efeito:
       "As três condições barram um caminho medido cada uma. Sem `push`, um dispatch numa " +
       "release ANTIGA faria `stable` REGREDIR, e todo self-hoster no default do compose " +
@@ -197,7 +197,7 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
       "que só quebra com linha existente passava verde.",
   },
   "vigia-de-colisao.yml::vigia": {
-    condicao: null,
+    condicao: "github.repository == 'melgarafael/DeskcommCRM'",
     efeito:
       "Este job remede os PRs de schema abertos contra a `main` de agora e avisa quem teve o " +
       "número tomado depois de ficar verde. Desligá-lo devolve a classe inteira: PR verde de " +
@@ -259,6 +259,34 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
       "obrigatório. Se não rodar, uma imagem sem o driver só aparece quando alguém conecta um MySQL na VPS.",
   },
 
+  // Jobs próprios do fork. Cada um precisa continuar no inventário para
+  // detectar remoção, desativação silenciosa ou mudança de gatilho.
+  // Nenhum publica releases nem mexe no Supabase de produção.
+  "build-elus360.yml::verify-distribution": {
+    condicao: "github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'",
+    efeito: "Valida procedência, rollback e AMD64 antes dos builds; um skipped anula a prova.",
+  },
+  "build-elus360.yml::smoke-images": {
+    condicao: "github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'",
+    efeito: "Compila as quatro imagens AMD64 sem publicar; sem ele não há smoke Docker.",
+  },
+  "elus360-ai-autonomy-triple.yml::baseline-parity": { condicao: null, efeito: "Paridade SQL obrigatória." },
+  "elus360-ai-autonomy-triple.yml::governance-unit-and-types": { condicao: null, efeito: "Gates de governança IA." },
+  "elus360-ai-autonomy-triple.yml::autonomy-postgres": { condicao: null, efeito: "Segurança Postgres descartável." },
+  "elus360-ai-governance-inventory.yml::write-surface-inventory": { condicao: null, efeito: "Inventário de escritas protegidas." },
+  "elus360-check.yml::validacao": { condicao: null, efeito: "Validação do código ELUS360." },
+  "elus360-chutes-check.yml::validar": { condicao: null, efeito: "Integração Chutes." },
+  "elus360-upstream-sync.yml::contrato-upstream": { condicao: null, efeito: "Reconciliação upstream sem promoção." },
+  "elus360-v1102-candidate.yml::sql-source-parity": { condicao: null, efeito: "Paridade SQL da candidata." },
+  "elus360-v1102-candidate.yml::typecheck": { condicao: null, efeito: "TypeScript global da candidata." },
+  "elus360-v1102-candidate.yml::lint": { condicao: null, efeito: "Lint da candidata." },
+  "elus360-v1102-candidate.yml::unit": { condicao: null, efeito: "Suíte unitária integral." },
+  "elus360-v1102-candidate.yml::governance": { condicao: null, efeito: "Governança e migrations." },
+  "elus360-v1102-candidate.yml::build": { condicao: null, efeito: "Build Next.js." },
+  "elus360-v1102-candidate.yml::shell": { condicao: null, efeito: "Instalação e shell." },
+  "elus360-v1102-candidate.yml::db-clean": { condicao: null, efeito: "Baseline e RLS descartáveis." },
+  "elus360-v1102-candidate.yml::db-update": { condicao: null, efeito: "Upgrade Postgres com dados descartáveis." },
+  "importar-deskcomm-v194.yml::historico": { condicao: null, efeito: "Verificação histórica de importação." },
   // --- e o que legitimamente tem interruptor -----------------------------------
   "acolhida.yml::acolher": {
     condicao:
@@ -272,7 +300,7 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
       "gente no repositório dele, prometendo um prazo que ninguém lá concordou em cumprir.",
   },
   "relogio.yml::tick": {
-    condicao: "vars.RELOGIO_LIGADO == '1' || github.event_name == 'workflow_dispatch'",
+    condicao: "github.repository == 'melgarafael/DeskcommCRM' && (vars.RELOGIO_LIGADO == '1' || github.event_name == 'workflow_dispatch')",
     efeito:
       "Este é o relógio que bate o cron. A condição aqui é um interruptor DELIBERADO " +
       "(`vars.RELOGIO_LIGADO`), não uma adaptação de fork — mas ela fica no mapa para " +
@@ -362,6 +390,22 @@ describe("nenhum job pode ser desligado por uma condição — `skipped` conta c
     expect(jobs.filter((j) => j.condicao === null).length).toBeGreaterThan(0);
   });
 
+  it("o build legado ELUS é somente smoke — sem permissão de publicar imagens", () => {
+    const legado = readFileSync(join(DIR, "build-elus360.yml"), "utf8");
+    expect(legado).toMatch(/^ {10}push: false$/m);
+    expect(legado).not.toMatch(/^\s+packages:\s*write\s*$/m);
+    expect(legado).not.toMatch(/^\s+- uses: docker\/login-action/m);
+  });
+  it("jobs de publicação do upstream não executam escrita no fork ELUS360", () => {
+    for (const chave of [
+      "release.yml::abrir-pr-de-release", "release.yml::cortar-tag",
+      "publish-image.yml::build-and-push", "publish-image.yml::juntar-manifestos",
+      "publish-image.yml::promover-stable", "relogio.yml::tick", "vigia-de-colisao.yml::vigia",
+    ]) {
+      const job = jobs.find((j) => chave === `${j.arquivo}::${j.nome}`);
+      expect(job?.condicao, chave).toContain("github.repository == 'melgarafael/DeskcommCRM'");
+    }
+  });
   it("todo job declara seu gatilho neste mapa — nenhum entra nem sai sem passar por aqui", () => {
     expect(
       jobs.map(chave).sort(),

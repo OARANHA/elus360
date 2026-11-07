@@ -13,49 +13,23 @@ COMPOSE="docker-compose.prod.yml"
 COMPOSE_TRAEFIK="docker-compose.traefik.yml"
 COMPOSE_NPM="docker-compose.npm.yml"
 COMPOSE_CLOUDFLARED="docker-compose.cloudflared.yml"
-# Overlay que constrói as imagens no lugar de puxá-las. Existe no repo com
-# `pull_policy: never` nas três imagens e sai do MESMO commit que o `git
-# checkout` deixou no disco — é o caminho de quem não consegue usar as imagens
-# publicadas (ver construir_aqui_e_subir, abaixo).
+# Overlay legado de build local mantido como referência histórica.
+# ELUS360 nunca o executa nem constrói imagens em VPS, qualquer arquitetura.
 COMPOSE_BUILD="docker-compose.build.yml"
 
-# ── Arquitetura das imagens publicadas ───────────────────────────────────────
-# O CI publica app, worker, scheduler e agente de voz em linux/amd64 e
-# linux/arm64. O instalador escolhe também a imagem oficial WAHA NOWEB ARM64;
-# Redis, Caddy e SRH já publicam manifestos ARM64. Sem reconhecer a arquitetura
-# aqui, uma VPS A1 seria recusada antes de chegar ao fluxo que já tem imagens
-# nativas para ela.
-#
-# A decisão fica pura no argumento para os testes simularem a arquitetura sem
-# depender do runner. A leitura de `uname -m` é o único ponto ligado ao host.
+# ── Arquitetura do fork ELUS360 (ADR-0007) ──────────────────────────────────
+# Decisão aprovada do proprietário: somente Linux AMD64 (x86_64).
+# ARM64 não tem suporte nem exceção para instalações antigas.
+# Dispositivos ARM continuam podendo acessar o CRM pelo navegador.
 arquitetura_suportada_pelo_kit() {
   case "${1:-}" in
-    x86_64|amd64|aarch64|arm64) return 0 ;;
+    x86_64|amd64) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-# WAHA publica NOWEB em tags distintas por arquitetura. O instalador grava
-# essa referência no .env; `enter_project` também cobre um .env antigo sem a
-# variável. A tag é fixa e corresponde à mesma versão funcional em ambas.
 imagem_waha_padrao_para_host() {
-  case "$(uname -m 2>/dev/null || true)" in
-    aarch64|arm64) printf '%s' 'devlikeapro/waha:noweb-arm-2026.7.2' ;;
-    *)             printf '%s' 'devlikeapro/waha:latest-2026.7.2' ;;
-  esac
-}
-
-# Quem já roda em ARM (#1266) tem no .env o WAHA que o install.sh antigo
-# gravava — `devlikeapro/waha` e, desde 13/08/2026, `latest-2026.7.2` —, e os
-# dois índices só têm linux/amd64. Troca SÓ esses valores conhecidos (e o vazio,
-# em que o default do compose seria o amd64); qualquer outra escolha do
-# operador, WAHA Plus inclusive, fica intacta. Pura no argumento, como a de cima.
-waha_amd64_conhecido_em_arm() {  # waha_amd64_conhecido_em_arm <arquitetura> <WAHA_IMAGE do .env> → 0 = trocar
-  case "${1:-}" in aarch64|arm64) ;; *) return 1 ;; esac
-  case "${2:-}" in
-    ""|devlikeapro/waha|devlikeapro/waha:latest|devlikeapro/waha:latest-2026.7.2) return 0 ;;
-  esac
-  return 1
+  printf '%s' 'devlikeapro/waha:latest-2026.7.2'
 }
 
 # ── JÁ EXISTE UMA INSTALAÇÃO REAL AQUI? (#1266, corrigido pelo #1778) ───────
@@ -166,58 +140,22 @@ marcar_instalacao_feita() {  # marcar_instalacao_feita [versão]
   chmod 600 "$marca" 2>/dev/null || true
 }
 
-# Ecoa: amd64 | arm64 | recuperar | nova
-#
-# A decisão é PURA no que recebe: `uname` e a leitura do disco ficam fora, para
-# o teste simular as três respostas sem depender do runner nem de um diretório
-# de verdade. Quem traduz em mensagem é `verificar_arquitetura_do_kit`.
-veredito_da_arquitetura() {  # veredito_da_arquitetura <arquitetura> [0=nova | 1=instalação existente]
-  local arch="${1:-}" existe="${2:-0}"
-  case "$arch" in
+# Não há escape por "instalação existente" nem build local. A decisão é
+# independente de Docker, repositório remoto, arquivos ou marcadores locais.
+veredito_da_arquitetura() { # <uname -m> [instalação-existente]
+  case "${1:-}" in
     x86_64|amd64) printf 'amd64'; return 0 ;;
-    aarch64|arm64) printf 'arm64'; return 0 ;;
+    *) printf 'nao_suportada'; return 1 ;;
   esac
-  [ "$existe" = 1 ] && { printf 'recuperar'; return 0; }
-  printf 'nova'
 }
 
 verificar_arquitetura_do_kit() {
-  local arch existe=0
-  arch="$(uname -m 2>/dev/null || t "desconhecida")"
-  # O sinal de "instalação real" SÓ é perguntado quando a arquitetura não é
-  # suportada. Em amd64 ou arm64 o veredito já está definido e a guarda
-  # atravessa, então perguntar seria trabalho inútil — e, com o critério do
-  # #1778, trabalho que chama o `docker` no TOPO do install.sh, antes de
-  # qualquer passo do instalador. A seção 4 do teste de #1778 mede isso em
-  # x86_64.
-  if ! arquitetura_suportada_pelo_kit "$arch"; then
-    instalacao_real_do_kit_aqui && existe=1
-  fi
-
-  case "$(veredito_da_arquitetura "$arch" "$existe")" in
-    amd64|arm64) return 0 ;;
-    recuperar)
-      # O update.sh relê este arquivo depois do checkout da versão nova, e a
-      # guarda roda de novo no topo: sem esta trava o dono lia o mesmo aviso
-      # duas vezes na mesma atualização. A variável não é exportada, então a
-      # trava vale para ESTE processo e nenhum script filho herda o silêncio.
-      [ -n "${_DESKCOMM_AVISO_ARQ_DADO:-}" ] && return 0
-      _DESKCOMM_AVISO_ARQ_DADO=1
-      # `printf` e não c_ylw: este ponto roda no TOPO do arquivo, e as cores só
-      # são definidas algumas linhas abaixo (é a mesma razão do `printf` da
-      # recusa logo abaixo). O aviso vai para o STDERR, como a recusa: o
-      # agent.sh manda a saída do update.sh para arquivo e o dono lê o fim dela.
-      printf '%s\n' \
-        "⚠ $(t "Este servidor usa arquitetura '{1}', e as imagens publicadas do DeskcommCRM são linux/amd64 e linux/arm64." "$arch")" \
-        "  $(t "Como esta instalação JÁ EXISTE, sigo em frente: as imagens da versão alvo serão construídas nesta própria VPS.")" \
-        "  $(t "Leva de 15 a 25 minutos. Uma instalação NOVA exige x86_64/amd64 ou ARM64/aarch64 com imagens publicadas.")" >&2
-      return 0 ;;
-  esac
-
-  printf '%s\n' \
-    "✖ $(t "Este servidor usa arquitetura '{1}', mas o DeskcommCRM não publica imagens para ela (linux/amd64 e linux/arm64 estão disponíveis)." "$arch")" \
-    "  $(t '  Use uma VPS x86_64/amd64 ou ARM64/aarch64. Repetir o download não resolve.' | sed 's/^  //')" >&2
-  return 1
+  local arch sistema
+  arch="$(uname -m 2>/dev/null || printf desconhecida)"
+  sistema="$(uname -s 2>/dev/null || printf desconhecido)"
+  [ "$sistema" = Linux ] && arquitetura_suportada_pelo_kit "$arch" && return 0
+  printf 'ELUS_DISTRIBUTION_NO_GO: host %s/%s não suportado. ELUS360 exige Linux AMD64 (x86_64); outros sistemas e arquiteturas são recusados, inclusive em instalações existentes, sem build local.\n' "$sistema" "$arch" >&2
+  return 3
 }
 
 # Este arquivo é compartilhado por várias ferramentas. A limitação de imagem só
@@ -228,7 +166,7 @@ verificar_arquitetura_do_kit() {
 _deskcomm_chamador="${BASH_SOURCE[1]:-}"
 _deskcomm_chamador="${_deskcomm_chamador##*/}"
 case "$_deskcomm_chamador" in
-  install.sh|update.sh) verificar_arquitetura_do_kit || exit 1 ;;
+  install.sh|update.sh) verificar_arquitetura_do_kit || exit 3 ;;
 esac
 unset _deskcomm_chamador
 
@@ -262,6 +200,9 @@ dc() {
   # dos overlays de modo e de proxy, que é a ordem em que o compose aplica.
   local -a ca=()
   if ca_do_supabase_ok && [ -f docker-compose.supabase-ca.yml ]; then ca=(-f docker-compose.supabase-ca.yml); fi
+  # Rede do Supabase self-hosted no MESMO host: sem este overlay o compose recria
+  # app/worker/scheduler só nas redes do CRM e `supabase-db` deixa de resolver.
+  if rede_do_supabase_ok && [ -f docker-compose.supabase-rede.yml ]; then ca+=(-f docker-compose.supabase-rede.yml); fi
   if [ "${SINGLE_SERVER:-0}" = "1" ]; then
     # #2099: o single-server também respeita o proxy da hospedagem. Os dois
     # ramos eram `if SINGLE_SERVER` → return ANTES do seletor, então o
@@ -294,6 +235,9 @@ dc_files() {
   local sufixo=""
   if ca_do_supabase_ok && [ -f docker-compose.supabase-ca.yml ]; then
     sufixo=" -f docker-compose.supabase-ca.yml"
+  fi
+  if rede_do_supabase_ok && [ -f docker-compose.supabase-rede.yml ]; then
+    sufixo="${sufixo} -f docker-compose.supabase-rede.yml"
   fi
   if [ "${SINGLE_SERVER:-0}" = "1" ]; then
     # #2099: mesma junção de dc() — a lista de -f tem de bater com o que dc()
@@ -371,6 +315,22 @@ ca_do_supabase() {
 # compose criar um DIRETÓRIO no lugar da CA e subir o app sem ela.
 ca_do_supabase_ok() { ca_do_supabase >/dev/null 2>&1; }
 
+# SUPABASE_DOCKER_NETWORK: nome da rede docker de um Supabase self-hosted que roda
+# no mesmo host (ex.: supabase_default). Só vale se a rede existir — uma rede
+# `external` ausente derruba o `up` inteiro.
+rede_do_supabase_ok() {
+  [ -n "${SUPABASE_DOCKER_NETWORK:-}" ] && docker network inspect "$SUPABASE_DOCKER_NETWORK" >/dev/null 2>&1
+}
+
+# A chave declarada com a rede ausente deixa o overlay de fora sem um pio, e o
+# `supabase-db` volta a não resolver no próximo `up -d`. Uma linha no log da
+# atualização (que a tela mostra) aponta a causa antes do rollback.
+aviso_rede_do_supabase() {
+  if [ -n "${SUPABASE_DOCKER_NETWORK:-}" ] && ! rede_do_supabase_ok; then
+    c_ylw "⚠ SUPABASE_DOCKER_NETWORK=$SUPABASE_DOCKER_NETWORK está no .env, mas essa rede não existe neste servidor (docker network ls). Sigo SEM ligar o CRM à rede do Supabase; se o banco é o supabase-db, o worker não vai achá-lo. Corrija o nome no .env ou suba o Supabase antes de atualizar."
+  fi
+}
+
 # psql/pg_dump efêmeros. No modo single-server o Postgres só é alcançável pela
 # bridge privada (supabase-db), nunca por porta pública.
 #
@@ -382,7 +342,10 @@ ca_do_supabase_ok() { ca_do_supabase >/dev/null 2>&1; }
 pg_container() {
   local -a rede=() ca=()
   local caminho=""
-  [ -n "${PSQL_DOCKER_NETWORK:-}" ] && rede=(--network "$PSQL_DOCKER_NETWORK")
+  # Sem PSQL_DOCKER_NETWORK, a rede do Supabase do mesmo host serve também ao
+  # psql/pg_dump do kit (backup, baseline): quem declarou uma não declara duas.
+  if [ -n "${PSQL_DOCKER_NETWORK:-}" ]; then rede=(--network "$PSQL_DOCKER_NETWORK")
+  elif rede_do_supabase_ok; then rede=(--network "$SUPABASE_DOCKER_NETWORK"); fi
   # `local caminho` na linha de cima, não em `local caminho="$(...)"`: com a
   # atribuição junto, o status do comando substituído some dentro do `local` e
   # este `if` aceitaria uma CA quebrada como se estivesse pronta.
@@ -1015,7 +978,12 @@ restaurar_servicos() {
   # `declare -F` porque quem carrega o aviso é só o update.sh: install.sh e
   # agent.sh também sourceiam este arquivo e não têm o que derrubar.
   declare -F manutencao_desce >/dev/null 2>&1 && manutencao_desce
-  dc up -d app worker scheduler >/dev/null 2>&1 || true
+  # Restauração do parque sem qualquer build no host. Voz é incluída apenas
+  # quando o profile telefonia está ativo; nunca subir profile desativado.
+  case ",${COMPOSE_PROFILES:-}," in
+    *,telefonia,*) dc up -d --no-build app worker scheduler voice-agent >/dev/null 2>&1 || true ;;
+    *)            dc up -d --no-build app worker scheduler >/dev/null 2>&1 || true ;;
+  esac
   # Por ÚLTIMO: assim o diagnóstico mostra o estado DEPOIS da volta, que é o
   # que interessa a quem for ler o arquivo depois (#1955, critério 5).
   diagnostico_de_atualizacao "$rc_da_execucao"
@@ -1047,29 +1015,9 @@ restaurar_servicos() {
 # arquitetura da VPS, tag que ainda está publicando, pacote que nasceu privado
 # no registro e registro fora do ar caem todos no mesmo caminho, sem depender de
 # casar em inglês uma frase que o Docker escreve como quer.
-construir_aqui_e_subir() {  # construir_aqui_e_subir [versão alvo] → 0 se subiu
-  local versao="${1:-}"
-  # A imagem construída aqui responde /api/v1/health com a versão de verdade —
-  # o código no disco É a versão alvo. Sem isto ela responderia "local".
-  [ -n "$versao" ] && export APP_VERSION="$versao"
-  # O aviso vem ANTES da construção, e não depois: são 15 a 25 minutos de tela
-  # parada, e sem ele o dono conclui que travou e mata o script no meio.
-  c_ylw "$(t "⚠ As imagens prontas desta versão não servem para esta VPS.")"
-  c_ylw "$(t "  O motivo mais comum é a arquitetura dela ser diferente da das imagens")"
-  c_ylw "$(t "  publicadas: o registro responde que não tem manifest para a arquitetura")"
-  c_ylw "$(t "  daqui. Não é problema da sua VPS nem do seu acesso.")"
-  c_ylw "$(t "  Vou construir as três imagens aqui, do código desta versão.")"
-  c_ylw "$(t "  Leva de 15 a 25 minutos e a tela fica sem novidade nesse tempo —")"
-  c_ylw "$(t "  não é travamento, pode deixar rodando.")"
-  if ! dc -f "$COMPOSE_BUILD" build; then
-    c_red "$(t "✖ A construção das imagens aqui falhou (o erro está logo acima).")"
-    return 1
-  fi
-  if ! dc -f "$COMPOSE_BUILD" up -d; then
-    c_red "$(t "✖ As imagens foram construídas, mas os serviços não subiram.")"
-    return 1
-  fi
-  return 0
+construir_aqui_e_subir() {  # distribuição ELUS360 não constrói imagens no host
+  c_red "ELUS_DISTRIBUTION_NO_GO: imagens só podem vir do CI e do registry ELUS360."
+  return 1
 }
 
 # ── O que fazer quando o REGISTRO DE IMAGENS não responde (#1955) ───────────
@@ -1125,7 +1073,8 @@ veredito_das_imagens_da_release() {  # veredito_das_imagens_da_release <versão>
   [ -n "$versao" ] || { printf 'indisponivel'; return 0; }
   for img in "$IMG_APP" "$IMG_WORKER" "$IMG_SCHEDULER" "$IMG_VOICE_AGENT"; do
     total=$((total + 1))
-    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1; then
+    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1 \
+       && manifesto_tem_plataforma "${img}:${versao}" linux/amd64 exclusivo >/dev/null 2>&1; then
       achadas=$((achadas + 1))
     fi
   done
@@ -1311,17 +1260,12 @@ preflight_atualizacao() {  # preflight_atualizacao <versão alvo>
 # `next-build` e a instalação em 502 (#1955, critério 2).
 #
 # → 0 = pode construir aqui.
-build_local_pedido() {  # → 0 quando quem opera pediu construção local de propósito
-  case "${DESKCOMM_BUILD_LOCAL:-}" in 1|sim|s|yes) return 0 ;; esac
+build_local_pedido() {  # ELUS360: não permitir bypass por variável do operador
   return 1
 }
 
-build_local_permitido() {  # build_local_permitido <versão alvo>
-  build_local_pedido && return 0
-  case "${DESKCOMM_BUILD_LOCAL:-}" in
-    0|nao|não|no) return 1 ;;  # quem opera proibiu de propósito
-  esac
-  [ "$(veredito_das_imagens_da_release "${1:-}")" != "indisponivel" ]
+build_local_permitido() {  # ELUS360: CI publica; VPS só consome
+  return 1
 }
 
 # Por que o portão recusou? Ecoa UM motivo, pronto para a mensagem da recusa.
@@ -1434,11 +1378,11 @@ conferir_config_do_proxy() {
 # A lista vem do `config --services`, que só lista serviço de profile ativo
 # (nomear à mão ligaria profile desligado).
 subir_o_parque() {
-  [ -n "${PROXY_RECUSA:-}" ] || { dc up -d; return; }
+  [ -n "${PROXY_RECUSA:-}" ] || { dc up -d --no-build; return; }
   local servicos
   servicos="$(dc config --services | grep -vx caddy)" || return 1
   # shellcheck disable=SC2086  # um nome de serviço por palavra
-  dc up -d $servicos
+  dc up -d --no-build $servicos
 }
 
 # Recria o Caddy, que lê o Caddyfile por bind mount de arquivo e por isso não
@@ -1454,7 +1398,7 @@ recriar_o_proxy() {
     c_ylw "  e só com a conferência limpa aplique: docker compose $(dc_files) up -d --force-recreate caddy"
     return 1
   fi
-  dc up -d --force-recreate --no-deps caddy >/dev/null 2>&1 \
+  dc up -d --no-build --force-recreate --no-deps caddy >/dev/null 2>&1 \
     && c_grn "✓ proxy recarregado com a configuração desta versão" \
     || c_ylw "⚠ não consegui recriar o proxy — rode: docker compose $(dc_files) up -d --force-recreate caddy"
 }
@@ -2450,13 +2394,79 @@ ler_rodada_do_banco() {
 # `publish-image.yml` digam o mesmo. Se você é um fork, é lá que está a lista do
 # que trocar junto — e, desde 18/09/2026, o CI do SEU fork não cobra este valor:
 # a asserção só vale quando o dono do runner é o dono deste repositório.
-IMG_NS="ghcr.io/melgarafael"
-IMG_APP="${IMG_NS}/deskcommcrm"
-IMG_WORKER="${IMG_NS}/deskcomm-worker"
-IMG_SCHEDULER="${IMG_NS}/deskcomm-scheduler"
+IMG_NS="ghcr.io/oaranha"
+IMG_APP="${IMG_NS}/elus360"
+IMG_WORKER="${IMG_NS}/elus360-worker"
+IMG_SCHEDULER="${IMG_NS}/elus360-scheduler"
 # Telefonia por SIP (#677): só roda com `telefonia` em COMPOSE_PROFILES, mas é
 # imagem NOSSA e segue a mesma versão das outras três (gravar_imagens).
-IMG_VOICE_AGENT="${IMG_NS}/deskcomm-voice-agent"
+IMG_VOICE_AGENT="${IMG_NS}/elus360-voice-agent"
+
+# A origem das atualizações da distribuição ELUS360 é FIXA: nunca usar tags
+# do DeskcommCRM ou de outra instalação via um remote trocado.
+# Política de publicação ainda exige gate independente e revisão gerencial.
+elus360_origem_confiavel() {
+  case "${1:-}" in
+    https://github.com/OARANHA/elus360|https://github.com/OARANHA/elus360.git|git@github.com:OARANHA/elus360.git)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Exige release PÚBLICA do fork + tag Git idêntica à do remoto e contida em
+# main. Faz apenas GETs/consultas antes de qualquer backup, checkout ou DDL.
+# Não prova OCI digests ou autorização de deploy: isso exige gate separado.
+# Somente API oficial: seleção de release ELUS é verificável mesmo ANTES
+# de clonar o repositório (instalador novo). Nunca usa git tag/lista local.
+elus360_ultima_release_do_fork() {
+  local json tag
+  [ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || return 1
+  json="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
+    'https://api.github.com/repos/OARANHA/elus360/releases/latest' 2>/dev/null)" || return 1
+  tag="$(printf '%s\n' "$json" | sed -nE 's/^[[:space:]]*"tag_name":[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
+  printf '%s\n' "$tag"
+}
+
+# Checagem READ-ONLY: release ELUS publicada, tag remota íntegra e contida
+# na main. Esta etapa é executada ANTES de cron, GoTrue, VAPID, git fetch ou DDL.
+# O JSON vem exclusivamente da API HTTPS oficial (jamais de override/arquivo).
+elus360_release_publicada_no_main() {
+  local tag="${1:-}" remoto remoto_tag release_json compare_json resposta_tag estado
+  [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
+  [ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || return 1
+  if [ "$#" -ge 2 ]; then
+    remoto="$2"     # apenas instalador antes de clonar
+  else
+    remoto="$(git config --get remote.origin.url 2>/dev/null)" || return 1
+  fi
+  elus360_origem_confiavel "$remoto" || return 1
+  remoto_tag="$(git ls-remote --tags --refs "$remoto" "refs/tags/$tag" 2>/dev/null | awk 'NR==1 {print $1}')" || return 1
+  [[ "$remoto_tag" =~ ^[0-9a-f]{40}$ ]] || return 1
+  release_json="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/OARANHA/elus360/releases/tags/$tag" 2>/dev/null)" || return 1
+  resposta_tag="$(printf '%s\n' "$release_json" | sed -nE 's/^[[:space:]]*"tag_name":[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  [ "$resposta_tag" = "$tag" ] || return 1
+  printf '%s\n' "$release_json" | grep -Eq '"draft"[[:space:]]*:[[:space:]]*false' || return 1
+  printf '%s\n' "$release_json" | grep -Eq '"prerelease"[[:space:]]*:[[:space:]]*false' || return 1
+  printf '%s\n' "$release_json" | grep -Eq '"published_at"[[:space:]]*:[[:space:]]*"[^"]+"' || return 1
+  compare_json="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/OARANHA/elus360/compare/main...$tag" 2>/dev/null)" || return 1
+  estado="$(printf '%s\n' "$compare_json" | sed -nE 's/^[[:space:]]*"status":[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  case "$estado" in identical|behind) return 0 ;; *) return 1 ;; esac
+}
+
+# Segunda etapa após fetch: nunca instalar um objeto de tag diferente daquele
+# do remoto autenticado. Não faz alterações em registro, banco ou contêineres.
+elus360_release_tag_comprovada() {
+  local tag="${1:-}" local_tag remoto_tag
+  elus360_release_publicada_no_main "$tag" || return 1
+  local_tag="$(git rev-parse --verify "refs/tags/$tag" 2>/dev/null)" || return 1
+  remoto_tag="$(git ls-remote --tags --refs origin "refs/tags/$tag" 2>/dev/null | awk 'NR==1 {print $1}')" || return 1
+  [ -n "$remoto_tag" ] && [ "$local_tag" = "$remoto_tag" ] || return 1
+}
+
+
 
 # A última versão publicada (ex.: "1.2.1"), ou vazio se não deu para saber.
 #
@@ -2470,7 +2480,7 @@ IMG_VOICE_AGENT="${IMG_NS}/deskcomm-voice-agent"
 # alguém porque não deu para resolver um número de versão seria trocar um
 # problema de previsibilidade por um de disponibilidade.
 ultima_versao_publicada() {
-  local url="${1:-https://github.com/melgarafael/DeskcommCRM.git}" ref
+  local url="${1:-https://github.com/OARANHA/elus360.git}" ref
   command -v git >/dev/null 2>&1 || return 0
   # `grep -v -- -` descarta PRERELEASE (v1.11.0-rc1, v1.1.1-jmpo.1 — esta última
   # existe de verdade neste repo). O `--sort=-v:refname` do git põe o prerelease
@@ -2529,7 +2539,7 @@ ghcr_status() {
 # quebraria o leitor daquele teste sem ganhar nada: o que importa é a lista.
 trio_publicado() {
   local tag="$1" i
-  for i in deskcommcrm deskcomm-worker deskcomm-scheduler deskcomm-voice-agent; do
+  for i in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
     [ "$(ghcr_status "$i" "$tag")" = "200" ] || return 1
   done
   return 0
@@ -2541,7 +2551,7 @@ trio_publicado() {
 preflight_instalacao() { # <X.Y.Z> <linux/platform> <WAHA_IMAGE efetiva>
   local versao="${1:-}" plataforma="${2:-}" waha="${3:-}"
   if ! [[ "$versao" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf 'A instalação ARM64 exige versão numérica publicada (X.Y.Z): %s\n' "$versao" >&2
+    printf 'A instalação ELUS360 exige versão numérica publicada (X.Y.Z): %s\n' "$versao" >&2
     return 1
   fi
   [ -n "$waha" ] || { printf 'WAHA_IMAGE vazia\n' >&2; return 1; }
@@ -2552,10 +2562,8 @@ preflight_instalacao() { # <X.Y.Z> <linux/platform> <WAHA_IMAGE efetiva>
   fi
 }
 
-# Confere uma atualização real sem mudar o .env. No ARM64 legado, apenas os
-# defaults AMD64 conhecidos serão migrados por gravar_imagens DEPOIS do backup;
-# a sonda usa o destino futuro para não rejeitar falsamente a instalação.
-# WAHA customizada/Plus nunca é substituída nem na sonda nem no update.
+# Confere a arquitetura real, sem alterar .env; somente linux/amd64.
+# WAHA customizada/Plus nunca é substituída automaticamente.
 preflight_plataforma_atualizacao() { # <vX.Y.Z> <linux/platform>; usa WAHA_IMAGE carregada
   local tag="${1:-}" plataforma="${2:-}" versao waha
   if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -2563,10 +2571,8 @@ preflight_plataforma_atualizacao() { # <vX.Y.Z> <linux/platform>; usa WAHA_IMAGE
     return 1
   fi
   versao="${tag#v}"
+  [ "$plataforma" = linux/amd64 ] || { printf 'ELUS_DISTRIBUTION_NO_GO: arquitetura OCI não suportada (%s).\n' "$plataforma" >&2; return 1; }
   waha="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
-  if [ "$plataforma" = linux/arm64 ] && waha_amd64_conhecido_em_arm arm64 "$waha"; then
-    waha='devlikeapro/waha:noweb-arm-2026.7.2'
-  fi
   preflight_imagens_crm "$versao" "$plataforma" || return 1
   if ! manifesto_tem_plataforma "$waha" "$plataforma"; then
     printf 'WAHA_IMAGE %s não oferece %s; não alterei a escolha do operador.\n' "$waha" "$plataforma" >&2
@@ -2650,7 +2656,7 @@ completar_pin_ausente() {  # completar_pin_ausente [envfile]
   # e o `.env` original chega intacto do outro lado, com as customizações.
   [ -w "$envfile" ] || return 0
 
-  for par in "WORKER_IMAGE:worker:deskcomm-worker" "SCHEDULER_IMAGE:scheduler:deskcomm-scheduler"; do
+  for par in "WORKER_IMAGE:worker:elus360-worker" "SCHEDULER_IMAGE:scheduler:elus360-scheduler"; do
     chave="${par%%:*}"; svc="$(printf '%s' "$par" | cut -d: -f2)"; repo="${par##*:}"
 
     # LACUNA apenas. Valor explícito (mesmo em canal móvel) é intocável.
@@ -2699,22 +2705,9 @@ gravar_imagens() {
   # não no `stable` móvel do default do compose.
   set_env_var "$envfile" VOICE_AGENT_IMAGE       "${IMG_VOICE_AGENT}:${versao}"
   set_env_var "$envfile" VOICE_AGENT_PULL_POLICY "$politica"
-  # O WAHA de quem já roda em ARM mora AQUI, e não numa linha do update.sh: é
-  # esta função que o update.sh ANTIGO chama depois de reler o kit, então é
-  # assim que a troca chega já na atualização que a traz. O export vale porque
-  # o compose prefere a variável do ambiente (que o enter_project exportou com o
-  # valor velho) à do .env.
-  local waha_atual
-  waha_atual="$(sed -n 's/^WAHA_IMAGE=//p' "$envfile" 2>/dev/null | tail -1 | tr -d "\"'")"
-  if waha_amd64_conhecido_em_arm "$(uname -m 2>/dev/null || true)" "$waha_atual"; then
-    WAHA_IMAGE="$(imagem_waha_padrao_para_host)"
-    export WAHA_IMAGE
-    set_env_var "$envfile" WAHA_IMAGE "$WAHA_IMAGE"
-    c_ylw "$(t "  (WAHA trocado para a variante oficial ARM64: {1})" "$WAHA_IMAGE")"
-  fi
-  # O par dos avisos com o app fechado mora aqui pelo MESMO motivo do WAHA
-  # acima: é a função que o update.sh antigo chama depois de reler o kit, então
-  # o par chega já na primeira atualização. E chega antes do pull e do `up -d`.
+  # Preservar WAHA_IMAGE do operador: não selecionar variante ARM64 nem
+  # modificar a imagem upstream ao atualizar os quatro pacotes próprios.
+  # A geração do par VAPID permanece independente dos pins de imagens.
   completar_par_vapid "$envfile"
 }
 
@@ -3146,10 +3139,10 @@ trocar_segredo_do_cron_vazado() {
   step "$(t "Trocando a senha interna das rotinas (a antiga ficou no log do sistema)")"
   set_env_var "$envfile" "$chave" "$novo"
   export "${chave}=${novo}"
-  if ! dc up -d >/dev/null 2>&1; then
+  if ! dc up -d --no-build >/dev/null 2>&1; then
     set_env_var "$envfile" "$chave" "$velho"
     export "${chave}=${velho}"
-    dc up -d >/dev/null 2>&1 || true
+    dc up -d --no-build >/dev/null 2>&1 || true
     [ -n "$tem_cadeado" ] && exec 8>&-
     c_ylw "$(t "⚠ não consegui reiniciar o app com a senha nova — mantive a antiga e tento de novo na próxima atualização.")"
     return 1

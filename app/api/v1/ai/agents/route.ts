@@ -33,6 +33,11 @@ import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/a
 import { agentCreateSchema } from "@/lib/ai/guardrails-schema";
 import { corpoLegadoComoCorpoDeCriacao } from "@/lib/ai/agents/legado-para-versao";
 import { escolherModeloNoCatalogo } from "@/lib/ai/agents/escolher-modelo";
+import {
+  CODIGO_NOME_DE_AGENTE_EM_USO,
+  NOME_DE_AGENTE_EM_USO,
+  ehNomeDeAgenteRepetido,
+} from "@/lib/ai/agents/nome-repetido";
 import { agentMcpCreateSchema } from "@/lib/ai/agents/validation";
 import {
   logarResolucaoDeModelo,
@@ -112,7 +117,7 @@ const AGENT_COLUMNS_COM_VERSAO =
   ", versao_publicada:ai_agent_versions!ai_agents_published_version_id_fkey(provider, model)";
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,provisioning_origin,inbound_debounce_ms";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, voz_enabled, voz_quando, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,skill_names,image_vision_enabled,provisioning_origin,inbound_debounce_ms,reply_min_interval_ms";
 
 // ---------------------------------------------------------------------------
 // GET — list
@@ -317,22 +322,44 @@ export async function POST(req: NextRequest): Promise<Response> {
   const records = mcpAgentDraftRecords({ orgId: organizationId, userId: authUserId ?? "" }, input);
   // O banco serializa a revogação de grants e cria agente + versão em
   // uma única transação; nunca pode restar agente órfão após falha.
+  // Bypass administrativo exige usuário de sessão, escopo full e MFA atual.
+  // Nunca converter uma recusa MFA nomeada em booleano false silencioso.
+  let platformBypass = false;
+  if (authz.via === "session") {
+    const { loadAuthUser } = await import("@/lib/auth/server");
+    const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
+    const usuario = await loadAuthUser();
+    if (usuario?.id === authUserId && podeGerenciarIaDaPlataforma(usuario)) {
+      const { requirePlatformAdminEscrita, falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      try {
+        await requirePlatformAdminEscrita();
+        platformBypass = true;
+      } catch (e) {
+        return falhaDaEscritaDePlatformAdmin(e, requestId);
+      }
+    }
+  }
   const { data: criado, error: erroCriacao } = await admin.rpc("fn_elus_ai_agent_create_guarded", {
     p_org: organizationId,
-    p_agent: { ...records.agent, created_by: authUserId },
-    p_version: { ...records.version, created_by: authUserId },
-    p_platform_bypass: authz.via === "session" && (await (async () => {
-      const { loadAuthUser } = await import("@/lib/auth/server");
-      const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
-      const usuario = await loadAuthUser();
-      if (!usuario || usuario.id !== authUserId || !podeGerenciarIaDaPlataforma(usuario)) return false;
-      try {
-        const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
-        await requirePlatformAdminEscrita();
-        return true;
-      } catch { return false; }
-    })()),
+    // Tenant, agent FK, version_number and status are server-derived by the SQL
+    // transaction and must never be accepted as mutable input.
+    p_agent: {
+      id: records.agent.id,
+      name: records.agent.name,
+      description: records.agent.description,
+      model: records.agent.model,
+      system_prompt: records.agent.system_prompt,
+      kind: records.agent.kind,
+      priority: records.agent.priority,
+      is_active: records.agent.is_active,
+      is_default: records.agent.is_default,
+      created_by: authUserId,
+    },
+    p_version: { id: records.version.id, ...input.version, created_by: authUserId },
+    p_platform_bypass: platformBypass,
   });
+  if (ehNomeDeAgenteRepetido(erroCriacao))
+    return fail(CODIGO_NOME_DE_AGENTE_EM_USO, t(NOME_DE_AGENTE_EM_USO), 409, { requestId });
   if (erroCriacao || !criado || typeof criado !== "object" || Array.isArray(criado))
     return fail("internal_error", "Falha na criação transacional de agente.", 500, { requestId });
   if ("error" in criado) {

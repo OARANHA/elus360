@@ -27,6 +27,8 @@
 #
 #   bash tests/shell/install-nao-deixa-temporario.test.sh
 set -uo pipefail
+# Git fixture must never mutate the calling checkout or inherit its GIT_DIR.
+unset $(git rev-parse --local-env-vars)
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 WORK="$(mktemp -d)"
@@ -45,6 +47,7 @@ check() {  # check <descrição> <comando de verificação...>
 # ── Dublês ───────────────────────────────────────────────────────────────────
 REAL_UNAME="$(command -v uname)"
 REAL_MKTEMP="$(command -v mktemp)"
+export REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/bin"
 # docker: registra a chamada; `APP_DOENTE=1` faz o probe do app não responder
 # (ramo "quase lá"); `FALHA_BOOTSTRAP=1` faz o psql do bootstrap do dono falhar
@@ -59,6 +62,12 @@ case "$*" in
     exit 0 ;;
 esac
 case "$1" in
+  buildx)
+    case "$*" in
+      *" --raw "*) printf '{"schemaVersion":2,"config":{"digest":"sha256:fake"}}\n' ;;
+      *" --format "*) printf 'linux/amd64\n' ;;
+    esac
+    exit 0 ;;
   compose)
     case "$*" in
       *" exec "*) [ "${APP_DOENTE:-0}" = 1 ] && exit 1
@@ -75,11 +84,28 @@ STUB
 cat > "$WORK/bin/curl" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
+  *"/releases/latest"*) printf '{\n  "tag_name": "v1.102.0"\n}\n' ;;
+  *"/releases/tags/v1.102.0"*) printf '{\n  "tag_name": "v1.102.0",\n  "draft": false,\n  "prerelease": false,\n  "published_at": "2026-11-07T00:00:00Z"\n}\n' ;;
+  *"/compare/main...v1.102.0"*) printf '{\n  "status": "behind"\n}\n' ;;
   *ghcr.io/token*) printf '{"token":"duble"}' ;;
   *ghcr.io/v2/*)   printf 200 ;;
   # v_supabase_url: só o GoTrue passa (400 + o "msg" dele, como medido).
   */auth/v1/verify*) printf '{"msg":"Verify requires a verification type"}\n400' ;;
   *)               printf 200 ;;
+esac
+STUB
+# O origin remoto e a release são simulados exclusivamente dentro deste repo temporário.
+# Todo git mutante continua sendo o git real, mas somente na pasta descartável.
+cat > "$WORK/bin/git" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  ls-remote)
+    tag="${@: -1}"; tag="${tag##*/}"
+    obj="$("$REAL_GIT" -C "$ELUS_FIXTURE_REPO" rev-parse --verify "refs/tags/$tag" 2>/dev/null)" || exit 1
+    printf '%s\trefs/tags/%s\n' "$obj" "$tag"
+    ;;
+  fetch) exit 0 ;;
+  *) exec "$REAL_GIT" "$@" ;;
 esac
 STUB
 # crontab: nunca o da máquina de quem roda. Só consome stdin onde o real consome.
@@ -133,14 +159,34 @@ ANTHROPIC_API_KEY='sk-ant-teste'
 OWNER_EMAIL='eu@exemplo.com.br'
 OWNER_PASSWORD='senha12345'
 ENV
+  # Uma tag sintética local representa release já publicada APENAS no laboratório.
+  # A prova de origem/tag do instalador continua íntegra (nenhum override em produção).
+  (
+    cd "$proj" || exit 1
+    "$REAL_GIT" init -q
+    "$REAL_GIT" add -A
+    "$REAL_GIT" -c user.name="Fixture" -c user.email="fixture@example.invalid" commit -qm "fixture release"
+    "$REAL_GIT" tag v1.102.0
+    "$REAL_GIT" remote add origin https://github.com/OARANHA/elus360.git
+  ) || return 1
   OUT="$raiz/saida.txt"; TMPD="$raiz/tmp"; RC=0
   # `SUPABASE_ACCESS_TOKEN=` vazio: o marca-emails.sh não chama rede e ESCREVE a
   # pendência — é o caso em que o arquivo temporário tem conteúdo.
   ( cd "$proj" && env PATH="$WORK/bin:$PATH" TMPDIR="$TMPD" \
       DOCKER_LOG="$raiz/docker.log" FAKE_CRONTAB="$raiz/crontab.txt" \
+      ELUS_FIXTURE_REPO="$proj" \
       SUPABASE_ACCESS_TOKEN= "$@" \
       bash hostgator-setup-kit/install.sh --yes
   ) 2>&1 < /dev/null | sed -E 's/\x1b\[[0-9;]*m//g' > "$OUT" || RC=$?
+  # Em caso de falha, mostrar SOMENTE mensagens de recusa/erro do cenário
+  # descartável. Sem isso, a suíte informa "✗" sem a causa e não permite
+  # distinguir bloqueio esperado de dublê incompleto.
+  if [ "$RC" -ne 0 ]; then
+    printf '  [fixture %s: rc=%s]\n' "$caso" "$RC"
+    grep -E 'ELUS_DISTRIBUTION_NO_GO|^fatal:|^✖|^Erro:|^ERRO:' "$OUT" | tail -4 || true
+    # Não omitir erros de Bash sem prefixo, mas nunca imprimir credenciais.
+    grep -E 'unbound variable|command not found|No such file|^bash:|^git:' "$OUT" | tail -4 || true
+  fi
 }
 sobras() { find "$TMPD" -mindepth 1 | sed "s#^$TMPD/#  sobra: #"; }
 vazio() { [ -z "$(find "$TMPD" -mindepth 1 -print -quit)" ] || { sobras; return 1; }; }

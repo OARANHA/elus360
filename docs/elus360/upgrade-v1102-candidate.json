@@ -1,0 +1,154 @@
+{
+  "status": "SOURCE_AND_UPSTREAM_WORKFLOWS_RECONCILED_CI_RED_FIXES_IN_PR",
+  "base_tag": "v1.94.0",
+  "base_commit": "ba24d4d366b7caf056b88553e0ed434cb0fb46de",
+  "target_tag": "v1.102.0",
+  "target_commit": "4b5815721710c9b1e99078322593838fda1ee740",
+  "fork_main": "749aaf8fbb25b46dddd9138219e2ac032cc83336",
+  "initial_candidate_commit": "b41a9647106e9ae0801c586dc54232897836fc10",
+  "upstream_only_applied": 2150,
+  "fork_only_preserved": 67,
+  "auto_merged": 13,
+  "already_equivalent": 0,
+  "merged_paths": [
+    ".env.example",
+    "app/actions/onboarding/acceptWelcome.ts",
+    "app/api/v1/ai/credentials/route.ts",
+    "app/api/v1/ai/providers/route.ts",
+    "app/app/ai/agents/[id]/_components/AgentForm.tsx",
+    "app/app/ai/agents/[id]/_components/AgentTabs.tsx",
+    "app/app/ai/agents/[id]/_components/VersionDiff.tsx",
+    "lib/agent-engine/edge/llm/credentials.ts",
+    "lib/agent-engine/edge/llm/providers.ts",
+    "lib/agent-engine/env.ts",
+    "lib/ai/credenciais/guardar.ts",
+    "lib/ai/runtime/agent.ts",
+    "lib/env.ts"
+  ],
+  "unresolved": [],
+  "upstream_workflows_pending_review": [],
+  "production_changed": false,
+  "tests": "PENDING_NEW_HEAD_CI",
+  "baseline_status": "OFFICIAL_WITH_FORWARD_9901_9902_9903_RECONCILED_CI_REQUIRED",
+  "baseline_official_sha256": "2610cd387c65f92ee4b893f598db4cc8a53ff032a418fbac8f455fa05762871f",
+  "baseline_elus_appendix_sha256": "b1c58b7c0abdc4e09fc14ed8746e70fb5d5f02ea014910e6553c3b0cef895e97",
+  "baseline_combined_sha256": "694abc9c4357d949ca4947b22c68b523d7ba80522737c6cb681afb0945a6cb9b",
+  "baseline_bytes": 3997332,
+  "initial_unresolved": [
+    "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
+    "app/api/v1/ai/agents/[id]/versions/route.ts",
+    "app/api/v1/ai/agents/route.ts",
+    "app/api/v1/cron/sync-model-catalog/route.ts",
+    "app/app/ai/agents/[id]/_actions.ts",
+    "app/app/ai/agents/[id]/page.tsx",
+    "app/app/ai/agents/new/page.tsx",
+    "lib/ai/credenciais/login-codex.ts",
+    "lib/ai/provider-validators.ts",
+    "lib/audit/actions.ts",
+    "supabase/baseline.sql"
+  ],
+  "manually_resolved": [
+    "app/api/v1/ai/agents/[id]/versions/[vid]/route.ts",
+    "app/api/v1/ai/agents/[id]/versions/route.ts",
+    "app/api/v1/ai/agents/route.ts",
+    "app/api/v1/cron/sync-model-catalog/route.ts",
+    "app/app/ai/agents/[id]/_actions.ts",
+    "app/app/ai/agents/[id]/page.tsx",
+    "app/app/ai/agents/new/page.tsx",
+    "lib/ai/credenciais/login-codex.ts",
+    "lib/ai/provider-validators.ts",
+    "lib/audit/actions.ts"
+  ],
+  "review_note": "Correcoes forward-only 9901, 9902 e 9903; preservada atomicidade e restricao service_role das RPCs. Baseline reconcilado por fonte. CI completo do novo HEAD ainda e exigido.",
+  "migration_reconciliation": {
+    "upstream_migration": "supabase/migrations/20261029005025_9037_grants_explicitos_das_tabelas_do_apendice.sql",
+    "elus_original": "supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql",
+    "elus_renamed": "supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql",
+    "original_git_blob_sha": "b4fd132fdd482c017a823f2baf013b20b2850c2d",
+    "unchanged_timestamp": "20261028235959",
+    "unchanged_sql_bytes": true,
+    "sql_source_parity": "PENDING_GITHUB_ACTIONS",
+    "database_install_update": "PENDING_GITHUB_ACTIONS",
+    "note": "9900 historica byte-exata, 9901+9902+9903 no apendice antes da varredura final anon; paridade e gates integrais dependem de novo CI.",
+    "forward_sql": "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql",
+    "forward_sql_chain": [
+      "supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql",
+      "supabase/migrations/20261106160000_9902_elus_molde_chutes_pt409.sql",
+      "supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql"
+    ]
+  },
+  "upstream_workflows_integrated": [
+    {
+      "path": ".github/workflows/e2e.yml",
+      "upstream_blob_sha": "a3b0966c386d1ca1eccce205dee2dd3521ac4bfe",
+      "reconciliation": "full official v1.102.0 E2E matrix, Supabase CLI 2.117.0 preserved; runner isolated to GitHub-hosted"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "upstream_blob_sha": "8fb967383e1460faa59831b31c7dd0130dcd1b5f",
+      "reconciliation": "official verify and Postgres 15/17 invariant matrix, 12GiB full typecheck, pinned official v1.102.0 release and GitHub-hosted runners"
+    },
+    {
+      "path": ".github/workflows/perf.yml",
+      "upstream_blob_sha": "9afe2dbadb38af1aa3aab7e23253aa53db809dad",
+      "reconciliation": "official performance build; GitHub hosted runner"
+    },
+    {
+      "path": ".github/workflows/acolhida.yml",
+      "upstream_blob_sha": "59e93b00e26449ed82ea63d8b8a337650ad6eea9",
+      "reconciliation": "official exact source; origin-owner guard disables fork write"
+    },
+    {
+      "path": ".github/workflows/relogio.yml",
+      "upstream_blob_sha": "cc2b2138311c005886210ec16c88bc7ffa2ae563",
+      "reconciliation": "official file; tick gated to upstream owner, never ELUS production"
+    },
+    {
+      "path": ".github/workflows/vigia-de-colisao.yml",
+      "upstream_blob_sha": "912b16c4720653ef95c9237c13c626e645794821",
+      "reconciliation": "official file; scheduled writes restricted to original upstream"
+    },
+    {
+      "path": ".github/workflows/mysql-integracao.yml",
+      "upstream_blob_sha": "fe90cd0caeb5a8504029ce63742dae0282cf47b9",
+      "reconciliation": "official MySQL 8 integration tests and standalone coverage"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "upstream_blob_sha": "69f8b25b24e010eb44402fa08752cc7f60edfd6e",
+      "reconciliation": "both create release PR and push tag jobs disabled in ELUS via pinned original repo guard"
+    },
+    {
+      "path": ".github/workflows/publish-image.yml",
+      "upstream_blob_sha": "c12f0cd322b5d15af3706da176331259e8a34550",
+      "reconciliation": "full official image smoke/build test coverage in PR; publish/manifest/stable jobs guarded to original upstream, private runners disabled"
+    }
+  ],
+  "baseline_security_reconciliation": {
+    "upstream_v1102_exact_except_sweep_reorder": true,
+    "official_anon_sweep_preserved_byte_exact": true,
+    "elus_appendix_preserved_byte_exact": true,
+    "scanner_unique_and_after_all_elus_functions": true,
+    "postscan_function_creations": 0,
+    "postscan_grants_anon": 0,
+    "postgresql_rls_acl_validation": "PENDING_CURRENT_HEAD"
+  },
+  "ci_old_head_failure": {
+    "head": "cde5d784c1d14ca156cbe84888ee231218a189e3",
+    "failed_jobs": [
+      "verify-parte (3)",
+      "verify-parte (4)",
+      "verify-parte (6)",
+      "verify-parte (7)"
+    ],
+    "status": "SUPERSEDED_BY_CORRECTION_COMMITS"
+  },
+  "preserved_guards": [
+    "fn_elus_ai_agent_create_guarded",
+    "fn_elus_ai_version_patch_guarded",
+    "fn_elus_ai_draft_save_guarded",
+    "fn_elus_ai_credential_write_guarded",
+    "forbidden_platform_ai",
+    "requirePlatformAdminEscrita (via escritaDeAdminOuRecusa)"
+  ]
+}

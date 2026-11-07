@@ -35,7 +35,7 @@ vi.hoisted(() => {
   process.env.AI_CRED_AES_KEY = "iBc1Z2gYaAH4rEHs1dHQ2dvNQ6t4OfrdE1/Y6OSvtZY=";
 });
 
-import { lerLoginCodexRenovandoSeProxima } from "@/lib/ai/credenciais/login-codex";
+import { lerLoginCodexRenovandoSeProxima, ROTULO_DO_LOGIN_CODEX } from "@/lib/ai/credenciais/login-codex";
 import {
   IDS_DE_PROVEDOR,
   PROVEDORES,
@@ -105,6 +105,7 @@ function linhaDoLogin(expiraEm: number | null = null) {
     id: CRED,
     organization_id: ORG,
     provider: PROVEDOR_POR_ASSINATURA,
+    label: ROTULO_DO_LOGIN_CODEX,
     is_active: true,
     validated_at: new Date().toISOString(),
     api_key_encrypted: bufToBytea(c.ciphertext),

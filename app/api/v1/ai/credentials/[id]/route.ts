@@ -153,8 +153,9 @@ export async function PATCH(
       const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
       await requirePlatformAdminEscrita();
       platformBypass = true;
-    } catch {
-      return fail("forbidden_platform_ai", "Superadmin requer sessão full com MFA.", 403, { requestId });
+    } catch (e) {
+      const { falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      return falhaDaEscritaDePlatformAdmin(e, requestId);
     }
   }
 
@@ -271,8 +272,9 @@ export async function DELETE(
       const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
       await requirePlatformAdminEscrita();
       platformBypass = true;
-    } catch {
-      return fail("forbidden_platform_ai", "Superadmin requer sessão full com MFA.", 403, { requestId });
+    } catch (e) {
+      const { falhaDaEscritaDePlatformAdmin } = await import("@/lib/auth/requirePlatformAdmin");
+      return falhaDaEscritaDePlatformAdmin(e, requestId);
     }
   }
 
@@ -340,7 +342,7 @@ export async function DELETE(
   );
   if (delErr?.code === "23503") {
     return fail("credential_in_use",
-      t("Uma versão passou a usar esta chave. Recarregue e tente novamente."), 409, { requestId });
+      t("Uma versão passou a usar esta chave. Use Editar credencial para preservar os vínculos existentes; recarregue e tente novamente."), 409, { requestId });
   }
   if (delErr) return fail("internal_error", "Erro ao deletar credential.", 500, { requestId });
   if (!excluida || typeof excluida !== "object" || Array.isArray(excluida))

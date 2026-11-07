@@ -16,6 +16,9 @@ readonly RAM_MINIMA_KB=3500000
 
 # shellcheck source=_common.sh
 source "$KIT_DIR/_common.sh"
+# O standalone single-server também é instalador: exige Linux AMD64 ANTES de
+# argumento, Docker, rede, .runtime ou credenciais (ADR-0007, sem exceção).
+verificar_arquitetura_do_kit || exit 3
 source "$KIT_DIR/_supabase-images.sh"
 # SUPABASE_REF vem do _common.sh: o update.sh leva quem já instalou até ela.
 # O SHA-256 é do setup.sh DESSA ref — bump de uma exige o da outra.
@@ -118,22 +121,14 @@ unset _rp_cloudflared
 recusar_projeto_de_outra_arvore || die "Instalação interrompida para não derrubar o CRM que já está no ar nesta VPS."
 recusar_supabase_de_outra_arvore || die "Instalação interrompida para não derrubar o Supabase de outra instalação nesta VPS."
 
-# ARM64: os dois conjuntos são sondados ANTES de .runtime, rede, credenciais e
-# setup. Uma WAHA personalizada (inclusive Plus) vinda do .env existente é
-# preservada pela sonda, e o install.sh repetirá a mesma conferência antes de
-# subir o CRM. Em AMD64 segue como antes: a sonda exige `docker buildx`.
-plataforma="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)" 2>/dev/null || true)"
-if [[ "$plataforma" = linux/arm64 ]]; then
-  if [[ -f "$ROOT_DIR/.env" ]]; then load_env "$ROOT_DIR/.env"; fi
-  step "Conferindo imagens publicadas do CRM, WAHA e Supabase para $plataforma"
-  release_tag="$(ultima_release_estavel)"
-  [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-    || die "Não encontrei release numérica publicada; nenhuma parte do Supabase foi criada."
-  waha_efetiva="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
-  preflight_instalacao "${release_tag#v}" "$plataforma" "$waha_efetiva" \
-    || die "Imagens do CRM ou WAHA incompletas para $plataforma; nenhuma parte do Supabase foi criada."
-  preflight_supabase_da_ref "$SUPABASE_REF" "$plataforma" \
-    || die "Imagens do Supabase incompletas para $plataforma; nenhuma parte foi criada."
+# ADR-0007: ao iniciar Supabase na VPS Linux AMD64, verificar as imagens
+# upstream da referência PINADA antes de criar .runtime, credenciais ou rede.
+# Esta sonda só é necessária ao primeiro provisionamento; uma reexecução com
+# Supabase já preparado não depende de nova conectividade com o registry.
+if [[ ! -f "$SUPABASE_DIR/.env" ]]; then
+  step "Conferindo Supabase $SUPABASE_REF para Linux AMD64"
+  preflight_supabase_da_ref "$SUPABASE_REF" linux/amd64 \
+    || refuse "ELUS_DISTRIBUTION_NO_GO: imagens do Supabase incompletas ou inacessíveis para linux/amd64; nada foi provisionado."
 fi
 
 mkdir -p "$RUNTIME_DIR"

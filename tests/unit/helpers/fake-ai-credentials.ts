@@ -25,6 +25,57 @@ export class FakeSupabase {
     this.linha = linha;
     return new Query(this, tabela, undefined);
   }
+  /**
+   * The test database is an explicitly authorized tenant fixture, not a
+   * replacement for the production SQL/RLS checks. Mirror the RPC data contract
+   * so credential encryption/rotation tests continue measuring real behavior
+   * after the ELUS write boundary was moved from .insert/.update to an RPC.
+   * The negative authorization checks live in the separate ELUS governance tests.
+   */
+  async rpc(name: string, args: {
+    p_org?: string;
+    p_op?: string;
+    p_id?: string | null;
+    p_patch?: Linha;
+    p_platform_bypass?: boolean;
+  }) {
+    if (name !== "fn_elus_ai_credential_write_guarded") {
+      return { data: null, error: { code: "42883", message: "rpc_not_implemented" } };
+    }
+    const op = args.p_op;
+    if (typeof args.p_org !== "string" || !["insert", "update", "refresh_login", "delete"].includes(op ?? "")) {
+      return { data: null, error: { code: "22023", message: "invalid_arguments" } };
+    }
+    const p = args.p_patch ?? {};
+    this.operacoes.push({ tipo: "rpc:" + op, tabela: "ai_provider_credentials", dados: p, filtros: [] });
+    if (op === "insert") {
+      if (this.linha && this.linha.organization_id === args.p_org && this.linha.label === p.label) {
+        return { data: null, error: { code: "23505", message: "duplicate_label" } };
+      }
+      this.linha = { ...p, id: "cred-1", organization_id: args.p_org };
+      return { data: { id: this.linha.id }, error: null };
+    }
+    if (!this.linha || this.linha.id !== args.p_id || this.linha.organization_id !== args.p_org) {
+      return { data: null, error: null };
+    }
+    if (op === "refresh_login") {
+      // Reproduz a parte restritiva da RPC SQL: refresh não muda provedor,
+      // rótulo nem identidade, exige o envelope cifrado e validated_at.
+      const required = ["api_key_encrypted", "api_key_iv", "api_key_tag",
+        "api_key_last4", "validated_at"];
+      if (this.linha.provider !== "openai-assinatura" ||
+          p.label !== this.linha.label ||
+          required.some((k) => !(k in p))) {
+        return { data: null, error: { code: "42501", message: "elus_ai_credential_refresh_restricted" } };
+      }
+    }
+    if (op === "delete") {
+      this.linha = null;
+      return { data: { id: args.p_id, deleted: true }, error: null };
+    }
+    this.linha = { ...this.linha, ...p, updated_at: new Date().toISOString() };
+    return { data: { id: args.p_id }, error: null };
+  }
 }
 
 class Query {

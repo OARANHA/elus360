@@ -364,6 +364,41 @@ if [ $((outras_medidas + prs_medidos)) -gt 0 ] && [ -n "$ultimo" ] && [ -n "$ult
   echo "::notice::NNNN=${ultimo} (o teto medido) existe em: ${donos:-?} — não é colisão sua; se for branch sua descartável, apagá-la libera o número."
 fi
 
+# Exceção SOMENTE da renumeração histórica ELUS 9037 -> 9900.
+# Ambos os nomes compartilham o timestamp 20261028235959 e o SQL Git blob.
+# Toda outra colisão de timestamp, NNNN ou alteração de SQL segue reprovando.
+renomeacao_elus_comprovada() {
+  local historica="$1" novo="" original renomeada blob_antigo blob_novo
+  [ "$#" -ge 2 ] && novo="$2"
+  original="20261028235959_9037_elus_ai_autonomy_guarded.sql"
+  renomeada="20261028235959_9900_elus_ai_autonomy_guarded.sql"
+  [ "$historica" = "$original" ] || return 1
+  [ -z "$novo" ] || [ "$novo" = "$renomeada" ] || return 1
+  grep -Fxq "$renomeada" <<<"$head_arvore" || return 1
+  if git cat-file -e "HEAD:supabase/migrations/$original" 2>/dev/null; then return 1; fi
+  blob_antigo="$(git rev-parse "$BASE:supabase/migrations/$original" 2>/dev/null)" || return 1
+  blob_novo="$(git rev-parse "HEAD:supabase/migrations/$renomeada" 2>/dev/null)" || return 1
+  [ -n "$blob_antigo" ] && [ "$blob_antigo" = "$blob_novo" ]
+}
+
+filtrar_colisao_historia() {
+  local tipo="$1" novo="$2" lista="$3" historica pendentes=""
+  while IFS= read -r historica; do
+    [ -z "$historica" ] && continue
+    if [ "$tipo" = "timestamp" ]; then
+      if renomeacao_elus_comprovada "$historica" "$novo"; then
+        echo "::notice::ELUS renomeada sem alterar timestamp/blob: $historica" >&2
+        continue
+      fi
+    elif renomeacao_elus_comprovada "$historica"; then
+      echo "::notice::NNNN 9037 liberado para o upstream por renomeação ELUS comprovada" >&2
+      continue
+    fi
+    pendentes+="$historica"$'\n'
+  done <<<"$lista"
+  printf '%s' "$pendentes"
+}
+
 falhou=0
 while IFS= read -r nome; do
   [ -z "$nome" ] && continue
@@ -380,6 +415,9 @@ while IFS= read -r nome; do
 
   colisao_n="$(grep -E "^[0-9]{14}_${nnnn}_.+\.sql$" <<<"$base_arvore" || true)"
   colisao_t="$(grep -E "^${ts}_[0-9]{4}_.+\.sql$" <<<"$base_arvore" || true)"
+  # Somente a migração ELUS renomeada sem mudança de blob/timestamp pode sair do conjunto.
+  colisao_n="$(filtrar_colisao_historia numero "$nome" "$colisao_n")"
+  colisao_t="$(filtrar_colisao_historia timestamp "$nome" "$colisao_t")"
   if [ -n "$colisao_n" ]; then
     lista="$(tr '\n' ' ' <<<"$colisao_n" | sed 's/ *$//')"
     echo "::error file=$caminho::NNNN=$nnnn já existe em '$BASE': $lista"

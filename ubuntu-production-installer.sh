@@ -46,7 +46,7 @@ Serviços locais em Docker:
   app, worker, scheduler, WAHA, Redis, adaptador Redis HTTP, Caddy e Supabase
   self-hosted (Postgres, Auth, REST, Realtime e Storage).
 
-Requisitos: VPS x86_64/amd64 ou ARM64/aarch64, com no mínimo 4 GB de RAM
+Requisitos: VPS Linux AMD64 (x86_64), com no mínimo 4 GB de RAM
 (8 GB recomendados) e DNS do domínio apontando para ela.
 EOF
 }
@@ -72,6 +72,12 @@ main() {
   esac
   [[ $# -le 2 ]] || { usage >&2; return 2; }
 
+  # ADR-0007: negar host não Linux/AMD64 antes de APT, Docker, clone e .env.
+  if [[ "$(uname -s)" != Linux ]]; then
+    printf '%s\n' "ELUS_DISTRIBUTION_NO_GO: sistema operacional não suportado; use uma VPS Linux AMD64." >&2
+    return 3
+  fi
+
   [[ -r /etc/os-release ]] || die "Não consegui identificar o sistema operacional. Este instalador requer Ubuntu."
   # shellcheck disable=SC1091
   . /etc/os-release
@@ -79,8 +85,8 @@ main() {
     || die "Distribuição não suportada (${PRETTY_NAME:-desconhecida}). Em outro Linux, use diretamente hostgator-setup-kit/install.sh."
 
   case "$(uname -m)" in
-    x86_64|amd64|aarch64|arm64) ;;
-    *) die "Arquitetura $(uname -m) não suportada pelas imagens de produção publicadas (linux/amd64 e linux/arm64)." ;;
+    x86_64|amd64) ;;
+    *) printf '%s\n' "ELUS_DISTRIBUTION_NO_GO: arquitetura $(uname -m) não suportada; use uma VPS Linux AMD64 (x86_64)." >&2; return 3 ;;
   esac
 
   [[ -f "$KIT_INSTALLER" ]] || die "Instalador canônico não encontrado em $KIT_INSTALLER. Execute este arquivo dentro do repositório completo."

@@ -20,6 +20,15 @@ const banco = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/elus360/ai-managed/server")>()),
+  // Cenários funcionais com grants disponíveis na organização fictícia.
+  // A negativa de autorização é testada pelas suítes específicas de governança.
+  lerAutonomiaIa: vi.fn(async () => ({
+    provider: true, model: true, credentials: true, operator_model: true,
+  })),
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+}));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 
@@ -43,6 +52,17 @@ function cadeia(tabela: string, dados: unknown, unico: unknown) {
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === "fn_elus_ai_purpose_binding_write_guarded") {
+        banco.gravacoes.push({ tabela: "ai_purpose_bindings", payload: args.p_values });
+        return { data: { id: "binding-guardado", ...(args.p_values as object) }, error: null };
+      }
+      if (name === "fn_elus_ai_default_write_guarded") {
+        banco.gravacoes.push({ tabela: "organizations", payload: args });
+        return { data: { provider: args.p_provider, model: args.p_model }, error: null };
+      }
+      throw new Error("RPC inesperada: " + name);
+    },
     from: (tabela: string) => {
       if (tabela === "platform_config") {
         if (banco.modulo === "erro") throw new Error("banco fora do ar");
@@ -63,12 +83,7 @@ vi.mock("@/lib/supabase/server", () => ({
         return cadeia(tabela, [], { model_id: "gpt-5.5", supports_tools: true, supports_vision: false });
       }
       if (tabela === "ai_purpose_bindings") {
-        return cadeia(tabela, [], {
-          id: "33333333-3333-4333-8333-333333333333",
-          purpose: "stage_classifier",
-          provider: "openai-assinatura",
-          model_id: "gpt-5.5",
-        });
+        return cadeia(tabela, [], null);
       }
       return cadeia(tabela, [], null);
     },

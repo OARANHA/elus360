@@ -62,19 +62,19 @@ porque a exceção é o que apaga a regra.
 
 ### 1. Nenhum serviço de produção constrói na máquina do cliente
 
-Todo serviço de `docker-compose.prod.yml` declara `image:` apontando para uma imagem
-publicada. `build:` pode existir **ao lado** — como caminho de escape para quem quer compilar
-—, nunca sozinho.
+No fork **ELUS360** (`PR #22 Draft`), todo serviço do `docker-compose.prod.yml`
+declara `image:` e **nenhum declara `build:`**. Imagens próprias são distribuídas
+por CI e o instalador/atualizador recusa compilação local mesmo com
+`DESKCOMM_BUILD_LOCAL=1`. Isto é política em desenvolvimento, sem release publicada.
 
 ```yaml
 # ERRADO — o cliente paga o build, e o update nunca o alcança
 worker:
   build: { context: ., dockerfile: Dockerfile.worker }
 
-# CERTO — imagem publicada; o build fica ao lado, como escape
+# CERTO PARA ELUS360 — imagem pré-buildada; NÃO há fallback
 worker:
-  image: ${WORKER_IMAGE:-ghcr.io/melgarafael/deskcomm-worker:stable}
-  build: { context: ., dockerfile: Dockerfile.worker }
+  image: ${WORKER_IMAGE:-ghcr.io/oaranha/elus360-worker:stable}
 ```
 
 - **Por quê:** um serviço `build:`-only é invisível para `docker compose pull` ("Skipped — No
@@ -93,10 +93,19 @@ worker:
 
 ### 2. Publicação é ato do CI, e carrega procedência
 
-Imagem nossa só existe se saiu de `.github/workflows/publish-image.yml`. Ela carrega os labels
-OCI — no mínimo `source`, `revision`, `version`, `licenses` — e é construída para `linux/amd64` e `linux/arm64`.
+Na distribuição ELUS360, a imagem própria deverá existir **somente após publicação
+explicitamente autorizada** em pipeline própria, ainda NÃO habilitada.
+O workflow `.github/workflows/build-elus360.yml` do fork ELUS360 constrói
+somente em PR com `push:false`, **exclusivamente em `linux/amd64`**.
+A decisão arquitetural do proprietário é definitiva: `linux/arm64` e
+demais arquiteturas não são suportadas pelo ELUS360, nem estão no roadmap.
+Leia [ADR-0007](../adr/0007-elus360-linux-amd64.md).
+A publicação futura deverá incluir labels OCI `source`, `revision`,
+`version`, `licenses` e digests imutáveis.
+As referências abaixo a `publish-image.yml` descrevem o upstream DeskcommCRM,
+não um mecanismo de release já implementado neste fork.
 
-- **Por quê:** duas razões distintas. **(a) Arquitetura:** um `docker build` local pode produzir
+- **Contexto legado DeskcommCRM (não se aplica à distribuição ELUS360):** as referências desta seção a índices ARM64, `imagens-ok`, `publish-image.yml` e Oracle descrevem o upstream, não uma obrigação do fork AMD64.\n- **Por quê:** duas razões distintas. **(a) Arquitetura:** um `docker build` local pode produzir
   imagem para a plataforma errada; o CI publica manifestos linux/amd64 e linux/arm64 e os testa
   em runners nativos, antes de qualquer cliente chegar ao `up -d`. **(b)
   Rastreabilidade:** sem `org.opencontainers.image.revision` não existe resposta para "que
@@ -138,15 +147,13 @@ OCI — no mínimo `source`, `revision`, `version`, `licenses` — e é constru�
 `install.sh` e `update.sh` gravam no `.env` do cliente uma **tag de versão** (`1.2.1`), nunca
 `latest`, `main` ou `stable`.
 
-Duas exceções, ambas deliberadas e ambas com aviso na tela — porque falhar fechado aqui
-seria recusar instalar por não conseguir resolver um número:
-
-1. **Legado AMD64 sem rede ou sem tag no remoto** pode cair em `latest` com aviso para
-   recuperação. Em instalação/upgrade ARM64 novo, a ausência de release numérica e
-   manifesto compatível **recusa antes de alterar** a instalação: emulação e build local
-   não são saídas silenciosas. Não confunda o fallback legado com o caminho Oracle.
-2. **Quem preenche o `.env` à mão** a partir do template recebe `stable` — o piso seguro
-   para quem não vai rodar a entrevista. `--yes` com o template preserva esse valor.
+**ELUS360 (PR #22 Draft):** não há exceções operacionais para `latest`, `stable`
+ou fonte Git desconhecida. Ausência de GitHub Release própria publicada,
+ancestralidade verificável, ou conjunto completo de quatro imagens impede
+o instalador/atualizador de prosseguir. O template pode trazer `stable` como
+valor de exemplo, mas o instalador precisa substituí-lo por uma versão
+numérica previamente comprovada. Este comportamento ainda exige CI integrado
+e aceite funcional antes de qualquer cliente.
 
 O que **nenhum** caminho faz é pinar numa versão sem antes conferir que as quatro imagens
 existem lá: a tag do git nasce minutos antes das imagens, e `deskcomm-worker:1.2.1` nunca
