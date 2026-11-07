@@ -9,7 +9,12 @@ preflight_supabase_da_ref() ( # <self-hosted/vX.Y.Z> <linux/platform>
     printf 'Ref do Supabase deve ser fixa (self-hosted/vX.Y.Z): %s\n' "$ref" >&2
     return 1
   fi
-  case "$plataforma" in linux/amd64|linux/arm64) ;; *) printf 'Plataforma inválida: %s\n' "$plataforma" >&2; return 1 ;; esac
+  # ADR-0007: um Supabase upstream multiarch pode oferecer AMD64, mas o
+  # host do ELUS360 nunca é ARM64. Recusar antes de HTTP/Docker.
+  [ "$plataforma" = linux/amd64 ] || {
+    printf 'ELUS_DISTRIBUTION_NO_GO: Supabase self-hosted requer host linux/amd64 (recebido %s).\n' "$plataforma" >&2
+    return 1
+  }
   url="https://raw.githubusercontent.com/supabase/supabase/${ref}/docker/docker-compose.yml"
   arquivo="$(mktemp)" || return 1
   trap 'rm -f "$arquivo"' EXIT

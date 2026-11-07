@@ -107,3 +107,42 @@ Estado no momento do patch: implementado em branch candidata, testes de CI
 do novo SHA ainda não comprovados. Homologação de instalação, atualização e
 rollback com dados e infraestrutura descartáveis continua obrigatória após
 CI GREEN. NO-GO para merge, GHCR release, stable, staging, deploy e produção.
+
+## Reconciliação preventiva dos testes legados e rotas de instalação (07/11/2026)
+
+O CI do commit `217850a1f30d5af1de67fe2be713a0a2b045b0a2` concluiu
+8/10 workflows GREEN, 2 RED pela suíte shell. A primeira falha foi uma
+expectativa herdada (#1775/#1778): permitir `riscv64` quando existia
+marcador ou contêiner. Essa permissão contraria a ADR-0007.
+
+A revisão estendeu-se à suíte completa, sem esperar sucessivas falhas:
+
+- `guarda-arm-so-considera-instalacao-real`: leitura de metadados ainda
+  distingue `REAL`/`NOVA`; ambos recebem RC=3 em arquitetura proibida.
+- `instalacao-plataforma-preflight`, `atualizacao-plataforma-preflight`,
+  `manifestos-plataforma`: exigem as quatro imagens ELUS360, versões numéricas,
+  plataforma exclusiva AMD64 nas imagens próprias, WAHA compatível,
+  falha fechada para ARM64/registry indisponível e gates antes de backup.
+- `install-recusa-separa-causas`: substitui cenário upstream com build local
+  autorizado por regressões negativas do `install.sh` real, com dublês
+  de release GitHub/GHCR, sem clone, Docker, apt ou banco antes da validação.
+- `ubuntu-production-installer.sh` e seus testes: ajuda e gate de entrada
+  somente Linux AMD64, com recusa RC=3 antes do APT.
+- `install-single-server.sh`: host Linux AMD64 verificado antes de efeitos;
+  no primeiro provisionamento, consulta imagens da ref Supabase pinada antes
+  de criar `.runtime`, rede e credenciais. Testes cobrem ausência de AMD64
+  e bloqueio ARM64 mesmo em árvore descartável.
+- `_supabase-images.sh`: pré-voo da distribuição ELUS360 aceita só
+  `linux/amd64`, embora imagens upstream possam oferecer arquiteturas extras.
+- `oracle-arm64.md`: runbook antigo desativado; o teste agora exige o aviso
+  de incompatibilidade e impede instruções executáveis ARM64.
+
+Os dublês permanecem exclusivamente em `tests/shell/`. Não há alteração
+de schema, segredos, dados, deploy, regra de origem oficial ou permissão
+de construção local. Os testes precisam do CI no novo SHA: executar
+subsequente laboratório **realmente descartável** para instalação, atualização
+preservando dados, rollback de imagens e restore isolado de banco. CI
+com simulações não substitui a homologação operacional.
+
+**NO-GO** merge, GHCR publicação, release, stable, staging, deploy, VPS de
+cliente ou alterações no banco de produção até gates separados.

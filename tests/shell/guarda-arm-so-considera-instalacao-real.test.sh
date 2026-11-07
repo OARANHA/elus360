@@ -22,13 +22,14 @@
 #
 # O QUE ESTE ARQUIVO PROVA, e o que NÃO prova:
 #
-#   Prova que a guarda decide pelo que a instalação DEIXOU (marcador, contêiner
+#   Histórico: o guard antigo decidia pelo que a instalação DEIXOU (marcador, contêiner
 #   do projeto, contêiner do Supabase single-server) e não pelo que chegou
 #   pronto na pasta: com `.env` e nada instalado, riscv64 é recusada com a
 #   recusa do #1042. Prova que os três sinais de instalação real continuam
 #   passando, que o filtro de contêiner é por PROJETO (o de outra instalação na
 #   mesma VPS não vale), que `docker` indisponível não vira instalação inventada,
-#   e que em x86_64 o `docker` nem é chamado — a guarda não perguntou nada.
+#   e que em x86_64 o `docker` nem é chamado. A decisão atual é: instalação
+#   real pode ser detectada, mas nunca libera arquitetura não suportada.
 #
 #   NÃO prova nada numa VPS com arquitetura sem suporte de verdade: `uname` e `docker` são dublês, o
 #   diretório é descartável (mktemp) e nenhum contêiner sobe. O que se prova é
@@ -171,8 +172,8 @@ guarda "$R1" riscv64
 check ".env + compose e NADA instalado → a instalação NÃO é real" \
   test "$VEREDITO" = NOVA
 check "e riscv64 é recusada (rc=$RC, e != 0)" test "$RC" -ne 0
-check "a recusa é a do #1042 (orienta a VPS suportada)" \
-  grep -q 'Use uma VPS x86_64/amd64 ou ARM64/aarch64' "$WORK/guarda.out"
+check "a recusa exige explicitamente Linux AMD64" \
+  grep -q 'ELUS_DISTRIBUTION_NO_GO: host Linux/riscv64 não suportado' "$WORK/guarda.out"
 check "a recusa diz qual arquitetura foi encontrada" \
   grep -q 'riscv64' "$WORK/guarda.out"
 check "e NÃO diz que a instalação já existe (o aviso do #1775)" \
@@ -180,9 +181,9 @@ check "e NÃO diz que a instalação já existe (o aviso do #1775)" \
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo
-echo '── 2. OS TRÊS SINAIS DE INSTALAÇÃO REAL CONTINUAM PASSANDO (#1775 intacto)'
-# O contrapeso obrigatório: o que o #1775 consertou não pode ser desfeito. Sem
-# esta seção, um conserto que recusasse TUDO em arquitetura sem suporte também ficaria verde.
+echo '── 2. INSTALAÇÃO REAL É DETECTADA, MAS NUNCA AUTORIZA RISCV64 (ADR-0007)'
+# O controle preserva a leitura dos metadados (REAL/NOVA), separada da
+# decisão de suporte. Mesmo uma instalação REAL deve receber RC=3, sem fallback.
 R2="$WORK/caso2"; mkdir -p "$R2"; montar_pasta "$R2/deskcommcrm" 0
 marcar_instalacao() {  # marcar_instalacao <diretório> [versão]
   printf 'instalado_em=2026-09-27T00:00:00Z\nversao=%s\n' "${2:-0.9.0}" \
@@ -194,11 +195,11 @@ marcar_instalacao() {  # marcar_instalacao <diretório> [versão]
 marcar_instalacao "$R2/deskcommcrm"
 guarda "$R2" riscv64
 check "o marcador .deskcomm-instalado → a instalação é real" test "$VEREDITO" = REAL
-check "e riscv64 passa pela guarda (rc=$RC, e == 0)" test "$RC" -eq 0
-check "com o aviso de que a instalação já existe, e não com a recusa" \
-  grep -q 'JÁ EXISTE' "$WORK/guarda.out"
-check "e a recusa do #1042 NÃO aparece" \
-  nao_contem 'Use uma VPS x86_64/amd64 ou ARM64/aarch64' "$WORK/guarda.out"
+check "mesmo com instalação real riscv64 continua bloqueado (RC=3)" test "$RC" -eq 3
+check "marcador não contorna o NO-GO da arquitetura" \
+  grep -q 'ELUS_DISTRIBUTION_NO_GO' "$WORK/guarda.out"
+check "sem caminho alternativo para instalação legada" \
+  nao_contem 'JÁ EXISTE' "$WORK/guarda.out"
 
 # 2b. O contêiner do projeto, que é o caso de quem instalou numa versão
 # anterior e por isso não tem marcador. Precisa ser o contêiner do projeto
@@ -206,8 +207,8 @@ check "e a recusa do #1042 NÃO aparece" \
 R2B="$WORK/caso2b"; mkdir -p "$R2B"; montar_pasta "$R2B/deskcommcrm" 0
 guarda "$R2B" riscv64 "$(nome_derivado "$R2B/deskcommcrm")"
 check "contêiner do projeto DESTA instalação → é real" test "$VEREDITO" = REAL
-check "e riscv64 passa pela guarda (rc=$RC, e == 0)" test "$RC" -eq 0
-check "com o aviso de instalação existente" grep -q 'JÁ EXISTE' "$WORK/guarda.out"
+check "mesmo com instalação real riscv64 continua bloqueado (RC=3)" test "$RC" -eq 3
+check "com NO-GO mesmo havendo contêiner da instalação" grep -q 'ELUS_DISTRIBUTION_NO_GO' "$WORK/guarda.out"
 
 # 2c. O contêiner do Supabase single-server, que o modo single-server cria com
 # o sufixo `-supabase` no nome do projeto. Sem este sinal, quem instalou em
@@ -215,7 +216,7 @@ check "com o aviso de instalação existente" grep -q 'JÁ EXISTE' "$WORK/guarda
 R2C="$WORK/caso2c"; mkdir -p "$R2C"; montar_pasta "$R2C/deskcommcrm" 0
 guarda "$R2C" riscv64 "$(nome_derivado "$R2C/deskcommcrm")-supabase"
 check "contêiner do Supabase single-server → é real" test "$VEREDITO" = REAL
-check "e riscv64 passa pela guarda (rc=$RC, e == 0)" test "$RC" -eq 0
+check "mesmo com instalação real riscv64 continua bloqueado (RC=3)" test "$RC" -eq 3
 
 # 2d. O COMPOSE_PROJECT_NAME do `.env` manda sobre o nome derivado da pasta, e
 # o guard tem de procurar pelo que os contêineres carregam de verdade. Uma
@@ -226,7 +227,7 @@ printf 'COMPOSE_PROJECT_NAME=deskcommcrm-2\n' >> "$R2D/deskcommcrm/.env"
 guarda "$R2D" riscv64 "deskcommcrm-2"
 check "COMPOSE_PROJECT_NAME do .env manda sobre o nome da pasta → é real" \
   test "$VEREDITO" = REAL
-check "e riscv64 passa pela guarda (rc=$RC, e == 0)" test "$RC" -eq 0
+check "mesmo com instalação real riscv64 continua bloqueado (RC=3)" test "$RC" -eq 3
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo
@@ -242,7 +243,7 @@ guarda "$R3" riscv64 "wordpress_app_pljr imobplus-server-app-1 traefik"
 check "contêiner de OUTRO programa na mesma VPS → a instalação NÃO é real" \
   test "$VEREDITO" = NOVA
 check "e riscv64 é recusada (rc=$RC, e != 0)" test "$RC" -ne 0
-check "a recusa é a do #1042" grep -q 'Use uma VPS x86_64/amd64 ou ARM64/aarch64' "$WORK/guarda.out"
+check "host não suportado recebe o NO-GO atual" grep -q 'ELUS_DISTRIBUTION_NO_GO' "$WORK/guarda.out"
 
 # Um `docker` que não responde (daemon parado, sem permissão no socket) devolve
 # vazio, e vazio é "não achei" — a resposta que manda RECUSAR. Simulamos socket
@@ -271,7 +272,7 @@ check "e o docker nem é chamado sem .env" docker_nao_falou
 
 # ─────────────────────────────────────────────────────────────────────────────
 echo
-echo '── 4. x86_64: A GUARDA CONTINUA NÃO PERGUNTANDO NADA'
+echo '── 4. x86_64/LINUX: arquitetura compatível não consulta contêineres'
 # Em amd64 o veredito é `amd64` antes de olhar o disco, e a guarda não deve
 # tocar no Docker para descobrir isso. O `test:shell` roda num Mac Apple
 # Silicon, então este caso é o que impede a suíte de depender do processador de
@@ -385,7 +386,7 @@ check "e ninguém no kit a chama" \
 
 printf '\nprovas: %d vermelho(s) de %d\n' "$FAILS" "$TOTAL"
 if [ "$FAILS" -eq 0 ]; then
-  echo "OK — a guarda só considera instalação real (#1778) e o caminho de recuperação do #1775 continua aberto."
+  echo "OK — a guarda identifica instalação real, mas somente Linux AMD64 pode executar o kit."
 else
   echo "FALHOU — $FAILS prova(s)."
 fi

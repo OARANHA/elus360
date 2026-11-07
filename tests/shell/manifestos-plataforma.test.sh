@@ -49,35 +49,40 @@ expect_fail() {
 }
 
 expect_ok 'host amd64' test "$(plataforma_oci_do_host x86_64)" = linux/amd64
-expect_ok 'host arm64' test "$(plataforma_oci_do_host aarch64)" = linux/arm64
+expect_fail 'host ARM64 proibido' ELUS_DISTRIBUTION_NO_GO plataforma_oci_do_host aarch64
 expect_fail 'unknown host' riscv64 plataforma_oci_do_host riscv64
 
 export MOCK_RAW="$both" MOCK_FORMAT=$'linux/amd64\nlinux/arm64\nunknown/unknown'
 expect_ok 'index amd64' manifesto_tem_plataforma example/app:1 linux/amd64
-expect_ok 'index arm64' manifesto_tem_plataforma example/app:1 linux/arm64
+expect_fail 'index ARM64 proibido mesmo em imagem multiarch' inválida manifesto_tem_plataforma example/app:1 linux/arm64
+expect_fail 'imagem própria multiarch não cumpre AMD64 exclusivo' ELUS_DISTRIBUTION_NO_GO manifesto_tem_plataforma example/app:1 linux/amd64 exclusivo
 export MOCK_RAW="$amd" MOCK_FORMAT='linux/amd64'
-expect_fail 'amd-only image on ARM' linux/arm64 manifesto_tem_plataforma example/app:1 linux/arm64
+expect_ok 'amd-only image satisfaz modo exclusivo' manifesto_tem_plataforma example/app:1 linux/amd64 exclusivo
 export MOCK_RAW="$arm" MOCK_FORMAT='linux/arm64'
 expect_fail 'arm-only image on AMD' linux/amd64 manifesto_tem_plataforma example/app:1 linux/amd64
 
-export MOCK_RAW="$single" MOCK_FORMAT='linux/arm64'
-expect_ok 'single manifest ARM' manifesto_tem_plataforma example/app:1 linux/arm64
-expect_fail 'single manifest wrong arch' linux/amd64 manifesto_tem_plataforma example/app:1 linux/amd64
+export MOCK_RAW="$single" MOCK_FORMAT='linux/amd64'
+expect_ok 'single manifest AMD64' manifesto_tem_plataforma example/app:1 linux/amd64 exclusivo
+export MOCK_FORMAT='linux/arm64'
+expect_fail 'single manifest ARM não oferece AMD64' linux/amd64 manifesto_tem_plataforma example/app:1 linux/amd64
 
 export MOCK_RAW='not-json'
-expect_fail 'malformed manifest' OCI manifesto_tem_plataforma example/app:1 linux/arm64
+expect_fail 'malformed manifest' OCI manifesto_tem_plataforma example/app:1 linux/amd64
 export MOCK_RAW=''
-expect_fail 'empty manifest' OCI manifesto_tem_plataforma example/app:1 linux/arm64
+expect_fail 'empty manifest' OCI manifesto_tem_plataforma example/app:1 linux/amd64
 export MOCK_RAW="$both" MOCK_FORMAT=$'linux/amd64\nlinux/arm64' MOCK_DOCKER_FAIL=1
-expect_fail 'unreachable registry' inacessível manifesto_tem_plataforma example/app:1 linux/arm64
+expect_fail 'unreachable registry' inacessível manifesto_tem_plataforma example/app:1 linux/amd64
 unset MOCK_DOCKER_FAIL
 
+# Testes de GHCR precisam oferecer OCI AMD64 exclusivo nas demais imagens.
+export MOCK_RAW="$amd" MOCK_FORMAT='linux/amd64'
 export MOCK_STATUS=403
-expect_fail 'private GHCR package' 403 preflight_imagens_crm 1.66.1 linux/arm64
+expect_fail 'private GHCR package' 403 preflight_imagens_crm 1.102.0 linux/amd64
 export MOCK_STATUS=000
-expect_fail 'GHCR offline' 000 preflight_imagens_crm 1.66.1 linux/arm64
-export MOCK_STATUS=200 MOCK_MISSING_IMAGE=deskcomm-voice-agent
-expect_fail 'one of four missing' deskcomm-voice-agent preflight_imagens_crm 1.66.1 linux/arm64
+expect_fail 'GHCR offline' 000 preflight_imagens_crm 1.102.0 linux/amd64
+export MOCK_STATUS=200 MOCK_MISSING_IMAGE=elus360-voice-agent
+expect_fail 'one of four missing' elus360-voice-agent preflight_imagens_crm 1.102.0 linux/amd64
 unset MOCK_MISSING_IMAGE
-expect_ok 'all four match' preflight_imagens_crm 1.66.1 linux/arm64
-expect_ok 'legacy name checks platform' trio_publicado 1.66.1
+export MOCK_RAW="$amd" MOCK_FORMAT='linux/amd64'
+expect_ok 'all four match' preflight_imagens_crm 1.102.0 linux/amd64
+expect_ok 'all four image tags publicly reachable' trio_publicado 1.102.0
