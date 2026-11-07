@@ -209,6 +209,7 @@ cp -R "$REPO_ROOT/hostgator-setup-kit/manutencao" "$PROJ/hostgator-setup-kit/"
 # against the REAL _common.sh. No override is installed in the product.
 cat >> "$PROJ/hostgator-setup-kit/_common.sh" <<'OFFLINE_GATE'
 elus360_origem_confiavel() { return 0; }
+elus360_release_publicada_no_main() { return 0; }
 elus360_release_tag_comprovada() { return 0; }
 OFFLINE_GATE
 
@@ -731,66 +732,33 @@ check "  o arquivo de cabeçalho nasceu com permissão 600" \
   test "$(modo_do_arquivo "$CASO11/.env.cron-drain")" = "600"
 cd "$PROJ" || exit 1
 
-echo "── 12. VPS de outra arquitetura: atualizar se recupera sozinho (issue 1060)"
-# O defeito: o registro responde "no matching manifest for linux/arm64/v8", o
-# `pull` não traz imagem nenhuma e o `up -d` morre junto. Medido no Compose,
-# worker, scheduler e voz — que TÊM `build:` ao lado do `image:` — são
-# reconstruídos sozinhos em qualquer falha de pull; o `app` fica SEM `build:`
-# de propósito (#1060), e é a falta da imagem dele que faz o `up -d` falhar e
-# entrega a decisão à guarda, que é quem julga quando o registro não responde.
-# Antes da guarda o script terminava como se tivesse dado certo: o CRM ficava
-# na versão velha e o dono não era avisado. Pelo botão "Atualizar" nem isso,
-# porque o agente roda sozinho no cron. O desfecho certo é construir aqui a
-# MESMA versão alvo e dizer, em português, o que aconteceu.
+echo "── 12. Imagem inacessível na arquitetura: recusa, sem build local nem troca de pins"
+# No ELUS360 a arquitetura sem pacote NÃO autoriza compilar na VPS. O
+# runner devolve a mesma falha OCI do teste herdado, mas agora exige NO-GO.
 cd "$PROJ" || exit 1
 export DOCKER_BUILD_FEITO="$WORK/build-feito"
 rm -f "$DOCKER_BUILD_FEITO"
-# Instalado numa versão anterior à alvo: sem isto a guarda de retrocesso
-# recusaria antes de chegar ao `up -d`.
 sed -i.bak "s|^APP_IMAGE=.*|APP_IMAGE=${NS}/elus360:0.9.0|" .env && rm -f .env.bak
 : > "$DOCKER_LOG"
 export ARQ_DIFERENTE=1
 run_update --to v1.1.0
 unset ARQ_DIFERENTE
-check "termina com sucesso, sem intervenção manual" test "$RC" -eq 0
-check "o pull falhou de verdade no meio do caminho" \
-  grep -q "no matching manifest for linux/arm64/v8" "$OUTFILE"
-check "caiu para o build local do overlay de build" \
-  grep -q -- "-f docker-compose.build.yml build" "$DOCKER_LOG"
-check "subiu pelo override (pull_policy: never), sem voltar ao registro" \
-  grep -q -- "-f docker-compose.build.yml up -d" "$DOCKER_LOG"
-check "explica em português o que aconteceu" grep -q "não servem para esta VPS" "$OUTFILE"
-# O que sobra na tela do site é o rabo da saída (agent.sh: tail -40). Explicação
-# que fica só lá em cima não chega a quem clicou em "Atualizar".
-fim_tem() { tail -40 "$OUTFILE" | grep -q "$1"; }
-check "e diz no FIM, que é o que o agente manda para a tela" \
-  fim_tem "construídas aqui nesta VPS"
+check "imagem/arquitetura inválida → updater recusa" test "$RC" -ne 0
+check "não compilou nada na VPS" bash -c "! grep -q 'docker-compose.build.yml.*build' '$DOCKER_LOG'"
+check "a imagem anterior continua pinada" grep -q "^APP_IMAGE=${NS}/elus360:0.9.0$" .env
+check "diagnóstico da recusa ficou disponível" bash -c "grep -Eiq 'registro|preflight|imagem|atualiza' '$OUTFILE'"
+check "não executou build mesmo com escape de propósito" test ! -e "$DOCKER_BUILD_FEITO"
 
-# O caminho feliz NÃO muda de comportamento: imagem disponível, nada de build
-# local e nenhuma menção a arquitetura.
+echo "── 12a. Mesmo alvo com registry disponível: o caminho normal não constrói"
 sed -i.bak "s|^APP_IMAGE=.*|APP_IMAGE=${NS}/elus360:0.9.0|" .env && rm -f .env.bak
 : > "$DOCKER_LOG"
 run_update --to v1.1.0
-check "caminho feliz: conclui normalmente" test "$RC" -eq 0
-check "caminho feliz: não constrói nada aqui (não paga o build à toa)" \
-  bash -c "! grep -q 'docker-compose.build.yml' '$DOCKER_LOG'"
-check "caminho feliz: a saída não fala em arquitetura nem em construção local" \
-  bash -c "! grep -qiE 'arquitetura|construídas aqui nesta VPS' '$OUTFILE'"
+check "caminho feliz executado sem falha" test "$RC" -eq 0
+check "nenhum build local em caminho feliz" bash -c "! grep -q 'docker-compose.build.yml' '$DOCKER_LOG'"
+check "novo pin é imagem própria ELUS" grep -q "^APP_IMAGE=${NS}/elus360:1.1.0$" .env
 
-# O passo 9 do install.sh tinha o MESMO buraco do `up -d` sem guarda, e a saída
-# dele também. A recuperação é a MESMA função de _common.sh, exercitada acima de
-# ponta a ponta pelo update.sh; aqui se prova que o install.sh a chama — e logo
-# depois do `up -d` que pode falhar, não em outro lugar qualquer.
-#
-# A janela do grep era -A1 e virou -A6 na #2631: o portão `build_local_permitido`
-# entrou EXATAMENTE entre o `if ! dc up -d; then` e a chamada da recuperação, e
-# -A1 passou a apontar para o portão. A intenção da prova não mudou (a
-# recuperação fica no bloco do `up -d`); o que se ganhou é a segunda metade da
-# mesma régua: o portão vem ANTES de construir. O comportamento dos dois lados
-# — portão aberto e portão fechado — é provado de ponta a ponta em
-# tests/shell/install-portao-do-build.test.sh.
-check "install.sh consulta o portão build_local_permitido no mesmo bloco do up -d, antes de chamar a recuperação" \
-  bash -c "b=\"\$(grep -A6 'if ! dc up -d; then' '$REPO_ROOT/hostgator-setup-kit/install.sh')\"; printf '%s\n' \"\$b\" | grep -q build_local_permitido && printf '%s\n' \"\$b\" | grep -q construir_aqui_e_subir"
+check "instalador usa --no-build e não expõe recuperação local" \
+  grep -Fq 'if ! dc up -d --no-build; then' "$REPO_ROOT/hostgator-setup-kit/install.sh"
 
 echo "── 12b. Worker, scheduler e voz com image: + build:; o app SEM build:, de propósito (#1060)"
 # A parte boa medida no Compose fica: com `image:` + `build:` no mesmo bloco,
