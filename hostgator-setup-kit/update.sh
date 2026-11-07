@@ -20,6 +20,9 @@ source "$KIT_DIR/_common.sh"
 # shellcheck source=manutencao.sh
 source "$KIT_DIR/manutencao.sh"
 enter_project
+# A origem é comprovada ANTES de cron, notificações, autenticação ou DDL.
+elus360_origem_confiavel "$(git config --get remote.origin.url 2>/dev/null || true)" \
+  || die "ELUS_DISTRIBUTION_NO_GO: remote.origin não é OARANHA/elus360; nenhuma atualização será executada."
 
 # ── 0-. O laço do diagnóstico (#1955) ───────────────────────────────────────
 # Toda execução termina com um arquivo legível — inclusive as que MORREM antes
@@ -127,6 +130,10 @@ git fetch --tags --quiet origin 2>/dev/null || c_ylw "⚠ não consegui falar co
 [ -n "$TARGET_TAG" ] || die "Não encontrei nenhuma versão publicada para instalar. (Tag existir não basta: o alvo é a última release estável publicada no GitHub. Se o servidor não conseguiu falar com a API, tente de novo mais tarde; para instalar uma versão específica, passe --to vX.Y.Z.)"
 git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
   || die "Não conheço a versão $TARGET_TAG aqui. Confira o nome (ex.: v1.1.0) ou tente de novo quando o servidor conseguir falar com o GitHub."
+# Uma tag local ou o --to do operador NÃO constituem release publicada.
+# Requer a release do fork, tag idêntica no GitHub e ancestralidade em main.
+elus360_release_tag_comprovada "$TARGET_TAG" \
+  || die "ELUS_DISTRIBUTION_NO_GO: release/tag ELUS360 sem procedência oficial e ancestralidade em main comprovadas."
 CURRENT_TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
 
 # O código estar em dia NÃO significa que o app está: quem roda é a imagem.
