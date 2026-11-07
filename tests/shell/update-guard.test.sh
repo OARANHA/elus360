@@ -273,6 +273,13 @@ run_update() {  # run_update <args...> → saída em $OUTFILE, status em $RC
   # que é justamente o silêncio que este arquivo existe para caçar.
   RC=0
   bash hostgator-setup-kit/update.sh "$@" > "$OUTFILE" 2>&1 || RC=$?
+  # Erro inesperado no harness: não esconder a causa sob dezenas de checks
+  # em cascata. Mostra SOMENTE mensagens de falha da instalação fictícia;
+  # credenciais e payloads do .env nunca entram no diagnóstico.
+  if [ "$RC" -ne 0 ] && [ "$RC" -ne 3 ]; then
+    printf '  [fixture updater RC=%s — motivo resumido]\n' "$RC"
+    { grep -Ei 'ELUS_DISTRIBUTION_NO_GO|falha|erro|fatal|recusad|não consegui|not found|error:' "$OUTFILE" || true; } | tail -8
+  fi
 }
 
 echo "── 1. Alvo anterior ao instalado é recusado antes do backup"
