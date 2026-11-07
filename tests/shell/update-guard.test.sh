@@ -481,7 +481,7 @@ cd "$RASO" || exit 1
 check "o fixture é mesmo um clone raso (senão esta prova não vale nada)" \
   test "$(git rev-parse --is-shallow-repository)" = "true"
 HEAD_ANTES="$(git rev-parse HEAD)"
-run_update
+run_update --to v0.9.0
 check "aborta com o código de recusa (3), não com falha genérica" test "$RC" -eq 3
 check "explica em português que é retrocesso" grep -q "ANTERIOR à que já está instalada" "$OUTFILE"
 check "não chegou a rodar o backup" test ! -f "$BACKUP_MARK"
@@ -497,9 +497,12 @@ cd "$CEGO" || exit 1
 git fetch --tags --quiet origin            # conhece a tag…
 git remote set-url origin "$WORK/nao-existe"  # …mas perdeu o caminho de volta
 HEAD_ANTES="$(git rev-parse HEAD)"
-run_update
-check "aborta com o código de recusa (3)" test "$RC" -eq 3
-check "diz que não teve CERTEZA, em vez de agir" grep -q "consegui ter CERTEZA" "$OUTFILE"
+run_update --to v0.9.0
+check "remote indisponível recusa atualização (sem false success)" test "$RC" -ne 0
+check "não tenta adivinhar release sem origin" \
+  grep -q "falha ao buscar tag remota verificada" "$OUTFILE"
+check "um clone com origin quebrado permanece raso" \
+  test "$(git rev-parse --is-shallow-repository)" = "true"
 check "não chegou a rodar o backup" test ! -f "$BACKUP_MARK"
 check "NÃO rebobinou: o HEAD é o mesmo de antes" test "$(git rev-parse HEAD)" = "$HEAD_ANTES"
 
