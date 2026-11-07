@@ -12,6 +12,9 @@ on:
       - "hostgator-setup-kit/**"
       - "scripts/elus360-distribution-guard.py"
       - "tests/distribution/**"
+      - "tests/shell/update-guard.test.sh"
+      - "tests/shell/install-portao-do-build.test.sh"
+      - "tests/shell/guarda-arm-nao-mata-a-recuperacao.test.sh"
       - ".env.hostgator.example"
 
 permissions:
@@ -34,6 +37,12 @@ jobs:
           bash -n hostgator-setup-kit/_common.sh
           bash -n hostgator-setup-kit/install.sh
           bash -n hostgator-setup-kit/update.sh
+          bash -n hostgator-setup-kit/agent.sh
+      - name: Legacy distribution regressions (isolated mocks, no real Docker)
+        run: |
+          bash tests/shell/install-portao-do-build.test.sh
+          bash tests/shell/guarda-arm-nao-mata-a-recuperacao.test.sh
+          bash tests/shell/update-guard.test.sh
 
   smoke-images:
     needs: [verify-distribution]
