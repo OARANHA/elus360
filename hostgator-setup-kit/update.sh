@@ -23,6 +23,7 @@ enter_project
 # A origem é comprovada ANTES de cron, notificações, autenticação ou DDL.
 elus360_origem_confiavel "$(git config --get remote.origin.url 2>/dev/null || true)" \
   || die "ELUS_DISTRIBUTION_NO_GO: remote.origin não é OARANHA/elus360; nenhuma atualização será executada."
+[ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || die "ELUS_DISTRIBUTION_NO_GO: override de release externa é proibido."
 
 # ── 0-. O laço do diagnóstico (#1955) ───────────────────────────────────────
 # Toda execução termina com um arquivo legível — inclusive as que MORREM antes
