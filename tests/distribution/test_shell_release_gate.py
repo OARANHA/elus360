@@ -135,5 +135,22 @@ class ReleaseGateShell(unittest.TestCase):
         self.assertNotIn("promover-stable:", smoke)
 
 
+    def test_untrusted_release_override_rejected_early(self):
+        install = INSTALLER.read_text()
+        update = UPDATER.read_text()
+        self.assertLess(install.index('DESKCOMM_RELEASES_LATEST_URL'), install.index('git clone --depth 1'))
+        self.assertLess(update.index('DESKCOMM_RELEASES_LATEST_URL'), update.index('setup_update_agent_cron'))
+
+    def test_release_tag_is_pinned_before_installer_schema_changes(self):
+        install = INSTALLER.read_text()
+        tag_fetch = install.index('git fetch --no-tags --quiet origin "refs/tags/v')
+        verify = install.index('elus360_release_tag_comprovada "v')
+        checkout = install.index('git checkout --quiet "v')
+        baseline = install.index('supabase/baseline.sql', checkout)
+        self.assertLess(tag_fetch, verify)
+        self.assertLess(verify, checkout)
+        self.assertLess(checkout, baseline)
+
+
 if __name__ == "__main__":
     unittest.main()
