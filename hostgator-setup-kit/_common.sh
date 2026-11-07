@@ -1047,7 +1047,9 @@ restaurar_servicos() {
 # arquitetura da VPS, tag que ainda está publicando, pacote que nasceu privado
 # no registro e registro fora do ar caem todos no mesmo caminho, sem depender de
 # casar em inglês uma frase que o Docker escreve como quer.
-construir_aqui_e_subir() {  # construir_aqui_e_subir [versão alvo] → 0 se subiu
+construir_aqui_e_subir() {  # ELUS360 não compila imagens na VPS
+  c_red "ELUS_DISTRIBUTION_NO_GO: construção local de imagens ELUS360 é proibida; use imagens verificadas do CI."
+  return 1
   local versao="${1:-}"
   # A imagem construída aqui responde /api/v1/health com a versão de verdade —
   # o código no disco É a versão alvo. Sem isto ela responderia "local".
@@ -1311,17 +1313,12 @@ preflight_atualizacao() {  # preflight_atualizacao <versão alvo>
 # `next-build` e a instalação em 502 (#1955, critério 2).
 #
 # → 0 = pode construir aqui.
-build_local_pedido() {  # → 0 quando quem opera pediu construção local de propósito
-  case "${DESKCOMM_BUILD_LOCAL:-}" in 1|sim|s|yes) return 0 ;; esac
+build_local_pedido() {  # ELUS360: não permitir bypass por variável do operador
   return 1
 }
 
-build_local_permitido() {  # build_local_permitido <versão alvo>
-  build_local_pedido && return 0
-  case "${DESKCOMM_BUILD_LOCAL:-}" in
-    0|nao|não|no) return 1 ;;  # quem opera proibiu de propósito
-  esac
-  [ "$(veredito_das_imagens_da_release "${1:-}")" != "indisponivel" ]
+build_local_permitido() {  # ELUS360: CI publica; VPS só consome
+  return 1
 }
 
 # Por que o portão recusou? Ecoa UM motivo, pronto para a mensagem da recusa.
@@ -1434,11 +1431,11 @@ conferir_config_do_proxy() {
 # A lista vem do `config --services`, que só lista serviço de profile ativo
 # (nomear à mão ligaria profile desligado).
 subir_o_parque() {
-  [ -n "${PROXY_RECUSA:-}" ] || { dc up -d; return; }
+  [ -n "${PROXY_RECUSA:-}" ] || { dc up -d --no-build; return; }
   local servicos
   servicos="$(dc config --services | grep -vx caddy)" || return 1
   # shellcheck disable=SC2086  # um nome de serviço por palavra
-  dc up -d $servicos
+  dc up -d --no-build $servicos
 }
 
 # Recria o Caddy, que lê o Caddyfile por bind mount de arquivo e por isso não
