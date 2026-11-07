@@ -247,6 +247,12 @@ git init --quiet
 git add -A
 git commit --quiet -m "v0.9.0"
 git tag v0.9.0
+# ELUS360 requires git fetch --tags success BEFORE any backup or SQL.
+# The old harness had no origin at all and therefore died in its new read-only
+# gate before entering any scenarios. Give the disposable project a REAL,
+# local-only Git remote; no production override, GitHub or network involved.
+git remote add origin "$PROJ"
+git fetch --tags --quiet origin || { echo "fixture: origin local indisponível"; exit 1; }
 # Instalação que SEGUE A MAIN: HEAD à frente da última tag publicada.
 echo topo > topo.txt; git add -A; git commit --quiet -m "topo da main"
 
