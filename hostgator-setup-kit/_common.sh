@@ -1047,31 +1047,9 @@ restaurar_servicos() {
 # arquitetura da VPS, tag que ainda está publicando, pacote que nasceu privado
 # no registro e registro fora do ar caem todos no mesmo caminho, sem depender de
 # casar em inglês uma frase que o Docker escreve como quer.
-construir_aqui_e_subir() {  # ELUS360 não compila imagens na VPS
-  c_red "ELUS_DISTRIBUTION_NO_GO: construção local de imagens ELUS360 é proibida; use imagens verificadas do CI."
+construir_aqui_e_subir() {  # distribuição ELUS360 não constrói imagens no host
+  c_red "ELUS_DISTRIBUTION_NO_GO: imagens só podem vir do CI e do registry ELUS360."
   return 1
-  local versao="${1:-}"
-  # A imagem construída aqui responde /api/v1/health com a versão de verdade —
-  # o código no disco É a versão alvo. Sem isto ela responderia "local".
-  [ -n "$versao" ] && export APP_VERSION="$versao"
-  # O aviso vem ANTES da construção, e não depois: são 15 a 25 minutos de tela
-  # parada, e sem ele o dono conclui que travou e mata o script no meio.
-  c_ylw "$(t "⚠ As imagens prontas desta versão não servem para esta VPS.")"
-  c_ylw "$(t "  O motivo mais comum é a arquitetura dela ser diferente da das imagens")"
-  c_ylw "$(t "  publicadas: o registro responde que não tem manifest para a arquitetura")"
-  c_ylw "$(t "  daqui. Não é problema da sua VPS nem do seu acesso.")"
-  c_ylw "$(t "  Vou construir as três imagens aqui, do código desta versão.")"
-  c_ylw "$(t "  Leva de 15 a 25 minutos e a tela fica sem novidade nesse tempo —")"
-  c_ylw "$(t "  não é travamento, pode deixar rodando.")"
-  if ! dc -f "$COMPOSE_BUILD" build; then
-    c_red "$(t "✖ A construção das imagens aqui falhou (o erro está logo acima).")"
-    return 1
-  fi
-  if ! dc -f "$COMPOSE_BUILD" up -d; then
-    c_red "$(t "✖ As imagens foram construídas, mas os serviços não subiram.")"
-    return 1
-  fi
-  return 0
 }
 
 # ── O que fazer quando o REGISTRO DE IMAGENS não responde (#1955) ───────────
