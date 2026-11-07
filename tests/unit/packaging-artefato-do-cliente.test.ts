@@ -311,57 +311,27 @@ describe("packaging — o artefato que o cliente instala", () => {
     }
   });
 
-  it("o workflow publica as quatro imagens e injeta APP_VERSION", () => {
-    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/publish-image.yml"), "utf8");
-    for (const imagem of [
-      "deskcommcrm",
-      "deskcomm-worker",
-      "deskcomm-scheduler",
-      "deskcomm-voice-agent",
-    ]) {
-      expect(wf, `publish-image.yml não publica '${imagem}'`).toContain(`name: ${imagem}`);
+  it("workflow ELUS360 smoke constrói as quatro imagens sem credenciais GHCR", () => {
+    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/build-elus360.yml"), "utf8");
+    for (const imagem of ["elus360", "elus360-worker", "elus360-scheduler", "elus360-voice-agent"]) {
+      expect(wf, `imagem ELUS360 ausente na matriz: ${imagem}`)
+        .toContain(`name: ${imagem}, file:`);
     }
-    expect(wf, "publish-image.yml não passa APP_VERSION como build-arg").toContain(
-      "APP_VERSION=",
-    );
-    // A sonda prende o EFEITO (o canal `stable` passa a existir), não a forma.
-    // Ela já mudou uma vez: `stable` saiu da lista de tags da matriz — onde cada
-    // imagem o movia sozinha — para o job `promover-stable`, que só roda com as
-    // três publicadas (issue #488). Prender `value=stable` fazia esta guarda
-    // reprovar justamente o conserto.
-    expect(wf, "publish-image.yml não cria o canal 'stable'").toMatch(/:stable\b/);
+    expect(wf).toContain("APP_VERSION=distribution-smoke");
+    expect(wf).toContain("push: false");
+    expect(wf).toContain("contents: read");
+    expect(wf).not.toContain("packages: write");
+    expect(wf).not.toContain("docker/login-action");
   });
 
-  it("nenhum gatilho reconstrói uma tag já publicada", () => {
-    // Medido na v1.3.0: com `release: types: [published]` ligado ao lado de
-    // `push: tags`, `gh release create` disparou DOIS runs para o mesmo commit
-    // (19:53 push, 19:58 release). O segundo moveu `1.3.0` e `1.3` para um build
-    // novo e deixou `stable` no antigo — digests divergentes para o mesmo
-    // `revision`, e uma tag de VERSÃO movida depois de publicada, que é
-    // exatamente o que o invariante 3 da doutrina proíbe.
-    //
-    // Este teste guarda o COMPORTAMENTO (o que dispara um build que publica),
-    // não a ausência de uma string: qualquer gatilho novo que re-publique sobre
-    // uma tag existente reprova aqui, não só o `release`.
-    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/publish-image.yml"), "utf8");
-    const gatilhos = wf.split(/^jobs:/m)[0] ?? "";
-    const semComentarios = gatilhos
-      .split("\n")
-      .filter((l) => !/^\s*#/.test(l))
-      .join("\n");
-
-    for (const proibido of ["release:", "workflow_run:", "schedule:", "repository_dispatch:"]) {
-      expect(
-        semComentarios,
-        `publish-image.yml reagiria a '${proibido}' — esse gatilho pode reconstruir e MOVER uma tag de versão já publicada`,
-      ).not.toContain(proibido);
-    }
-
-    // E o gatilho que precisa existir continua existindo — sem esta linha o
-    // teste passaria num workflow que não publica coisa nenhuma.
-    expect(semComentarios, "publish-image.yml deixou de reagir a push de tag").toMatch(
-      /tags:\s*\["?v\*/,
-    );
+  it("sem aprovação operacional, nenhuma trigger do fork publica versão ou stable", () => {
+    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/build-elus360.yml"), "utf8");
+    const trigger = wf.split(/^permissions:/m)[0] ?? "";
+    expect(trigger).toContain("pull_request:");
+    expect(trigger).not.toMatch(/^  (?:push|workflow_dispatch|release|schedule):/m);
+    expect(wf).not.toContain("promover-stable:");
+    expect(wf).not.toContain("github.event_name == 'push'");
+    expect(wf).toContain("github.event_name == 'pull_request'");
   });
 });
 
