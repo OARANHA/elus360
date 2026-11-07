@@ -1410,42 +1410,16 @@ fi
 #
 # Resolvido no REMOTO porque o clone é `--depth 1` e não traz tag nenhuma.
 # Em ARM64 a versão já foi resolvida e conferida pelo pré-voo, lá em cima.
-[ "$PLATAFORMA_HOST" = linux/arm64 ] || VERSAO_ALVO="$(ultima_versao_publicada "$REPO_URL")"
-
-# A tag do git é condição NECESSÁRIA, não suficiente: ela nasce minutos antes
-# das imagens, e `deskcomm-worker`/`deskcomm-scheduler` só passaram a existir
-# depois das releases que já estão publicadas — `deskcomm-worker:1.2.1` nunca
-# vai existir, porque a v1.2.1 é passado. Sem esta conferência, o .env do
-# cliente receberia duas referências impossíveis e o kit as construiria aqui em
-# silêncio, do topo da main: app de uma release + worker de outro código.
-#
-# Cascata, do mais específico ao mais disponível. Cada nível pergunta pelas TRÊS
-# imagens juntas, porque instalar com elas desalinhadas é o defeito, não a
-# solução.
-if [ "$PLATAFORMA_HOST" = linux/arm64 ]; then
-  : # pré-voo OCI já passou
-elif [ -n "$VERSAO_ALVO" ] && trio_publicado "$VERSAO_ALVO"; then
-  : # o caminho normal: as três publicadas na última versão
-elif trio_publicado "stable"; then
-  c_ylw "$(t "⚠ A versão {1} ainda não tem as três imagens publicadas." "${VERSAO_ALVO:-$(t "mais recente")}")"
-  c_ylw "$(t "  Instalando pelo canal 'stable' (a última versão completa).")"
-  VERSAO_ALVO="stable"
-elif [ -n "$VERSAO_ALVO" ]; then
-  # Nem a versão nem o `stable` têm o trio. Segue assim mesmo — o compose tem
-  # `build:` ao lado do `image:` do worker e do scheduler, então eles são
-  # construídos aqui. É lento, mas instala. O que NÃO pode é isso acontecer
-  # calado: o dono precisa saber que duas peças dele saíram do fonte local.
-  c_ylw "$(t "⚠ As imagens do worker e do agendador ainda não estão publicadas.")"
-  c_ylw "$(t "  Elas serão construídas neste servidor — leva alguns minutos a mais.")"
-  c_ylw "$(t "  Rode 'bash hostgator-setup-kit/update.sh' quando a próxima versão sair.")"
-else
-  # Falha ABERTA: sem rede ou sem tag no remoto, segue como antes. Travar a
-  # instalação por não resolver um número seria trocar previsibilidade por
-  # disponibilidade — mas o aviso sai, porque o dono precisa saber que ficou
-  # num canal móvel em vez de numa versão.
-  VERSAO_ALVO="latest"
-  c_ylw "$(t "⚠ Não consegui descobrir a última versão publicada (rede?).")"
-  c_ylw "$(t "  Instalando pelo canal 'latest'. Depois rode: bash hostgator-setup-kit/update.sh")"
+# ELUS360: a autoridade é GitHub Releases do próprio repositório, nunca
+# a maior tag, :latest, :stable, nem imagens construídas na VPS por fallback.
+# ARM64 já resolve e verifica o pacote mais cedo no seu pré-voo.
+if [ "$PLATAFORMA_HOST" != linux/arm64 ]; then
+  VERSAO_ALVO="$(ultima_release_estavel)"
+  VERSAO_ALVO="${VERSAO_ALVO#v}"
+fi
+if [[ ! "${VERSAO_ALVO:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+   || ! trio_publicado "$VERSAO_ALVO"; then
+  die "ELUS_DISTRIBUTION_NO_GO: nenhuma release própria ELUS360 com quatro imagens públicas foi verificada; não uso stable/latest nem compilo imagens nesta VPS."
 fi
 IMAGEM_APP_DEFAULT="${IMG_APP}:${VERSAO_ALVO}"
 
