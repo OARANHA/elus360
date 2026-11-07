@@ -2447,6 +2447,18 @@ elus360_origem_confiavel() {
 # Exige release PÚBLICA do fork + tag Git idêntica à do remoto e contida em
 # main. Faz apenas GETs/consultas antes de qualquer backup, checkout ou DDL.
 # Não prova OCI digests ou autorização de deploy: isso exige gate separado.
+# Somente API oficial: seleção de release ELUS é verificável mesmo ANTES
+# de clonar o repositório (instalador novo). Nunca usa git tag/lista local.
+elus360_ultima_release_do_fork() {
+  local json tag
+  [ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || return 1
+  json="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
+    'https://api.github.com/repos/OARANHA/elus360/releases/latest' 2>/dev/null)" || return 1
+  tag="$(printf '%s\n' "$json" | sed -nE 's/^[[:space:]]*"tag_name":[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
+  printf '%s\n' "$tag"
+}
+
 # Checagem READ-ONLY: release ELUS publicada, tag remota íntegra e contida
 # na main. Esta etapa é executada ANTES de cron, GoTrue, VAPID, git fetch ou DDL.
 # O JSON vem exclusivamente da API HTTPS oficial (jamais de override/arquivo).
@@ -2454,9 +2466,13 @@ elus360_release_publicada_no_main() {
   local tag="${1:-}" remoto remoto_tag release_json compare_json resposta_tag estado
   [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
   [ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || return 1
-  remoto="$(git config --get remote.origin.url 2>/dev/null)" || return 1
+  if [ "$#" -ge 2 ]; then
+    remoto="$2"     # apenas instalador antes de clonar
+  else
+    remoto="$(git config --get remote.origin.url 2>/dev/null)" || return 1
+  fi
   elus360_origem_confiavel "$remoto" || return 1
-  remoto_tag="$(git ls-remote --tags --refs origin "refs/tags/$tag" 2>/dev/null | awk 'NR==1 {print $1}')" || return 1
+  remoto_tag="$(git ls-remote --tags --refs "$remoto" "refs/tags/$tag" 2>/dev/null | awk 'NR==1 {print $1}')" || return 1
   [[ "$remoto_tag" =~ ^[0-9a-f]{40}$ ]] || return 1
   release_json="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
     "https://api.github.com/repos/OARANHA/elus360/releases/tags/$tag" 2>/dev/null)" || return 1
