@@ -2469,6 +2469,34 @@ elus360_origem_confiavel() {
   esac
 }
 
+# Exige release PÚBLICA do fork + tag Git idêntica à do remoto e contida em
+# main. Faz apenas GETs/consultas antes de qualquer backup, checkout ou DDL.
+# Não prova OCI digests ou autorização de deploy: isso exige gate separado.
+elus360_release_tag_comprovada() {
+  local tag="\${1:-}" url_release url_compare release_json compare_json
+  local remoto local_tag remoto_tag resposta_tag estado
+  [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
+  remoto="$(git config --get remote.origin.url 2>/dev/null)" || return 1
+  elus360_origem_confiavel "$remoto" || return 1
+  # Um override de URL não pode apontar ao upstream ou a um servidor arbitrário.
+  [ -z "\${DESKCOMM_RELEASES_LATEST_URL:-}" ] || return 1
+  local_tag="$(git rev-parse --verify "refs/tags/$tag" 2>/dev/null)" || return 1
+  remoto_tag="$(git ls-remote --tags --refs origin "refs/tags/$tag" 2>/dev/null | awk 'NR==1 {print $1}')" || return 1
+  [ -n "$remoto_tag" ] && [ "$local_tag" = "$remoto_tag" ] || return 1
+  url_release="https://api.github.com/repos/OARANHA/elus360/releases/tags/$tag"
+  url_compare="https://api.github.com/repos/OARANHA/elus360/compare/main...$tag"
+  release_json="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' "$url_release" 2>/dev/null)" || return 1
+  resposta_tag="$(printf '%s\n' "$release_json" | sed -nE 's/^[[:space:]]*"tag_name":[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  [ "$resposta_tag" = "$tag" ] || return 1
+  printf '%s\n' "$release_json" | grep -Eq '"draft"[[:space:]]*:[[:space:]]*false' || return 1
+  printf '%s\n' "$release_json" | grep -Eq '"prerelease"[[:space:]]*:[[:space:]]*false' || return 1
+  printf '%s\n' "$release_json" | grep -Eq '"published_at"[[:space:]]*:[[:space:]]*"[^"]+"' || return 1
+  compare_json="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' "$url_compare" 2>/dev/null)" || return 1
+  estado="$(printf '%s\n' "$compare_json" | sed -nE 's/^[[:space:]]*"status":[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  case "$estado" in identical|behind) return 0 ;; *) return 1 ;; esac
+}
+
+
 
 # A última versão publicada (ex.: "1.2.1"), ou vazio se não deu para saber.
 #
