@@ -60,6 +60,10 @@ BLOCK_FAKE = r'''#!/usr/bin/env bash
 printf '%s:%s\n' "$(basename "$0")" "$*" >> "$ELUS_CALLS"
 exit 42
 '''
+UNAME_FAKE = r'''#!/usr/bin/env bash
+if [ "${1:-}" = "-m" ]; then printf '%s\n' "${ELUS_FAKE_ARCH:-x86_64}"; exit 0; fi
+exec /usr/bin/uname "$@"
+'''
 
 
 class DisposableEntrypoints(unittest.TestCase):
@@ -85,6 +89,7 @@ class DisposableEntrypoints(unittest.TestCase):
         for name, source in (
             ("git", GIT_FAKE), ("curl", CURL_FAKE),
             ("docker", BLOCK_FAKE), ("crontab", BLOCK_FAKE),
+            ("uname", UNAME_FAKE),
         ):
             path = self.bin / name
             path.write_text(source)
@@ -96,6 +101,7 @@ class DisposableEntrypoints(unittest.TestCase):
             "ELUS_ORIGIN": "https://github.com/OARANHA/elus360.git",
             "ELUS_REMOTE_SHA": "a" * 40,
             "ELUS_MODE": "valid",
+            "ELUS_FAKE_ARCH": "x86_64",
             "ELUS_DRAFT": "false",
             "ELUS_PRERELEASE": "false",
             "ELUS_COMPARE": "behind",
@@ -124,6 +130,25 @@ class DisposableEntrypoints(unittest.TestCase):
         for call in calls:
             self.assertFalse(call.startswith(("docker:", "crontab:", "git:fetch", "git:clone")),
                              f"side effect before attestation: {call}")
+
+    def test_installer_arm64_denied_before_any_provider_or_mutation(self):
+        for arch in ("aarch64", "arm64"):
+            with self.subTest(arch=arch):
+                self.calls.write_text("")
+                result = self.run_script(INSTALL, "--yes", ELUS_FAKE_ARCH=arch)
+                self.assert_no_mutation_before_proof(result)
+                self.assertNotIn("curl:", self.calls.read_text())
+                self.assertNotIn("docker:", self.calls.read_text())
+
+    def test_updater_arm64_denied_before_any_provider_or_mutation(self):
+        for arch in ("aarch64", "arm64"):
+            with self.subTest(arch=arch):
+                self.calls.write_text("")
+                result = self.run_script(UPDATE, "--to", "v1.102.0",
+                                         ELUS_FAKE_ARCH=arch)
+                self.assert_no_mutation_before_proof(result)
+                self.assertNotIn("curl:", self.calls.read_text())
+                self.assertNotIn("docker:", self.calls.read_text())
 
     def test_agent_refusal_does_not_rollback_untouched_installation(self):
         agent = (ROOT / "hostgator-setup-kit" / "agent.sh").read_text()

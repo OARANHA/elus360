@@ -1,4 +1,5 @@
-# ELUS360 distribution engineering: CI-only smoke. Publication remains DISABLED.
+# ELUS360 AMD64-only distribution: CI-only smoke for four owned images.
+# ARM64 permanently excluded by owner decision. Publication remains DISABLED.
 # GO: review PR build; NO-GO: GHCR push, release, stable, deploy.
 name: ELUS360 distribution - four images smoke (no publish)
 
@@ -15,6 +16,8 @@ on:
       - "tests/shell/update-guard.test.sh"
       - "tests/shell/install-portao-do-build.test.sh"
       - "tests/shell/guarda-arm-nao-mata-a-recuperacao.test.sh"
+      - "tests/shell/arquitetura-kit.test.sh"
+      - "docs/adr/0007-elus360-linux-amd64.md"
       - ".env.hostgator.example"
 
 permissions:
@@ -35,6 +38,7 @@ jobs:
       - name: Validate shell files (does not execute installer/updater)
         run: |
           bash -n hostgator-setup-kit/_common.sh
+          bash -n hostgator-setup-kit/_manifestos.sh
           bash -n hostgator-setup-kit/install.sh
           bash -n hostgator-setup-kit/update.sh
           bash -n hostgator-setup-kit/agent.sh
@@ -43,6 +47,7 @@ jobs:
           bash tests/shell/install-portao-do-build.test.sh
           bash tests/shell/guarda-arm-nao-mata-a-recuperacao.test.sh
           bash tests/shell/update-guard.test.sh
+          bash tests/shell/arquitetura-kit.test.sh
 
   smoke-images:
     needs: [verify-distribution]
@@ -56,17 +61,16 @@ jobs:
           - {name: elus360-worker, file: Dockerfile.worker}
           - {name: elus360-scheduler, file: Dockerfile.scheduler}
           - {name: elus360-voice-agent, file: Dockerfile.voice-agent}
-        arch: [amd64, arm64]
+        arch: [amd64]
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Build only, NEVER push (no credentials or GHCR token)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.image.file }}
-          platforms: linux/${{ matrix.arch }}
+          platforms: linux/amd64
           push: false
           build-args: |
             APP_VERSION=distribution-smoke

@@ -13,49 +13,23 @@ COMPOSE="docker-compose.prod.yml"
 COMPOSE_TRAEFIK="docker-compose.traefik.yml"
 COMPOSE_NPM="docker-compose.npm.yml"
 COMPOSE_CLOUDFLARED="docker-compose.cloudflared.yml"
-# Overlay que constrói as imagens no lugar de puxá-las. Existe no repo com
-# `pull_policy: never` nas três imagens e sai do MESMO commit que o `git
-# checkout` deixou no disco — é o caminho de quem não consegue usar as imagens
-# publicadas (ver construir_aqui_e_subir, abaixo).
+# Overlay legado de build local mantido como referência histórica.
+# ELUS360 nunca o executa nem constrói imagens em VPS, qualquer arquitetura.
 COMPOSE_BUILD="docker-compose.build.yml"
 
-# ── Arquitetura das imagens publicadas ───────────────────────────────────────
-# O CI publica app, worker, scheduler e agente de voz em linux/amd64 e
-# linux/arm64. O instalador escolhe também a imagem oficial WAHA NOWEB ARM64;
-# Redis, Caddy e SRH já publicam manifestos ARM64. Sem reconhecer a arquitetura
-# aqui, uma VPS A1 seria recusada antes de chegar ao fluxo que já tem imagens
-# nativas para ela.
-#
-# A decisão fica pura no argumento para os testes simularem a arquitetura sem
-# depender do runner. A leitura de `uname -m` é o único ponto ligado ao host.
+# ── Arquitetura do fork ELUS360 (ADR-0007) ──────────────────────────────────
+# Decisão aprovada do proprietário: somente Linux AMD64 (x86_64).
+# ARM64 não tem suporte nem exceção para instalações antigas.
+# Dispositivos ARM continuam podendo acessar o CRM pelo navegador.
 arquitetura_suportada_pelo_kit() {
   case "${1:-}" in
-    x86_64|amd64|aarch64|arm64) return 0 ;;
+    x86_64|amd64) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-# WAHA publica NOWEB em tags distintas por arquitetura. O instalador grava
-# essa referência no .env; `enter_project` também cobre um .env antigo sem a
-# variável. A tag é fixa e corresponde à mesma versão funcional em ambas.
 imagem_waha_padrao_para_host() {
-  case "$(uname -m 2>/dev/null || true)" in
-    aarch64|arm64) printf '%s' 'devlikeapro/waha:noweb-arm-2026.7.2' ;;
-    *)             printf '%s' 'devlikeapro/waha:latest-2026.7.2' ;;
-  esac
-}
-
-# Quem já roda em ARM (#1266) tem no .env o WAHA que o install.sh antigo
-# gravava — `devlikeapro/waha` e, desde 13/08/2026, `latest-2026.7.2` —, e os
-# dois índices só têm linux/amd64. Troca SÓ esses valores conhecidos (e o vazio,
-# em que o default do compose seria o amd64); qualquer outra escolha do
-# operador, WAHA Plus inclusive, fica intacta. Pura no argumento, como a de cima.
-waha_amd64_conhecido_em_arm() {  # waha_amd64_conhecido_em_arm <arquitetura> <WAHA_IMAGE do .env> → 0 = trocar
-  case "${1:-}" in aarch64|arm64) ;; *) return 1 ;; esac
-  case "${2:-}" in
-    ""|devlikeapro/waha|devlikeapro/waha:latest|devlikeapro/waha:latest-2026.7.2) return 0 ;;
-  esac
-  return 1
+  printf '%s' 'devlikeapro/waha:latest-2026.7.2'
 }
 
 # ── JÁ EXISTE UMA INSTALAÇÃO REAL AQUI? (#1266, corrigido pelo #1778) ───────
@@ -166,58 +140,21 @@ marcar_instalacao_feita() {  # marcar_instalacao_feita [versão]
   chmod 600 "$marca" 2>/dev/null || true
 }
 
-# Ecoa: amd64 | arm64 | recuperar | nova
-#
-# A decisão é PURA no que recebe: `uname` e a leitura do disco ficam fora, para
-# o teste simular as três respostas sem depender do runner nem de um diretório
-# de verdade. Quem traduz em mensagem é `verificar_arquitetura_do_kit`.
-veredito_da_arquitetura() {  # veredito_da_arquitetura <arquitetura> [0=nova | 1=instalação existente]
-  local arch="${1:-}" existe="${2:-0}"
-  case "$arch" in
+# Não há escape por "instalação existente" nem build local. A decisão é
+# independente de Docker, repositório remoto, arquivos ou marcadores locais.
+veredito_da_arquitetura() { # <uname -m> [instalação-existente]
+  case "${1:-}" in
     x86_64|amd64) printf 'amd64'; return 0 ;;
-    aarch64|arm64) printf 'arm64'; return 0 ;;
+    *) printf 'nao_suportada'; return 1 ;;
   esac
-  [ "$existe" = 1 ] && { printf 'recuperar'; return 0; }
-  printf 'nova'
 }
 
 verificar_arquitetura_do_kit() {
-  local arch existe=0
-  arch="$(uname -m 2>/dev/null || t "desconhecida")"
-  # O sinal de "instalação real" SÓ é perguntado quando a arquitetura não é
-  # suportada. Em amd64 ou arm64 o veredito já está definido e a guarda
-  # atravessa, então perguntar seria trabalho inútil — e, com o critério do
-  # #1778, trabalho que chama o `docker` no TOPO do install.sh, antes de
-  # qualquer passo do instalador. A seção 4 do teste de #1778 mede isso em
-  # x86_64.
-  if ! arquitetura_suportada_pelo_kit "$arch"; then
-    instalacao_real_do_kit_aqui && existe=1
-  fi
-
-  case "$(veredito_da_arquitetura "$arch" "$existe")" in
-    amd64|arm64) return 0 ;;
-    recuperar)
-      # O update.sh relê este arquivo depois do checkout da versão nova, e a
-      # guarda roda de novo no topo: sem esta trava o dono lia o mesmo aviso
-      # duas vezes na mesma atualização. A variável não é exportada, então a
-      # trava vale para ESTE processo e nenhum script filho herda o silêncio.
-      [ -n "${_DESKCOMM_AVISO_ARQ_DADO:-}" ] && return 0
-      _DESKCOMM_AVISO_ARQ_DADO=1
-      # `printf` e não c_ylw: este ponto roda no TOPO do arquivo, e as cores só
-      # são definidas algumas linhas abaixo (é a mesma razão do `printf` da
-      # recusa logo abaixo). O aviso vai para o STDERR, como a recusa: o
-      # agent.sh manda a saída do update.sh para arquivo e o dono lê o fim dela.
-      printf '%s\n' \
-        "⚠ $(t "Este servidor usa arquitetura '{1}', e as imagens publicadas do DeskcommCRM são linux/amd64 e linux/arm64." "$arch")" \
-        "  $(t "Como esta instalação JÁ EXISTE, sigo em frente: as imagens da versão alvo serão construídas nesta própria VPS.")" \
-        "  $(t "Leva de 15 a 25 minutos. Uma instalação NOVA exige x86_64/amd64 ou ARM64/aarch64 com imagens publicadas.")" >&2
-      return 0 ;;
-  esac
-
-  printf '%s\n' \
-    "✖ $(t "Este servidor usa arquitetura '{1}', mas o DeskcommCRM não publica imagens para ela (linux/amd64 e linux/arm64 estão disponíveis)." "$arch")" \
-    "  $(t '  Use uma VPS x86_64/amd64 ou ARM64/aarch64. Repetir o download não resolve.' | sed 's/^  //')" >&2
-  return 1
+  local arch
+  arch="$(uname -m 2>/dev/null || printf desconhecida)"
+  arquitetura_suportada_pelo_kit "$arch" && return 0
+  printf 'ELUS_DISTRIBUTION_NO_GO: servidor %s não suportado. ELUS360 exige Linux AMD64 (x86_64); ARM64 e demais arquiteturas são recusadas, inclusive em instalações existentes, sem build local.\n' "$arch" >&2
+  return 3
 }
 
 # Este arquivo é compartilhado por várias ferramentas. A limitação de imagem só
@@ -228,7 +165,7 @@ verificar_arquitetura_do_kit() {
 _deskcomm_chamador="${BASH_SOURCE[1]:-}"
 _deskcomm_chamador="${_deskcomm_chamador##*/}"
 case "$_deskcomm_chamador" in
-  install.sh|update.sh) verificar_arquitetura_do_kit || exit 1 ;;
+  install.sh|update.sh) verificar_arquitetura_do_kit || exit 3 ;;
 esac
 unset _deskcomm_chamador
 
@@ -1110,7 +1047,8 @@ veredito_das_imagens_da_release() {  # veredito_das_imagens_da_release <versão>
   [ -n "$versao" ] || { printf 'indisponivel'; return 0; }
   for img in "$IMG_APP" "$IMG_WORKER" "$IMG_SCHEDULER" "$IMG_VOICE_AGENT"; do
     total=$((total + 1))
-    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1; then
+    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1 \
+       && manifesto_tem_plataforma "${img}:${versao}" linux/amd64 >/dev/null 2>&1; then
       achadas=$((achadas + 1))
     fi
   done
@@ -2587,7 +2525,7 @@ trio_publicado() {
 preflight_instalacao() { # <X.Y.Z> <linux/platform> <WAHA_IMAGE efetiva>
   local versao="${1:-}" plataforma="${2:-}" waha="${3:-}"
   if ! [[ "$versao" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf 'A instalação ARM64 exige versão numérica publicada (X.Y.Z): %s\n' "$versao" >&2
+    printf 'A instalação ELUS360 exige versão numérica publicada (X.Y.Z): %s\n' "$versao" >&2
     return 1
   fi
   [ -n "$waha" ] || { printf 'WAHA_IMAGE vazia\n' >&2; return 1; }
@@ -2598,10 +2536,8 @@ preflight_instalacao() { # <X.Y.Z> <linux/platform> <WAHA_IMAGE efetiva>
   fi
 }
 
-# Confere uma atualização real sem mudar o .env. No ARM64 legado, apenas os
-# defaults AMD64 conhecidos serão migrados por gravar_imagens DEPOIS do backup;
-# a sonda usa o destino futuro para não rejeitar falsamente a instalação.
-# WAHA customizada/Plus nunca é substituída nem na sonda nem no update.
+# Confere a arquitetura real, sem alterar .env; somente linux/amd64.
+# WAHA customizada/Plus nunca é substituída automaticamente.
 preflight_plataforma_atualizacao() { # <vX.Y.Z> <linux/platform>; usa WAHA_IMAGE carregada
   local tag="${1:-}" plataforma="${2:-}" versao waha
   if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -2609,10 +2545,8 @@ preflight_plataforma_atualizacao() { # <vX.Y.Z> <linux/platform>; usa WAHA_IMAGE
     return 1
   fi
   versao="${tag#v}"
+  [ "$plataforma" = linux/amd64 ] || { printf 'ELUS_DISTRIBUTION_NO_GO: arquitetura OCI não suportada (%s).\n' "$plataforma" >&2; return 1; }
   waha="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
-  if [ "$plataforma" = linux/arm64 ] && waha_amd64_conhecido_em_arm arm64 "$waha"; then
-    waha='devlikeapro/waha:noweb-arm-2026.7.2'
-  fi
   preflight_imagens_crm "$versao" "$plataforma" || return 1
   if ! manifesto_tem_plataforma "$waha" "$plataforma"; then
     printf 'WAHA_IMAGE %s não oferece %s; não alterei a escolha do operador.\n' "$waha" "$plataforma" >&2

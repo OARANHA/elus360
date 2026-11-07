@@ -98,6 +98,8 @@ case " $* " in
   # a combinação que leva o update.sh à saída "nada a atualizar".
   *" ps "*) [ "${AVISO_PRESO:-0}" = "1" ] && printf 'deskcomm-manutencao\n' ;;
   *" image inspect "*) [ "${IMAGEM_EM_DIA:-0}" = "1" ] && printf 'x@sha256:aaa\n' ;;
+  *" imagetools inspect --raw "*) printf '{"schemaVersion":2,"config":{"digest":"sha256:fake"}}\n' ;;
+  *" imagetools inspect --format "*) printf 'linux/amd64\n' ;;
   *" imagetools inspect "*) [ "${IMAGEM_EM_DIA:-0}" = "1" ] && printf 'Digest: sha256:aaa\n' ;;
   # Aplicação do baseline. Só com BASELINE_ROTEIRO no ambiente (caso 4c): cada
   # chamada imprime a próxima passada do roteiro. Fora dele, sai limpa como antes.
@@ -144,6 +146,12 @@ STUB
 # como a prova lê o desfecho reportado.
 cat > "$WORK/bin/curl" <<'STUB'
 #!/usr/bin/env bash
+# Emulate the GHCR token + HTTP manifest status used by AMD64 preflight.
+# The dummy token never leaves this disposable workspace.
+case " $* " in
+  *"ghcr.io/token?scope="*) printf '{"token":"disposable-fake-ghcr-token"}\n'; exit 0 ;;
+  *"ghcr.io/v2/oaranha/"*"/manifests/"*) printf '200'; exit 0 ;;
+esac
 payload=""
 while [ $# -gt 0 ]; do
   [ "$1" = "-d" ] && { shift; payload="$1"; }

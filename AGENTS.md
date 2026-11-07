@@ -3,6 +3,7 @@
 > Contrato portável para **qualquer** agente de código (Codex, Cursor, OpenCode, Antigravity, Copilot).
 > Este arquivo é o núcleo. A **doutrina completa e não-negociável vive em [`CLAUDE.md`](CLAUDE.md)** —
 > leia-o antes de tocar em código. O mapa de toda a documentação está em [`docs/index.md`](docs/index.md).
+> **ELUS360 / PR #22:** [ADR-0007](docs/adr/0007-elus360-linux-amd64.md) aprovada pelo proprietário em 07/11/2026: distribuição de quatro imagens somente `linux/amd64`. ARM64 não é suportado nem planejado. Sem fallback de build local ou exceção por instalação existente.
 > Precedência quando dois documentos discordam: `CLAUDE.md` > `docs/specs/` > `docs/prd/` >
 > `HANDOFF-*.md` > `README.md`.
 

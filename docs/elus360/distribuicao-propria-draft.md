@@ -1,6 +1,6 @@
 # ELUS360 — distribuição própria (PR Draft #22)
 
-**Status:** IMPLEMENTADO PARCIALMENTE EM DRAFT — NÃO APROVADO PARA RELEASE OU DEPLOY.
+**Status:** DECISÃO ARQUITETURAL AMD64 APROVADA PELO PROPRIETÁRIO; IMPLEMENTAÇÃO NA PR #22 DRAFT, AINDA NÃO APROVADA PARA RELEASE OU DEPLOY. Referência: [ADR-0007](../adr/0007-elus360-linux-amd64.md).
 
 **Autoridade:** decisão gerencial da [PR #21](https://github.com/OARANHA/elus360/pull/21#issuecomment-6700178117), permitindo apenas código, testes e builds sem publicação. **Base isolada:** `main` `749aaf8fbb25b46dddd9138219e2ac032cc83336`. A candidata v1.102.0 segue intacta na [PR #21](https://github.com/OARANHA/elus360/pull/21), HEAD `94ab102bed37d2e73f8bacd08b3fcb50ed659ab8`, CI 9/9 aprovado **só naquela PR**.
 
@@ -13,11 +13,11 @@
 | Scheduler | `ghcr.io/oaranha/elus360-scheduler` |
 | Voz (opcional) | `ghcr.io/oaranha/elus360-voice-agent` |
 
-As quatro imagens compartilham uma revisão Git ELUS e um número de release; os índices OCI devem declarar `linux/amd64` e `linux/arm64`, labels de origem `https://github.com/OARANHA/elus360`, revisão e versão. Imagens de terceiros (WAHA, Redis etc.) **não são republicadas**.
+As quatro imagens compartilham uma revisão Git ELUS e um número de release; os manifestos OCI devem comprovar **somente `linux/amd64`** (qualquer `linux/arm64` é recusado pelo contrato do ELUS360), labels de origem `https://github.com/OARANHA/elus360`, revisão e versão. Imagens de terceiros (WAHA, Redis etc.) **não são republicadas**.
 
-O workflow `.github/workflows/build-elus360.yml` é apenas smoke de PR (oito builds sem `push`, sem login nem `packages:write`). **Não há pipeline própria para publicar uma release** nesta PR. O novo mecanismo de publicação exige uma implementação e autorização futuras; o CI da PR não pode mover `stable`.
+O workflow `.github/workflows/build-elus360.yml` é apenas smoke de PR (**quatro builds Linux AMD64**, um por imagem, sem `push`, sem login nem `packages:write`). **Não há pipeline própria para publicar uma release** nesta PR. O novo mecanismo de publicação exige uma implementação e autorização futuras; o CI da PR não pode mover `stable`.
 
-A tag de cliente será `vX.Y.Z` e as referências numéricas são imutáveis; `latest` e `stable` não são admissíveis como fallback de instalação. O commit/tag precisa ser confirmado em `main`, e o índice multiarch só é aceito quando todas as quatro peças da mesma versão estiverem disponíveis. A lista `GET /repos/OARANHA/elus360/releases` estava vazia na inspeção prévia; nenhuma imagem nova foi publicada por esta PR.
+A tag de cliente será `vX.Y.Z` e as referências numéricas são imutáveis; `latest` e `stable` não são admissíveis como fallback de instalação. O commit/tag precisa ser confirmado em `main`, e o conjunto OCI com quatro artefatos AMD64 só é aceito quando todas as quatro peças da mesma versão estiverem disponíveis. A lista `GET /repos/OARANHA/elus360/releases` estava vazia na inspeção prévia; nenhuma imagem nova foi publicada por esta PR.
 
 ## Atualizador e instalação: proteções em código
 
@@ -30,11 +30,12 @@ A tag de cliente será `vX.Y.Z` e as referências numéricas são imutáveis; `l
 
 ## Matriz de testes planejada e cobertura em DRAFT
 
-- `python3 -m unittest discover -s tests/distribution -p 'test_*.py' -v`: **65 casos definidos** (21 manifesto/rollback offline, 17 guarda Bash, 21 entrypoints reais em diretório temporário com Docker/Git/curl/crontab simulados — incluindo 404/403 de imagens, token GHCR ausente, tag local divergente, RC=3 sem rollback e precedência da prova sobre as mutações — e 6 exercícios de snapshot/restore de pins). O [run RED 42330622744](https://github.com/OARANHA/elus360/actions/runs/42330622744), SHA `fd75b350e4096cec0ed63c0962e6009364b16bc6`, validou **62/62 Python + sintaxe Bash + duas suítes shell**, mas `update-guard.test.sh` falhou; builds ficaram skipped. Os 65 testes novos **ainda não foram aferidos pelo CI do HEAD atual**.
+- `python3 -m unittest discover -s tests/distribution -p 'test_*.py' -v`: **69 casos definidos** (22 manifesto/rollback offline, 18 guarda Bash, 23 entrypoints reais em diretório temporário com Docker/Git/curl/crontab simulados — incluindo 404/403 de imagens, token GHCR ausente, tag local divergente, RC=3 sem rollback e precedência da prova sobre as mutações — e 6 exercícios de snapshot/restore de pins). O [run RED 42330622744](https://github.com/OARANHA/elus360/actions/runs/42330622744), SHA `fd75b350e4096cec0ed63c0962e6009364b16bc6`, validou **62/62 Python + sintaxe Bash + duas suítes shell**, mas `update-guard.test.sh` falhou; builds ficaram skipped. Os 65 testes novos **ainda não foram aferidos pelo CI do HEAD atual**.
 - `bash -n hostgator-setup-kit/_common.sh hostgator-setup-kit/install.sh hostgator-setup-kit/update.sh`: planejado no workflow da PR.
-- O smoke da PR cobre quatro Dockerfiles em amd64 e arm64 com `push:false`. **Build ainda não comprovado para este HEAD**.
+- O smoke da PR cobre **quatro Dockerfiles somente em linux/amd64**, com `push:false`. O run [42331973953](https://github.com/OARANHA/elus360/actions/runs/42331973953) do HEAD anterior `d5749685` terminou **cancelled** (7 success, 2 cancelled, ambos ARM64). O CI do novo HEAD pós-decisão **ainda requer execução e verificação completas**.
 - A doutrina herdada `docs/doctrine/packaging.md` recebeu nota explícita distinguindo o contrato ELUS360 do fallback do DeskcommCRM; a política do fork está em Draft, não em produção.
 - **Diagnóstico do RED no shell legado:** o fixture de `update-guard.test.sh` tinha `git init` sem `remote.origin`, enquanto `update.sh` agora exige `git fetch` bem-sucedido **antes** de cron/GoTrue/backup. O fixture passa a ter `origin` Git local e consulta determinística de tags do próprio remoto descartável. As verificações de deadlocks, isolamento fiscal, backup e rollback **permanecem**; a recusa em clone raso com remoto quebrado agora é avaliada antes de `--unshallow`, sem efeitos. Além disso, a auditoria revelou falha real: os `die` de procedência antes de mutações saíam com RC=1 e o `agent.sh` podia executar rollback desnecessário; passaram a `refuse` RC=3. Tanto o objeto de tag Git local quanto os manifestos das quatro imagens agora são verificados antes de VAPID/GoTrue/cron, sem perda de fail-closed.
+- A regressão adicional `tests/shell/arquitetura-kit.test.sh` passou a exigir rejeição inequívoca de `arm64` e `aarch64` pelo instalador e atualizador, antes de rede/Docker/Git, mesmo com marcador de instalação existente. Os três scripts herdados foram mantidos; o CI executa **quatro suítes shell**.
 - As três regressões shell de distribuição foram **migradas para recusa sem build local**: `tests/shell/update-guard.test.sh` (harness descartável, bypass apenas de release nos dublês do teste — a origem real é exercitada em `test_entrypoints_disposable.py`), `tests/shell/install-portao-do-build.test.sh` e `tests/shell/guarda-arm-nao-mata-a-recuperacao.test.sh`. O workflow smoke executará as três; **resultado do HEAD novo ainda não aferido**. Outras suítes herdadas da `main` ainda fazem referências a `publish-image.yml` / `release.yml` sem distribuição ELUS habilitada. **CI integrado completo da PR não pode ser declarado GREEN.**
 - Novos testes devem comprovar também checkout após tag revalidada, ausência de mutações no `single-server` antes da prova, recuperação de pins de quatro serviços e inexistência de publicação GHCR. São testes de simulação e de estrutura, **não aceitação operacional real**.
 

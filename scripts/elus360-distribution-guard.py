@@ -17,7 +17,7 @@ REPO = "OARANHA/elus360"
 SOURCE = "https://github.com/OARANHA/elus360"
 NAMESPACE = "ghcr.io/oaranha"
 NAMES = ("elus360", "elus360-worker", "elus360-scheduler", "elus360-voice-agent")
-PLATFORMS = ("linux/amd64", "linux/arm64")
+PLATFORMS = ("linux/amd64",)
 SHA = re.compile(r"^[a-f0-9]{40}$")
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 VERSION = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
@@ -62,7 +62,7 @@ def release_attestation(release: Any, manifest: Any, expected_tag: str, expected
         require(img.get("version") == version, f"{name}: version mismatch")
         require(bool(DIGEST.fullmatch(str(img.get("digest", "")))), f"{name}: invalid manifest digest")
         arch = record(img.get("platforms"), f"{name}: platforms")
-        require(set(arch) == set(PLATFORMS), f"{name}: platform set not amd64+arm64")
+        require(set(arch) == set(PLATFORMS), f"{name}: platform set must be exactly linux/amd64")
         for platform in PLATFORMS:
             entry = record(arch[platform], f"{name}: {platform}")
             require(bool(DIGEST.fullmatch(str(entry.get("digest", "")))),

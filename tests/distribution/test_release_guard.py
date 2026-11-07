@@ -21,7 +21,6 @@ SHA = "a" * 40
 OLD_SHA = "b" * 40
 MANIFEST_DIGEST = "sha256:" + "1" * 64
 AMD_DIGEST = "sha256:" + "2" * 64
-ARM_DIGEST = "sha256:" + "3" * 64
 
 
 def valid_evidence():
@@ -45,7 +44,6 @@ def valid_evidence():
             "digest": MANIFEST_DIGEST,
             "platforms": {
                 "linux/amd64": {"digest": AMD_DIGEST, "revision": SHA},
-                "linux/arm64": {"digest": ARM_DIGEST, "revision": SHA},
             },
         }
     return release, {"repository": guard.REPO, "tag": "1.102.0", "images": images}
@@ -131,16 +129,29 @@ class DistributionGates(unittest.TestCase):
                 with self.assertRaisesRegex(guard.DistributionRejected, "digest"):
                     guard.release_attestation(release, manifest, "v1.102.0", SHA)
 
-    def test_reject_missing_arm64_and_rogue_platform(self):
-        for platform in ("linux/arm64", "linux/amd64"):
-            release, manifest = valid_evidence()
-            del manifest["images"]["elus360-voice-agent"]["platforms"][platform]
-            with self.assertRaisesRegex(guard.DistributionRejected, "platform set"):
-                guard.release_attestation(release, manifest, "v1.102.0", SHA)
+    def test_reject_missing_amd64_and_rogue_platform(self):
+        release, manifest = valid_evidence()
+        del manifest["images"]["elus360-voice-agent"]["platforms"]["linux/amd64"]
+        with self.assertRaisesRegex(guard.DistributionRejected, "platform set"):
+            guard.release_attestation(release, manifest, "v1.102.0", SHA)
+        release, manifest = valid_evidence()
+        manifest["images"]["elus360-voice-agent"]["platforms"]["linux/arm64"] = {
+            "digest": "sha256:" + "3" * 64, "revision": SHA
+        }
+        with self.assertRaisesRegex(guard.DistributionRejected, "platform set"):
+            guard.release_attestation(release, manifest, "v1.102.0", SHA)
+
+    def test_reject_arm_only_manifest_even_when_integrity_valid(self):
+        release, manifest = valid_evidence()
+        manifest["images"]["elus360"]["platforms"] = {
+            "linux/arm64": {"digest": AMD_DIGEST, "revision": SHA}
+        }
+        with self.assertRaisesRegex(guard.DistributionRejected, "platform set"):
+            guard.release_attestation(release, manifest, "v1.102.0", SHA)
 
     def test_reject_platform_revision_drift(self):
         release, manifest = valid_evidence()
-        manifest["images"]["elus360-worker"]["platforms"]["linux/arm64"]["revision"] = OLD_SHA
+        manifest["images"]["elus360-worker"]["platforms"]["linux/amd64"]["revision"] = OLD_SHA
         with self.assertRaisesRegex(guard.DistributionRejected, "revision"):
             guard.release_attestation(release, manifest, "v1.102.0", SHA)
 

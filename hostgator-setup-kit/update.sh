@@ -239,17 +239,13 @@ if [ -z "$FORCE" ] && [ -z "$MESMA_TAG" ]; then
   esac
 fi
 
-# Aqui já sabemos que há atualização real ou --force. Em ARM64, a release
-# inteira (quatro imagens + WAHA efetiva) é conferida no índice OCI antes de
-# backup, checkout, banco ou contêiner: recusar aqui não deixa nada pela metade.
-# Em AMD64 não há este pré-voo: toda imagem publicada tem amd64, e o preflight
-# geral abaixo (#1955) já confere as quatro imagens em toda arquitetura.
-# Com DESKCOMM_BUILD_LOCAL o escape da #1955 vale aqui também: quem pediu
-# construção local não depende do registro, e recusá-la aqui a anularia
-# justamente com o registro fora.
-PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)" 2>/dev/null || true)"
-if [ "$PLATAFORMA_HOST" = linux/arm64 ] && ! build_local_pedido && ! preflight_plataforma_atualizacao "$TARGET_TAG" "$PLATAFORMA_HOST"; then
-  refuse "A versão $TARGET_TAG não está completa para $PLATAFORMA_HOST ou a WAHA configurada é incompatível. Não alterei banco, imagens nem código. Confira o registry e repita."
+# Uma atualização real exige OCI verificável para Linux AMD64, inclusive a
+# WAHA efetiva. ARM64 já foi recusado no source de _common.sh, antes do cron.
+# Falha de manifesto não autoriza build local, checkout nem alteração de DB.
+PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)")" \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: somente Linux AMD64."
+if ! preflight_plataforma_atualizacao "$TARGET_TAG" "$PLATAFORMA_HOST"; then
+  refuse "ELUS_DISTRIBUTION_NO_GO: manifestos do ELUS360 ou WAHA incompatíveis com linux/amd64; banco, imagens e código preservados."
 fi
 if [ -n "$MESMA_TAG" ] && [ -n "$FORCE" ]; then
   # Com --force na mesma tag ninguém conferiu a imagem: quem chega aqui pediu

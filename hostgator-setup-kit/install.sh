@@ -1072,23 +1072,18 @@ if [ -f "$PARTIAL_FILE" ]; then
   c_dim "$(t "  (o token do Supabase é de conta e nunca entra no rascunho: ele é perguntado de novo. Enter pula)")"
 fi
 
-# ARM64: resolver uma release publicada e conferir as quatro imagens e a WAHA
-# efetiva no índice OCI ANTES de criar projeto Supabase, rede, .env ou schema.
-# Uma tag Git pode existir antes do CI. Em AMD64 a versão segue a cascata de
-# sempre (mais abaixo): a sonda exige `docker buildx`, e toda imagem publicada
-# já tem amd64.
-PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)" 2>/dev/null || true)"
-if [ "$PLATAFORMA_HOST" = linux/arm64 ]; then
-  RELEASE_TAG="$ELUS_RELEASE_PREVALIDADA"
-  VERSAO_ALVO="${RELEASE_TAG#v}"
-  WAHA_EFETIVA="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
-  if [ -z "$RELEASE_TAG" ] || ! preflight_instalacao "$VERSAO_ALVO" "$PLATAFORMA_HOST" "$WAHA_EFETIVA"; then
-    c_red "$(t "✖ Não há release numérica completa para ARM64, ou a WAHA escolhida não oferece ARM64.")"
-    c_red "$(t "  Confira registry, visibilidade das quatro imagens e WAHA_IMAGE; depois repita.")"
-    # O painel genérico sugeriria down -v/drop schema antes de qualquer efeito.
-    trap - EXIT
-    exit 1
-  fi
+# Pré-voo obrigatório AMD64: as quatro imagens ELUS360 e WAHA efetiva
+# devem oferecer linux/amd64 antes de criar Supabase, rede ou schema.
+PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)")" || {
+  printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: servidor fora de Linux AMD64.' >&2
+  exit 3
+}
+VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"
+WAHA_EFETIVA="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
+if ! preflight_instalacao "$VERSAO_ALVO" "$PLATAFORMA_HOST" "$WAHA_EFETIVA"; then
+  c_red "ELUS_DISTRIBUTION_NO_GO: quatro imagens e WAHA devem oferecer linux/amd64."
+  trap - EXIT
+  exit 3
 fi
 
 # ── Proxy reverso: quem está com as portas 80 e 443? ────────────────────────
@@ -1426,15 +1421,9 @@ fi
 # descrevendo o ambiente como "latest do dia 06/08/2026", que é a admissão de
 # que a versão não era nomeável.
 #
-# Resolvido no REMOTO porque o clone é `--depth 1` e não traz tag nenhuma.
-# Em ARM64 a versão já foi resolvida e conferida pelo pré-voo, lá em cima.
-# ELUS360: a autoridade é GitHub Releases do próprio repositório, nunca
-# a maior tag, :latest, :stable, nem imagens construídas na VPS por fallback.
-# ARM64 já resolve e verifica o pacote mais cedo no seu pré-voo.
-if [ "$PLATAFORMA_HOST" != linux/arm64 ]; then
-  VERSAO_ALVO="$ELUS_RELEASE_PREVALIDADA"
-  VERSAO_ALVO="${VERSAO_ALVO#v}"
-fi
+# Clone shallow; release numérica pré-validada no fork, sem canal móvel
+# e sem recuperação por build local.
+VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"
 if [[ ! "${VERSAO_ALVO:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
    || ! trio_publicado "$VERSAO_ALVO"; then
   die "ELUS_DISTRIBUTION_NO_GO: nenhuma release própria ELUS360 com quatro imagens públicas foi verificada; não uso stable/latest nem compilo imagens nesta VPS."

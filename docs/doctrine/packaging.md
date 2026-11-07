@@ -95,14 +95,17 @@ worker:
 
 Na distribuição ELUS360, a imagem própria deverá existir **somente após publicação
 explicitamente autorizada** em pipeline própria, ainda NÃO habilitada.
-O workflow `.github/workflows/build-elus360.yml` atualmente constrói somente
-em PR com `push:false`, nas plataformas `linux/amd64` e `linux/arm64`.
+O workflow `.github/workflows/build-elus360.yml` do fork ELUS360 constrói
+somente em PR com `push:false`, **exclusivamente em `linux/amd64`**.
+A decisão arquitetural do proprietário é definitiva: `linux/arm64` e
+demais arquiteturas não são suportadas pelo ELUS360, nem estão no roadmap.
+Leia [ADR-0007](../adr/0007-elus360-linux-amd64.md).
 A publicação futura deverá incluir labels OCI `source`, `revision`,
 `version`, `licenses` e digests imutáveis.
 As referências abaixo a `publish-image.yml` descrevem o upstream DeskcommCRM,
 não um mecanismo de release já implementado neste fork.
 
-- **Por quê:** duas razões distintas. **(a) Arquitetura:** um `docker build` local pode produzir
+- **Contexto legado DeskcommCRM (não se aplica à distribuição ELUS360):** as referências desta seção a índices ARM64, `imagens-ok`, `publish-image.yml` e Oracle descrevem o upstream, não uma obrigação do fork AMD64.\n- **Por quê:** duas razões distintas. **(a) Arquitetura:** um `docker build` local pode produzir
   imagem para a plataforma errada; o CI publica manifestos linux/amd64 e linux/arm64 e os testa
   em runners nativos, antes de qualquer cliente chegar ao `up -d`. **(b)
   Rastreabilidade:** sem `org.opencontainers.image.revision` não existe resposta para "que

@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # Consultas OCI somente-leitura. Pode ser sourced sem iniciar Docker ou rede.
 
-plataforma_oci_do_host() { # <uname -m> -> linux/amd64 | linux/arm64
+plataforma_oci_do_host() { # <uname -m> -> somente linux/amd64
   case "${1:-}" in
     x86_64|amd64) printf '%s\n' linux/amd64 ;;
-    aarch64|arm64) printf '%s\n' linux/arm64 ;;
-    *) printf 'Arquitetura não suportada: %s\n' "${1:-desconhecida}" >&2; return 1 ;;
+    *) printf 'ELUS_DISTRIBUTION_NO_GO: arquitetura %s não suportada; use Linux AMD64 (x86_64).\n' "${1:-desconhecida}" >&2; return 1 ;;
   esac
 }
 
 manifesto_tem_plataforma() { # <ref> <linux/platform>
   local ref="${1:-}" plataforma="${2:-}" bruto plataformas
   case "$plataforma" in
-    linux/amd64|linux/arm64) ;;
+    linux/amd64) ;;
     *) printf 'Plataforma OCI inválida: %s\n' "$plataforma" >&2; return 1 ;;
   esac
   [ -n "$ref" ] || { printf 'Referência de imagem vazia\n' >&2; return 1; }
@@ -51,6 +50,7 @@ manifesto_tem_plataforma() { # <ref> <linux/platform>
 preflight_imagens_crm() { # <tag> <linux/platform>; IMG_NS e ghcr_status vêm de _common.sh
   local tag="${1:-}" plataforma="${2:-}" img status ref
   [ -n "$tag" ] || { printf 'Versão de imagem vazia\n' >&2; return 1; }
+  [ "$plataforma" = linux/amd64 ] || { printf 'ELUS_DISTRIBUTION_NO_GO: plataforma OCI %s não suportada (somente linux/amd64).\n' "$plataforma" >&2; return 1; }
   for img in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
     ref="${IMG_NS}/${img}:${tag}"
     status="$(ghcr_status "$img" "$tag")"

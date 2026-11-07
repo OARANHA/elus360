@@ -150,6 +150,18 @@ class ReleaseGateShell(unittest.TestCase):
             self.assertIn(f"ghcr.io/oaranha/{name}:stable", compose)
             self.assertIn(f"{key}_IMAGE=ghcr.io/oaranha/{name}:stable", env)
 
+    def test_exclusive_amd64_ci_and_oci_contract(self):
+        workflow = (ROOT / ".github/workflows/build-elus360.yml").read_text()
+        manifest = (ROOT / "hostgator-setup-kit" / "_manifestos.sh").read_text()
+        guard_src = SCRIPT.read_text()
+        self.assertIn("arch: [amd64]", workflow)
+        self.assertIn("platforms: linux/amd64", workflow)
+        self.assertNotIn("arm64]", workflow)
+        self.assertNotIn("setup-qemu-action", workflow)
+        self.assertIn('PLATFORMS = ("linux/amd64",)', guard_src)
+        self.assertIn("linux/amd64) ;;", manifest)
+        self.assertNotIn("linux/amd64|linux/arm64", manifest)
+
     def test_no_publication_permissions_in_smoke_workflow(self):
         smoke = (ROOT / ".github/workflows/build-elus360.yml").read_text()
         self.assertIn("push: false", smoke)
