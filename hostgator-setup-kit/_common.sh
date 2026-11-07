@@ -2450,13 +2450,13 @@ ler_rodada_do_banco() {
 # `publish-image.yml` digam o mesmo. Se você é um fork, é lá que está a lista do
 # que trocar junto — e, desde 18/09/2026, o CI do SEU fork não cobra este valor:
 # a asserção só vale quando o dono do runner é o dono deste repositório.
-IMG_NS="ghcr.io/melgarafael"
-IMG_APP="${IMG_NS}/deskcommcrm"
-IMG_WORKER="${IMG_NS}/deskcomm-worker"
-IMG_SCHEDULER="${IMG_NS}/deskcomm-scheduler"
+IMG_NS="ghcr.io/oaranha"
+IMG_APP="${IMG_NS}/elus360"
+IMG_WORKER="${IMG_NS}/elus360-worker"
+IMG_SCHEDULER="${IMG_NS}/elus360-scheduler"
 # Telefonia por SIP (#677): só roda com `telefonia` em COMPOSE_PROFILES, mas é
 # imagem NOSSA e segue a mesma versão das outras três (gravar_imagens).
-IMG_VOICE_AGENT="${IMG_NS}/deskcomm-voice-agent"
+IMG_VOICE_AGENT="${IMG_NS}/elus360-voice-agent"
 
 # A última versão publicada (ex.: "1.2.1"), ou vazio se não deu para saber.
 #
@@ -2470,7 +2470,7 @@ IMG_VOICE_AGENT="${IMG_NS}/deskcomm-voice-agent"
 # alguém porque não deu para resolver um número de versão seria trocar um
 # problema de previsibilidade por um de disponibilidade.
 ultima_versao_publicada() {
-  local url="${1:-https://github.com/melgarafael/DeskcommCRM.git}" ref
+  local url="${1:-https://github.com/OARANHA/elus360.git}" ref
   command -v git >/dev/null 2>&1 || return 0
   # `grep -v -- -` descarta PRERELEASE (v1.11.0-rc1, v1.1.1-jmpo.1 — esta última
   # existe de verdade neste repo). O `--sort=-v:refname` do git põe o prerelease
@@ -2529,7 +2529,7 @@ ghcr_status() {
 # quebraria o leitor daquele teste sem ganhar nada: o que importa é a lista.
 trio_publicado() {
   local tag="$1" i
-  for i in deskcommcrm deskcomm-worker deskcomm-scheduler deskcomm-voice-agent; do
+  for i in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
     [ "$(ghcr_status "$i" "$tag")" = "200" ] || return 1
   done
   return 0
@@ -2650,7 +2650,7 @@ completar_pin_ausente() {  # completar_pin_ausente [envfile]
   # e o `.env` original chega intacto do outro lado, com as customizações.
   [ -w "$envfile" ] || return 0
 
-  for par in "WORKER_IMAGE:worker:deskcomm-worker" "SCHEDULER_IMAGE:scheduler:deskcomm-scheduler"; do
+  for par in "WORKER_IMAGE:worker:elus360-worker" "SCHEDULER_IMAGE:scheduler:elus360-scheduler"; do
     chave="${par%%:*}"; svc="$(printf '%s' "$par" | cut -d: -f2)"; repo="${par##*:}"
 
     # LACUNA apenas. Valor explícito (mesmo em canal móvel) é intocável.
