@@ -20,7 +20,11 @@ printf 'git:%s\n' "$*" >> "$ELUS_CALLS"
 case "$1" in
   config) printf '%s\n' "$ELUS_ORIGIN" ;;
   ls-remote) printf '%s\trefs/tags/v1.102.0\n' "$ELUS_REMOTE_SHA" ;;
-  fetch) exit 47 ;;
+  fetch) [ "${ELUS_FETCH_OK:-0}" = "1" ] && exit 0 || exit 47 ;;
+  rev-parse)
+    [ "${ELUS_FETCH_OK:-0}" = "1" ] || exit 8
+    printf '%s\n' "${ELUS_LOCAL_SHA:-$ELUS_REMOTE_SHA}"
+    ;;
   *) exit 8 ;;
 esac
 '''
@@ -128,6 +132,31 @@ class DisposableEntrypoints(unittest.TestCase):
         self.assertLess(refusal, rollback)
         self.assertIn('STATUS="failed"', agent[refusal:rollback])
         self.assertNotIn('dc up -d', agent[refusal:rollback])
+
+    def test_updater_missing_registry_images_refuses_without_side_effect(self):
+        # Published release and matching Git tag are valid, but the four OCI
+        # images cannot be inspected. The preflight is read-only; do not mutate.
+        result = self.run_script(UPDATE, "--to", "v1.102.0", ELUS_FETCH_OK="1")
+        self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
+        self.assertIn("quatro imagens", result.stdout + result.stderr)
+        self.assertEqual(self.env_path.read_text(), self.env_initial)
+        self.assertFalse((self.project / ".deskcomm-update-diagnostico.log").exists())
+        calls = self.calls.read_text().splitlines()
+        self.assertTrue(any("buildx imagetools inspect" in call for call in calls))
+        for call in calls:
+            self.assertFalse(call.startswith("crontab:"), call)
+            self.assertFalse(call.startswith("git:clone"), call)
+            self.assertFalse(call.startswith("docker:compose"), call)
+
+    def test_updater_divergent_local_tag_refuses_before_oci_and_cron(self):
+        result = self.run_script(
+            UPDATE, "--to", "v1.102.0", ELUS_FETCH_OK="1", ELUS_LOCAL_SHA="b" * 40
+        )
+        self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
+        self.assertIn("divergente", result.stdout + result.stderr)
+        self.assertEqual(self.env_path.read_text(), self.env_initial)
+        self.assertNotIn("buildx imagetools inspect", self.calls.read_text())
+        self.assertNotIn("crontab:", self.calls.read_text())
 
     def test_updater_404_before_cron_gotrue_and_env(self):
         result = self.run_script(UPDATE, "--to", "v1.102.0", ELUS_MODE="404")
