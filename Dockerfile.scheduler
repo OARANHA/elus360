@@ -9,7 +9,7 @@ FROM alpine:3.20
 
 LABEL org.opencontainers.image.source="https://github.com/OARANHA/elus360" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.title="DeskcommCRM scheduler"
+      org.opencontainers.image.title="ELUS360 scheduler"
 
 ENV TZ=UTC
 
