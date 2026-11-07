@@ -145,8 +145,8 @@ restaurar_servicos >/dev/null 2>&1
 grep -q 'start realtime-dev' "$diario" \
   && ok "as peças do Supabase voltam (elas não são o risco)" \
   || nao "peças do Supabase voltam" "start realtime-dev..." "$(tr '\n' ';' < "$diario")"
-grep -q 'up -d app' "$diario" \
-  && nao "o CRM fica parado" "sem 'up -d app'" "$(tr '\n' ';' < "$diario")" \
+grep -Fq 'up -d --no-build app worker scheduler' "$diario" \
+  && nao "o CRM fica parado" "sem 'up -d --no-build app worker scheduler'" "$(tr '\n' ';' < "$diario")" \
   || ok "o CRM fica parado de propósito"
 
 echo "caso 8 — CONTROLE: sem regra faltando, o CRM volta"
@@ -156,8 +156,8 @@ echo "caso 8 — CONTROLE: sem regra faltando, o CRM volta"
 pausar_o_que_fala_com_o_banco >/dev/null 2>&1
 : > "$diario"
 restaurar_servicos >/dev/null 2>&1
-grep -q 'up -d app' "$diario" && ok "tudo certo: o CRM volta" \
-  || nao "o CRM volta" "up -d app" "$(tr '\n' ';' < "$diario")"
+grep -Fq 'up -d --no-build app worker scheduler' "$diario" && ok "tudo certo: o CRM volta sem build" \
+  || nao "o CRM volta" "up -d --no-build app worker scheduler" "$(tr '\n' ';' < "$diario")"
 
 
 # ── O BOTÃO NÃO ACENDE ANTES DE A IMAGEM EXISTIR ─────────────────────────────
@@ -463,13 +463,121 @@ grep -q 'rm -f deskcomm-manutencao' "$diario" \
 echo "caso 27 — o aviso desce ANTES de o CRM subir, nunca depois"
 # Com o Caddy os dois disputam o apelido `app`: o Docker faz rodizio, e metade
 # das pessoas veria "estamos atualizando" com o CRM ja no ar.
-COMUM="$(cat "$RAIZ/hostgator-setup-kit/_common.sh")"
-p_desce="$(printf '%s' "$COMUM" | grep -n "manutencao_desce" | head -1 | cut -d: -f1)"
-p_up="$(printf '%s' "$COMUM" | grep -n "dc up -d app worker scheduler" | head -1 | cut -d: -f1)"
-if [ -n "$p_desce" ] && [ -n "$p_up" ] && [ "$p_desce" -lt "$p_up" ]; then
-  ok "desce antes do 'up -d app'"
+# O texto inteiro de _common.sh tem comentários sobre manutenção; limitar a
+# verificação ao corpo REAL do trap impede um falso verde por menção em prosa.
+# O comando correto do fork é docker compose up -d --no-build, jamais build.
+COMUM_RESTAURA="$(sed -n '/^restaurar_servicos() {/,/^}/p' "$RAIZ/hostgator-setup-kit/_common.sh")"
+p_desce="$(printf '%s\n' "$COMUM_RESTAURA" | grep -nE '^[[:space:]]*declare -F manutencao_desce .*&& manutencao_desce
+
+echo "caso 28 — o aviso sobe ANTES de o CRM parar"
+# Entre parar e anunciar, quem estivesse com a tela aberta veria exatamente o
+# erro de navegador que esta onda existe para tirar.
+UP="$(cat "$RAIZ/hostgator-setup-kit/update.sh")"
+q_sobe="$(printf '%s' "$UP" | grep -n "manutencao_sobe" | head -1 | cut -d: -f1)"
+q_para="$(printf '%s' "$UP" | grep -n "pausar_o_que_fala_com_o_banco" | head -1 | cut -d: -f1)"
+if [ -n "$q_sobe" ] && [ -n "$q_para" ] && [ "$q_sobe" -lt "$q_para" ]; then
+  ok "sobe antes da pausa"
 else
-  nao "ordem da descida" "manutencao_desce antes de 'dc up -d app'" "desce=$p_desce up=$p_up"
+  nao "ordem da subida" "manutencao_sobe antes de pausar" "sobe=$q_sobe para=$q_para"
+fi
+
+echo "caso 29 — a pagina responde 503, e nao 200"
+# Robo de monitoramento que recebe 200 nao avisa ninguem, e um buscador
+# indexaria "estamos atualizando" como se fosse a tela inicial do CRM.
+case "$(cat "$KIT_DIR/manutencao/nginx.conf")" in
+  *"return 503"*) ok "diz 503 a quem pergunta por maquina" ;;
+  *) nao "503" "return 503" "ausente" ;;
+esac
+
+echo "caso 30 — ⛔ o aviso desce no PROPRIO update.sh, antes do 'up -d' que traz o CRM"
+# MEDIDO na atualizacao real para a v1.17.21: pendurar a descida so no gatilho de
+# saida nao basta. O gatilho roda depois de mais quatro etapas, e o roteamento do
+# aviso tem prioridade ACIMA da regra do app — entao o CRM voltava ao ar e quem
+# abrisse continuava vendo "estamos atualizando" por minutos. Aviso que mente e
+# pior que aviso nenhum.
+#
+# ⚠️ A SONDA DO `up -d` NAO E ANCORADA EM `^dc up -d$`. Na `main` essa linha esta
+# dentro de uma guarda — `if ! dc up -d; then ... construir_aqui_e_subir`, que e
+# como uma VPS de outra arquitetura se recupera sozinha (issue 1060). Uma sonda
+# presa a linha nua ficava vermelha contra um update.sh CORRETO, e o vermelho
+# nao falava de manutencao nenhuma: dizia "up=" vazio. Quem manda e o comando,
+# esteja ele nu ou sob guarda. Desde a #2724 o `up -d` do update.sh mora em
+# `subir_o_parque` (que deixa o Caddy de fora quando a configuração dele foi
+# recusada), e a sonda aceita os dois nomes.
+q_desce="$(printf '%s' "$UP" | grep -n "^manutencao_desce$" | head -1 | cut -d: -f1)"
+q_up="$(printf '%s' "$UP" | grep -nE "^(if ! )?(dc up -d|subir_o_parque)(; then)?$" | head -1 | cut -d: -f1)"
+if [ -n "$q_desce" ] && [ -n "$q_up" ] && [ "$q_desce" -lt "$q_up" ]; then
+  ok "desce antes do 'dc up -d' do proprio script"
+else
+  nao "descida no update.sh" "manutencao_desce antes de 'dc up -d'" "desce=$q_desce up=$q_up"
+fi
+
+echo "caso 31 — ⛔ a pagina NAO responde pela API do agente"
+# MEDIDO na instalacao real: o agente reporta o proprio progresso em
+# `POST /api/v1/system/agent`, pelo MESMO endereco publico que o navegador usa.
+# Com o aviso de pe ele recebia a PAGINA INTEIRA de volta — 18 KB de HTML no
+# registro de erro dele — e ficava cego justamente durante a janela que precisa
+# narrar. Provado com nginx de verdade na VPS: navegador 503+pagina, API 503+JSON.
+CONF="$(cat "$KIT_DIR/manutencao/nginx.conf")"
+case "$CONF" in
+  *"location ^~ /api/"*) ok "a API tem rota propria" ;;
+  *) nao "rota propria para a API" "location ^~ /api/" "ausente" ;;
+esac
+# A ordem do `error_page` e o que separa o conserto do defeito: no `server` ele
+# valeria tambem para o 503 da API, e a API voltaria a receber HTML.
+if printf '%s' "$CONF" | grep -qE "^  location / \{" && printf '%s' "$CONF" | grep -qE "^    error_page 503"; then
+  ok "o error_page mora DENTRO do location /, nao no server"
+else
+  nao "error_page escopado" "error_page 503 indentado dentro de location /" "fora de escopo"
+fi
+
+echo "caso 32 — o aviso e RELIDO depois da troca de versao, como o resto do kit"
+# Este caso nao e do PR original: ele existe porque a `main` resolveu "quem roda a
+# atualizacao e a versao nova" por RELEITURA (`source _common.sh` depois do
+# `git checkout`), e nao por `exec`. Sob esse desenho, todo arquivo do kit que o
+# `update.sh` carrega no topo precisa ser relido no mesmo ponto — senao o
+# paragrafo que promete "o conserto vale JA nesta passada" e verdadeiro para o
+# `_common.sh` e falso para o aviso de manutencao, que e carregado do lado dele.
+#
+# A sonda e ESTATICA (le o texto do script), e isso esta dito de proposito: a
+# prova de ponta a ponta do mesmo mecanismo vive no caso 11 do update-guard, que
+# monta duas versoes do kit num repositorio de mentira. Aqui basta provar que o
+# aviso viaja junto do `_common.sh` nos DOIS pontos.
+n_checkout="$(printf '%s' "$UP" | grep -n 'git checkout --quiet "\$TARGET_TAG"' | head -1 | cut -d: -f1)"
+n_antes="$(printf '%s' "$UP" | grep -n 'source "\$KIT_DIR/manutencao.sh"' | head -1 | cut -d: -f1)"
+n_depois="$(printf '%s' "$UP" | grep -n 'source "\$KIT_DIR/manutencao.sh"' | tail -1 | cut -d: -f1)"
+# CONTROLE positivo, medido no MESMO comando e contra o MESMO alvo: o
+# `_common.sh` — que a `main` ja relia antes desta onda — tem de aparecer duas
+# vezes. Se ele aparecer uma so, quem quebrou foi a sonda, nao o aviso.
+n_common="$(printf '%s' "$UP" | grep -c 'source "\$KIT_DIR/_common.sh"')"
+if [ "$n_common" -ge 2 ]; then
+  ok "CONTROLE: o _common.sh e carregado nos dois pontos (achei $n_common)"
+else
+  nao "controle do _common.sh" "2 ocorrencias de source _common.sh" "$n_common — a sonda esta cega"
+fi
+if [ -n "$n_checkout" ] && [ -n "$n_antes" ] && [ -n "$n_depois" ] \
+   && [ "$n_antes" -lt "$n_checkout" ] && [ "$n_depois" -gt "$n_checkout" ]; then
+  ok "o aviso e carregado antes E relido depois da troca de versao"
+else
+  nao "releitura do aviso" "source manutencao.sh dos dois lados do git checkout" \
+      "antes=$n_antes checkout=$n_checkout depois=$n_depois"
+fi
+
+if [ "$falhas" -eq 0 ]; then
+  echo "TUDO VERDE"
+  exit 0
+else
+  echo "$falhas caso(s) vermelho(s)"
+  exit 1
+fi
+ | head -1 | cut -d: -f1)"
+p_up="$(printf '%s\n' "$COMUM_RESTAURA" | grep -nE '^[[:space:]]*\*\)[[:space:]]*dc up -d --no-build app worker scheduler' | head -1 | cut -d: -f1)"
+# O caso da telefonia também exige --no-build, mas só inclui voice-agent
+# quando COMPOSE_PROFILES=telefonia. O ramo padrão deve sempre existir.
+if [ -n "$p_desce" ] && [ -n "$p_up" ] && [ "$p_desce" -lt "$p_up" ]; then
+  ok "manutencao_desce precede o compose de recuperação sem build"
+else
+  nao "ordem da descida" "manutencao_desce antes de 'dc up -d --no-build app worker scheduler'" "desce=$p_desce up=$p_up"
 fi
 
 echo "caso 28 — o aviso sobe ANTES de o CRM parar"

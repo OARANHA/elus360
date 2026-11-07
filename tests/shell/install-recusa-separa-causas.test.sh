@@ -3,6 +3,9 @@
 # de clone, apt, Docker, .env, banco ou backup; nunca construir na VPS.
 # Smoke de fronteira com o install.sh e helpers REAIS e GitHub/GHCR dublados.
 set -uo pipefail
+# Não permitir que GIT_DIR/GIT_WORK_TREE de hook/rebase contaminem um checkout.
+# Mesmo com git dublado, a suíte tem de obedecer a cerca de identidade.
+unset $(git rev-parse --local-env-vars)
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="$(mktemp -d)"
 [ -n "$WORK" ] && [ -d "$WORK" ] && [ "$WORK" != / ] || exit 1
