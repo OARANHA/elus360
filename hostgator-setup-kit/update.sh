@@ -62,6 +62,13 @@ git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
   || refuse "ELUS_DISTRIBUTION_NO_GO: tag não encontrada no checkout local após fetch."
 elus360_release_tag_comprovada "$TARGET_TAG" \
   || refuse "ELUS_DISTRIBUTION_NO_GO: objeto Git local/remoto divergente ou release sem procedência oficial."
+# Gate 4: a release não pode começar a mexer em cron, banco ou .env
+# quando faltam os artefatos no GHCR. Apenas docker buildx imagetools inspect
+# (consulta de manifestos), sem pull, build, up ou alteração de pins.
+ELUS_VEREDITO_IMAGENS="$(veredito_das_imagens_da_release "$TARGET_TAG")"
+[ "$ELUS_VEREDITO_IMAGENS" = "prontas" ] \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: as quatro imagens da release ELUS360 não estão públicas e acessíveis (veredito: $ELUS_VEREDITO_IMAGENS)."
+
 
 
 # ── 0-. O laço do diagnóstico (#1955) ───────────────────────────────────────
