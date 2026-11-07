@@ -1,44 +1,67 @@
-name: Build ELUS 360 v1.94.0
+# ELUS360 distribution engineering: CI-only smoke. Publication remains DISABLED.
+# GO: review PR build; NO-GO: GHCR push, release, stable, deploy.
+name: ELUS360 distribution - four images smoke (no publish)
+
 on:
-  push:
+  pull_request:
     branches: [main]
-  workflow_dispatch:
+    paths:
+      - ".github/workflows/build-elus360.yml"
+      - "Dockerfile*"
+      - "docker-compose.prod.yml"
+      - "hostgator-setup-kit/**"
+      - "scripts/elus360-distribution-guard.py"
+      - "tests/distribution/**"
+      - ".env.hostgator.example"
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: elus360-distribution-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
-  images:
-    runs-on: ubuntu-latest
+  verify-distribution:
+    if: github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test provenance, fail-closed updater and rollback plans
+        run: python3 -m unittest discover -s tests/distribution -p 'test_*.py' -v
+      - name: Validate shell files (does not execute installer/updater)
+        run: |
+          bash -n hostgator-setup-kit/_common.sh
+          bash -n hostgator-setup-kit/install.sh
+          bash -n hostgator-setup-kit/update.sh
+
+  smoke-images:
+    needs: [verify-distribution]
+    if: github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: elus360-app
-            dockerfile: Dockerfile
-          - name: elus360-worker
-            dockerfile: Dockerfile.worker
-          - name: elus360-scheduler
-            dockerfile: Dockerfile.scheduler
+        image:
+          - {name: elus360, file: Dockerfile}
+          - {name: elus360-worker, file: Dockerfile.worker}
+          - {name: elus360-scheduler, file: Dockerfile.scheduler}
+          - {name: elus360-voice-agent, file: Dockerfile.voice-agent}
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - name: Build only, NEVER push (no credentials or GHCR token)
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
-          push: true
-          platforms: linux/amd64
-          tags: ghcr.io/oaranha/${{ matrix.name }}:elus360-v1.94.0
+          file: ${{ matrix.image.file }}
+          platforms: linux/${{ matrix.arch }}
+          push: false
           build-args: |
-            APP_VERSION=1.94.0
+            APP_VERSION=distribution-smoke
           labels: |
             org.opencontainers.image.source=https://github.com/OARANHA/elus360
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=1.94.0
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.version=distribution-smoke
