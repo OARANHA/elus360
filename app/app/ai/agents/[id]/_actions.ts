@@ -35,14 +35,14 @@ import { publishAgentVersion } from "@/lib/ai/agents/publish";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
 import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
 import { podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
-import { requirePlatformAdminEscrita } from "@/lib/auth/requirePlatformAdmin";
+import { escritaDeAdminOuRecusa } from "@/lib/auth/escritaDeAdminOuRecusa";
 import { toolIdAceito } from "@/lib/mcp/servidor-externo/ids";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,provisioning_origin,inbound_debounce_ms";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, handoff_legal_enabled, proposal_ai_draft_enabled, cases_enabled, split_messages, split_max_chars, followup, voz_enabled, voz_quando, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids,skill_names,image_vision_enabled,provisioning_origin,inbound_debounce_ms,reply_min_interval_ms";
 
 type ActionResult<T = void> =
   | { ok: true; data?: T }
@@ -146,12 +146,9 @@ export async function saveAgentDraftAction(
   // com MFA validado neste request. Suporte/impersonação nunca herdam bypass.
   let platformBypass = false;
   if (podeGerenciarIaDaPlataforma(authUser)) {
-    try {
-      await requirePlatformAdminEscrita();
-      platformBypass = true;
-    } catch {
-      return { ok: false, error: "forbidden_platform_ai" };
-    }
+    const autorizado = await escritaDeAdminOuRecusa();
+    if (!autorizado.ok) return { ok: false, error: autorizado.error };
+    platformBypass = true;
   }
 
 
@@ -162,6 +159,7 @@ export async function saveAgentDraftAction(
     provider: v.provider,
     pipeline_ids: v.pipeline_ids,
     knowledge_source_ids: v.knowledge_source_ids,
+    skill_names: v.skill_names,
     credential_id: v.credential_id,
     channel_session_id: v.channel_session_id,
   });
@@ -499,16 +497,7 @@ export async function revertToVersionAction(
     return { ok: false, error: "tool_id_invalid", details: { invalid } };
   }
 
-  // Voltar a uma versão de quando a assinatura estava ligada regravaria o
-  // provedor que a instalação desligou — a mesma régua do salvar.
-  const escopo = await validarEscopoDaVersao(admin, activeOrg.orgId, {
-    provider: (source as { provider: string }).provider,
-  });
-  if (!escopo.ok) {
-    return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
-  }
-
-  // Cria draft idêntica com retry em 23505 (race no version_number).
+  // Reversão também é uma escrita técnica: escopo, grants e MFA continuam obrigatórios.
   type SourceRow = {
     system_prompt: string;
     provider: string;
@@ -529,88 +518,131 @@ export async function revertToVersionAction(
     handoff_legal_enabled: boolean;
     proposal_ai_draft_enabled: boolean;
     cases_enabled: boolean;
+    image_vision_enabled: boolean | null;
+    voz_enabled: boolean;
+    voz_quando: "nunca" | "espelhar" | "sempre";
     operator_enabled: boolean;
     operator_model: string | null;
     operator_tool_ids: string[];
     pipeline_ids: string[];
     knowledge_source_ids: string[];
+    skill_names: string[] | null;
     split_messages: boolean;
     split_max_chars: number;
     inbound_debounce_ms: number | null;
+    reply_min_interval_ms: number | null;
     followup: unknown;
   };
   const src = source as unknown as SourceRow;
 
-  let createdId: string | null = null;
-  let createdNumber: number | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const { data: maxRow } = await admin
-      .from("ai_agent_versions")
-      .select("version_number")
-      .eq("agent_id", agentId)
-      .eq("organization_id", activeOrg.orgId)
-      .order("version_number", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const nextNumber = (maxRow?.version_number ?? 0) + 1;
-
-    const { data: created, error } = await admin
-      .from("ai_agent_versions")
-      .insert({
-        organization_id: activeOrg.orgId,
-        agent_id: agentId,
-        version_number: nextNumber,
-        system_prompt: src.system_prompt,
-        provider: src.provider,
-        model: src.model,
-        credential_id: src.credential_id,
-        tool_ids: src.tool_ids,
-        trigger_config: src.trigger_config ?? undefined,
-        channel_session_id: src.channel_session_id,
-        max_steps: src.max_steps,
-        token_budget: src.token_budget,
-        cost_budget_cents: src.cost_budget_cents,
-        history_message_window: src.history_message_window,
-        history_token_window: src.history_token_window,
-        handoff_keywords: src.handoff_keywords,
-        handoff_tool_enabled: src.handoff_tool_enabled,
-        // Reverter/duplicar leva a chave junto: voltar para uma versão sem ela
-        // seria publicar uma configuração que nunca existiu (mesma régua de
-        // `pipeline_ids` logo abaixo).
-        handoff_legal_enabled: src.handoff_legal_enabled,
-        proposal_ai_draft_enabled: src.proposal_ai_draft_enabled,
-        cases_enabled: src.cases_enabled,
-        operator_enabled: src.operator_enabled,
-        operator_model: src.operator_model,
-        operator_tool_ids: src.operator_tool_ids,
-        // O revert leva o escopo junto: voltar para uma versão e NÃO voltar a
-        // permissão dela seria publicar uma configuração que nunca existiu.
-        // Vale igual para o acervo: reverter e o assistente esquecer o material
-        // que aquela versão consultava é publicar uma configuração inventada.
-        pipeline_ids: src.pipeline_ids,
-        knowledge_source_ids: src.knowledge_source_ids ?? [],
-        split_messages: src.split_messages,
-        split_max_chars: src.split_max_chars,
-        inbound_debounce_ms: src.inbound_debounce_ms ?? null,
-        followup: src.followup,
-        status: "draft",
-        created_by: authUser.id,
-      })
-      .select("id, version_number")
-      .single();
-
-    if (!error && created) {
-      createdId = created.id;
-      createdNumber = created.version_number;
-      break;
-    }
-    if (error?.code !== "23505") {
-      return { ok: false, error: "internal_error", message: error?.message };
-    }
+  // A versão de origem pode referenciar recursos removidos ou de outra org.
+  // A validação é a mesma do save: não publicar uma configuração parcialmente muda.
+  const escopo = await validarEscopoDaVersao(admin, activeOrg.orgId, {
+    provider: src.provider,
+    credential_id: src.credential_id,
+    channel_session_id: src.channel_session_id,
+    pipeline_ids: src.pipeline_ids,
+    knowledge_source_ids: src.knowledge_source_ids,
+    skill_names: src.skill_names,
+  });
+  if (!escopo.ok) {
+    return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
   }
-  if (!createdId || createdNumber == null) {
-    return { ok: false, error: "internal_error", message: "Conflito de versionamento." };
+
+  // Comparação contra a última versão lida DO SERVIDOR, seguida do mesmo
+  // controle dentro da RPC sob lock. Nunca comparar com metadados do browser.
+  const { data: reference, error: referenceError } = await admin
+    .from("ai_agent_versions")
+    .select("provider, model, credential_id, operator_model")
+    .eq("organization_id", activeOrg.orgId)
+    .eq("agent_id", agentId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (referenceError || !reference) {
+    return { ok: false, error: "configuracao_ia_indisponivel" };
   }
+  if (!(await podeAlterarTecnicaDeVersao({
+    via: "session",
+    authUserId: authUser.id,
+    organizationId: activeOrg.orgId,
+    anteriorDoServidor: reference,
+    propostaValidada: src,
+  }))) {
+    return { ok: false, error: "forbidden_platform_ai" };
+  }
+
+  // Superadmin só obtém bypass com sessão própria, escopo full e MFA confirmado.
+  // O mesmo helper do saveAgentDraftAction rejeita suporte/impersonação.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    const autorizado = await escritaDeAdminOuRecusa();
+    if (!autorizado.ok) return { ok: false, error: autorizado.error };
+    platformBypass = true;
+  }
+
+  // O schema do produto comprova todos os campos antes da escrita.
+  // A RPC escolhe version_number/status e aplica autorização sob lock PostgreSQL.
+  const payloadVersion = {
+    system_prompt: src.system_prompt,
+    provider: src.provider,
+    model: src.model,
+    credential_id: src.credential_id,
+    tool_ids: src.tool_ids,
+    trigger_config: src.trigger_config ?? undefined,
+    channel_session_id: src.channel_session_id,
+    max_steps: src.max_steps,
+    token_budget: src.token_budget,
+    cost_budget_cents: src.cost_budget_cents,
+    history_message_window: src.history_message_window,
+    history_token_window: src.history_token_window,
+    handoff_keywords: src.handoff_keywords,
+    handoff_tool_enabled: src.handoff_tool_enabled,
+    handoff_legal_enabled: src.handoff_legal_enabled,
+    proposal_ai_draft_enabled: src.proposal_ai_draft_enabled,
+    cases_enabled: src.cases_enabled,
+    image_vision_enabled: src.image_vision_enabled ?? true,
+    voz_enabled: src.voz_enabled,
+    voz_quando: src.voz_quando,
+    operator_enabled: src.operator_enabled,
+    operator_model: src.operator_model,
+    operator_tool_ids: src.operator_tool_ids,
+    pipeline_ids: src.pipeline_ids,
+    knowledge_source_ids: src.knowledge_source_ids ?? [],
+    skill_names: src.skill_names ?? null,
+    split_messages: src.split_messages,
+    split_max_chars: src.split_max_chars,
+    inbound_debounce_ms: src.inbound_debounce_ms ?? null,
+    reply_min_interval_ms: src.reply_min_interval_ms ?? null,
+    followup: src.followup,
+  };
+  const validated = versionCreateSchema.safeParse(payloadVersion);
+  if (!validated.success) {
+    return { ok: false, error: "validation_failed", details: validated.error.flatten() };
+  }
+  const { data: created, error: createError } = await admin.rpc(
+    "fn_elus_ai_version_create_guarded",
+    {
+      p_org: activeOrg.orgId,
+      p_agent: agentId,
+      p_payload: { ...validated.data, created_by: authUser.id },
+      p_platform_bypass: platformBypass,
+    },
+  );
+  if (createError || !created || typeof created !== "object" || Array.isArray(created)) {
+    return { ok: false, error: "internal_error" };
+  }
+  if ("error" in created) {
+    return {
+      ok: false,
+      error: created.error === "forbidden_platform_ai" ? "forbidden_platform_ai" : "version_conflict",
+    };
+  }
+  if (typeof created.id !== "string" || typeof created.version_number !== "number") {
+    return { ok: false, error: "internal_error" };
+  }
+  const createdId = created.id;
+  const createdNumber = created.version_number;
 
   const result = await publishAgentVersion(admin, {
     orgId: activeOrg.orgId,
@@ -708,8 +740,16 @@ export async function createMcpAgentAction(
     return { ok: false, error: codigoDoEscopo(escopo), message: mensagemDoEscopo(escopo) };
   }
 
+  // A autorização técnica é reavaliada no banco sob lock.
+  // Uma recusa de MFA do Superadmin mantém seu código próprio: não vira false.
+  let platformBypass = false;
+  if (podeGerenciarIaDaPlataforma(authUser)) {
+    const autorizado = await escritaDeAdminOuRecusa();
+    if (!autorizado.ok) return { ok: false, error: autorizado.error };
+    platformBypass = true;
+  }
+
   // O mesmo RPC protegido da API REST cria agente e versão atomicamente.
-  // A permissão técnica é reavaliada no banco sob lock de organizations.
   const { mcpAgentDraftRecords } = await import("@/lib/ai/agents/create-draft");
   const records = mcpAgentDraftRecords(
     { orgId: activeOrg.orgId, userId: authUser.id }, parsed.data,
@@ -718,17 +758,28 @@ export async function createMcpAgentAction(
     "fn_elus_ai_agent_create_guarded",
     {
       p_org: activeOrg.orgId,
-      p_agent: { ...records.agent, is_active: false, created_by: authUser.id },
-      p_version: { ...records.version, created_by: authUser.id },
-      p_platform_bypass: await (async () => {
-        const { podeGerenciarIaDaPlataforma } = await import("@/lib/elus360/ai-managed/server");
-        if (!podeGerenciarIaDaPlataforma(authUser)) return false;
-        try {
-          const { requirePlatformAdminEscrita } = await import("@/lib/auth/requirePlatformAdmin");
-          await requirePlatformAdminEscrita();
-          return true;
-        } catch { return false; }
-      })(),
+      // A RPC 9901 proíbe organization_id/agent_id/version_number/status no
+      // payload: ela própria deriva essas colunas sob lock da organização.
+      // Espalhar records.agent/version inteiros enviaria metadados internos e
+      // provocaria 42501 antes da criação (sem qualquer linha persistida).
+      p_agent: {
+        id: records.agent.id,
+        name: records.agent.name,
+        description: records.agent.description,
+        model: records.agent.model,
+        system_prompt: records.agent.system_prompt,
+        kind: "mcp_agent",
+        priority: records.agent.priority,
+        is_active: false,
+        is_default: false,
+        created_by: authUser.id,
+      },
+      p_version: {
+        ...parsed.data.version,
+        id: records.version.id,
+        created_by: authUser.id,
+      },
+      p_platform_bypass: platformBypass,
     },
   );
   if (createError || !created || typeof created !== "object" || Array.isArray(created)) {

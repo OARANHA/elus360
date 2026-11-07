@@ -35,7 +35,24 @@ test("server action cria agente e draft apenas via RPC atômico", () => {
   const action = source.slice(start);
   assert.match(action, /fn_elus_ai_agent_create_guarded/);
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\.insert\(/);
-  assert.match(action, /requirePlatformAdminEscrita/);
+  const helper = readFileSync("lib/auth/escritaDeAdminOuRecusa.ts", "utf8");
+  assert.match(source, /import \{ escritaDeAdminOuRecusa \} from "@\/lib\/auth\/escritaDeAdminOuRecusa"/);
+  assert.match(helper, /await requirePlatformAdminEscrita\(\)/);
+  assert.match(helper, /err instanceof EscritaDePlatformAdminNegada/);
+  assert.match(action, /const guard = await ensureAdmin\(\)/);
+  // Verifica a ordem do código efetivo, sem exigir uma IIFE dentro do argumento
+  // da RPC. A prova dos caminhos de sucesso/recusa é feita pelo teste Vitest
+  // elus360-create-agent-bypass.test.ts; a prova do lock/revogação é PostgreSQL.
+  const init = action.indexOf("let platformBypass = false;");
+  const platform = action.indexOf("if (podeGerenciarIaDaPlataforma(authUser))", init);
+  const mfa = action.indexOf("await escritaDeAdminOuRecusa()", platform);
+  const refuse = action.indexOf("if (!autorizado.ok) return", mfa);
+  const allow = action.indexOf("platformBypass = true;", refuse);
+  const rpc = action.indexOf('await admin.rpc(', allow);
+  const bypass = action.indexOf("p_platform_bypass: platformBypass", rpc);
+  assert.ok(init >= 0 && platform > init && mfa > platform &&
+    refuse > mfa && allow > refuse && rpc > allow && bypass > rpc,
+    "bypass só é habilitado após verificação full/MFA e recusa nomeada, antes da RPC");
 });
 
 test("editor de rascunhos usa gates e RPCs transacionais em ambos os caminhos", () => {
@@ -53,7 +70,12 @@ test("editor de rascunhos usa gates e RPCs transacionais em ambos os caminhos", 
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\s*\.update\(/);
   assert.doesNotMatch(action, /\.from\("ai_agent_versions"\)\s*\.insert\(/);
   assert.match(action, /p_platform_bypass: platformBypass/);
-  assert.match(action, /await requirePlatformAdminEscrita\(\)/);
+  const helper = readFileSync("lib/auth/escritaDeAdminOuRecusa.ts", "utf8");
+  assert.match(helper, /await requirePlatformAdminEscrita\(\)/);
+  assert.match(helper, /err instanceof EscritaDePlatformAdminNegada/);
+  const adminGuard = action.indexOf("await escritaDeAdminOuRecusa()");
+  assert.ok(adminGuard >= 0 && adminGuard < patch,
+    "admin full e MFA devem ser avaliados antes do RPC do rascunho");
   assert.match(action, /podeGerenciarIaDaPlataforma\(authUser\)/);
   assert.match(action, /p_agent_patch: cadastroPatch/);
   assert.doesNotMatch(action, /gravarCadastroDoAgente/);
@@ -112,7 +134,7 @@ test("providers PUT/PATCH gravam somente via RPC transacional de grants", () => 
 
 test("credenciais reutilizam cifragem e RPC transacional, com refresh estreito", () => {
   const helper = readFileSync("lib/ai/credenciais/guardar.ts", "utf8");
-  const sql = readFileSync("supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql", "utf8");
+  const sql = readFileSync("supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql", "utf8");
   const refresh = readFileSync("lib/ai/credenciais/login-codex.ts", "utf8");
   const change = readFileSync("app/api/v1/ai/credentials/[id]/route.ts", "utf8");
   assert.equal((helper.match(/fn_elus_ai_credential_write_guarded/g) ?? []).length, 2);
@@ -124,7 +146,7 @@ test("credenciais reutilizam cifragem e RPC transacional, com refresh estreito",
 });
 
 test("novos RPCs têm permissão apenas para service_role", () => {
-  const sql = readFileSync("supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql", "utf8");
+  const sql = readFileSync("supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql", "utf8");
   for (const rpc of ["purpose_binding_write", "default_write", "credential_write"]) {
     assert.match(sql, new RegExp("create or replace function public\\.fn_elus_ai_" + rpc + "_guarded"));
     assert.match(sql, new RegExp("grant execute on function public\\.fn_elus_ai_" + rpc +

@@ -35,7 +35,7 @@ const BUILTINS = new Set(["fs", "path", "child_process", "os", "url", "crypto", 
 // do vitest também não visita), mais os que só têm teste
 // de outra suíte (invariantes de banco, Playwright).
 const FORA = new Set(["node_modules", "dist", "experiments"]);
-const SUITES_DE_OUTRO_RUNNER = ["tests/e2e/", "tests/invariants/", "tests/journeys/"];
+const SUITES_DE_OUTRO_RUNNER = ["tests/e2e/", "tests/invariants/", "tests/journeys/", "tests/operational/"];
 const EXTENSOES = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
 // O projeto `cercas` roda em `node`: sem `document`/`window`. Import nenhum
 // denuncia o módulo que chama `document.execCommand` (lib/clipboard.ts), então

@@ -35,8 +35,8 @@ export async function GET(_req: NextRequest, ctx: Ctx): Promise<Response> {
   let adminCtx: Awaited<ReturnType<typeof requirePlatformAdmin>>;
   try {
     adminCtx = await requirePlatformAdmin();
-  } catch {
-    return fail("forbidden", "Platform admin required", 403, { requestId });
+  } catch (e) {
+    return falhaDaEscritaDePlatformAdmin(e, requestId);
   }
   const parsed = paramsSchema.safeParse(await ctx.params);
   if (!parsed.success) return fail("validation_failed", "Organização inválida", 400, { requestId });

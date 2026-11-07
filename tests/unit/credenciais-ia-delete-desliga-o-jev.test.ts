@@ -16,6 +16,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/elus360/ai-managed/server")>()),
+  // Esta suíte exercita FK e mensagens com concessão explícita de fixture;
+  // os testes negativos de governança continuam usando o gate real.
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 
@@ -39,6 +46,11 @@ let estado: Estado;
 
 function fakeAdmin() {
   return {
+    rpc: async (name: string, args: { p_org: string; p_op: string; p_id: string; p_platform_bypass: boolean }) => {
+      expect(name).toBe("fn_elus_ai_credential_write_guarded");
+      expect(args).toMatchObject({ p_org: ORG, p_op: "delete", p_id: ID, p_platform_bypass: false });
+      return { data: { id: ID }, error: null };
+    },
     from(tabela: string) {
       estado.tabelasLidas.push(tabela);
       let op: "select" | "update" | "delete" = "select";

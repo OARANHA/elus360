@@ -6,6 +6,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { AuthUser } from "@/lib/auth/types";
+import { recusaConfiguracaoDeIa } from "@/lib/elus360/ai-managed/server";
 
 /**
  * PATCH /api/v1/ai/providers — o padrão da organização ganha superfície.
@@ -40,6 +41,12 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
+// O teste cobre o comportamento de um tenant expressamente AUTORIZADO.
+// As recusas de grants e bypass são medidas nos testes isolados ELUS.
+vi.mock("@/lib/elus360/ai-managed/server", () => ({
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+  podeGerenciarIaDaPlataforma: vi.fn(() => false),
+}));
 
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -67,6 +74,29 @@ interface EstadoDoBanco {
 
 function stubDoBanco(estado: EstadoDoBanco) {
   return {
+    async rpc(name: string, args: {
+      p_org: string;
+      p_provider: string;
+      p_model: string;
+      p_expected: { provider: string; model: string | null };
+      p_platform_bypass: boolean;
+    }) {
+      if (name !== "fn_elus_ai_default_write_guarded" || args.p_org !== ORG_ID) {
+        return { data: null, error: { code: "42501", message: "not_authorized" } };
+      }
+      const atual = ((estado.atualizacao?.settings ?? SETTINGS_EXISTENTES) as Record<string, unknown>);
+      const antigo = atual.llm as { provider: string; default_model: string } | undefined;
+      if (args.p_expected.provider !== antigo?.provider || args.p_expected.model !== antigo?.default_model) {
+        return { data: { error: "configuracao_ia_alterada" }, error: null };
+      }
+      estado.atualizacao = {
+        settings: {
+          ...atual,
+          llm: { provider: args.p_provider, default_model: args.p_model },
+        },
+      };
+      return { data: { id: args.p_org }, error: null };
+    },
     from(tabela: string) {
       if (tabela === "organizations") {
         return {
@@ -166,6 +196,7 @@ describe("PATCH /api/v1/ai/providers — padrão da organização", () => {
       stubDoBanco(estado) as unknown as ReturnType<typeof createAdminClient>,
     );
     autorizadoComoAdmin();
+    vi.mocked(recusaConfiguracaoDeIa).mockResolvedValue(null);
   });
 
   it("grava o padrão SEM apagar as outras chaves de settings", async () => {
@@ -252,6 +283,17 @@ describe("PATCH /api/v1/ai/providers — padrão da organização", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { data: { avisos: string[] } };
     expect(json.data.avisos).toEqual([]);
+  });
+
+  it("rejeita escrita técnica sem grant antes de chamar a RPC do cliente admin", async () => {
+    const { fail } = await import("@/lib/api/wrappers");
+    vi.mocked(recusaConfiguracaoDeIa).mockResolvedValueOnce(
+      fail("forbidden_platform_ai", "IA da plataforma protegida", 403),
+    );
+    const { PATCH } = await import("./route");
+    const res = await PATCH(requisicao({ provider: "openai", default_model: "gpt-5.4-mini" }));
+    expect(res.status).toBe(403);
+    expect(estado.atualizacao).toBeNull();
   });
 
   it("exige papel admin — a troca do padrão muda todo ponto herdado", async () => {

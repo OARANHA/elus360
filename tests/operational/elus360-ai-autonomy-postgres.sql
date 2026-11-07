@@ -16,8 +16,9 @@ CREATE TABLE public.ai_agent_versions (
   history_message_window integer, history_token_window integer,
   handoff_keywords text[], handoff_tool_enabled boolean, handoff_legal_enabled boolean,
   proposal_ai_draft_enabled boolean, cases_enabled boolean, split_messages boolean,
-  split_max_chars integer, inbound_debounce_ms integer,
-  pipeline_ids uuid[], knowledge_source_ids uuid[], followup jsonb,
+  split_max_chars integer, inbound_debounce_ms integer, reply_min_interval_ms integer,
+  image_vision_enabled boolean, voz_enabled boolean, voz_quando text,
+  pipeline_ids uuid[], knowledge_source_ids uuid[], skill_names text[], followup jsonb,
   operator_enabled boolean, operator_tool_ids text[], created_by uuid
 );
 CREATE TABLE public.ai_agents (
@@ -63,9 +64,11 @@ $auth_uid$;
 GRANT USAGE ON SCHEMA auth TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.role(), auth.uid() TO authenticated, service_role;
 INSERT INTO public.organizations(id) VALUES ('11111111-1111-4111-8111-111111111111');
-\ir ../../supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql
+\ir ../../supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql
 -- Reaplicação idempotente.
-\ir ../../supabase/migrations/20261028235959_9037_elus_ai_autonomy_guarded.sql
+\ir ../../supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql
+\ir ../../supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql
+\ir ../../supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql
 
 -- authenticated não pode emitir ou revogar grants, mesmo se UPDATE em settings funcionar.
 SET ROLE authenticated;
@@ -584,5 +587,61 @@ BEGIN
     IF SQLERRM <> 'elus_ai_credential_refresh_restricted' THEN RAISE; END IF;
   END;
 END $refresh_gate$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.role','',false);
+
+-- Regression for canonical POST with v1.102 fields, grant revocation and tenant-internal columns.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role','service_role',false);
+DO $extended_create$
+DECLARE r jsonb;
+BEGIN
+  UPDATE public.organizations SET ai_autonomy='{"provider":true,"model":true,"credentials":true,"operator_model":true}'::jsonb;
+  r := public.fn_elus_ai_agent_create_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '{"id":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee","name":"agent-v1102",
+      "model":"openai/new","system_prompt":"instrucoes validas",
+      "kind":"mcp_agent","created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    '{"id":"ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "system_prompt":"instrucoes validas","provider":"openai","model":"new",
+      "created_by":"11111111-1111-4111-8111-111111111111",
+      "image_vision_enabled":false,"reply_min_interval_ms":3500,
+      "voz_enabled":true,"voz_quando":"sempre","skill_names":["agenda"]}'::jsonb,
+    false);
+  IF r->'version'->>'id' IS DISTINCT FROM 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+     OR (SELECT image_vision_enabled FROM public.ai_agent_versions WHERE id='ffffffff-ffff-4fff-8fff-ffffffffffff') IS DISTINCT FROM false
+     OR (SELECT reply_min_interval_ms FROM public.ai_agent_versions WHERE id='ffffffff-ffff-4fff-8fff-ffffffffffff') IS DISTINCT FROM 3500
+     OR (SELECT voz_enabled FROM public.ai_agent_versions WHERE id='ffffffff-ffff-4fff-8fff-ffffffffffff') IS DISTINCT FROM true
+     OR (SELECT voz_quando FROM public.ai_agent_versions WHERE id='ffffffff-ffff-4fff-8fff-ffffffffffff') IS DISTINCT FROM 'sempre'
+     OR (SELECT skill_names FROM public.ai_agent_versions WHERE id='ffffffff-ffff-4fff-8fff-ffffffffffff') IS DISTINCT FROM ARRAY['agenda']::text[]
+  THEN RAISE EXCEPTION 'FAIL_extended_agent_create_%',r; END IF;
+  BEGIN
+    PERFORM public.fn_elus_ai_agent_create_guarded(
+      '11111111-1111-4111-8111-111111111111',
+      '{"id":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","name":"blocked",
+        "model":"openai/new","system_prompt":"instrucoes validas","kind":"mcp_agent",
+        "created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+      '{"id":"cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "organization_id":"11111111-1111-4111-8111-111111111111",
+        "system_prompt":"instrucoes validas","provider":"openai","model":"new",
+        "created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,false);
+    RAISE EXCEPTION 'FAIL_extended_rpc_accepted_server_field';
+  EXCEPTION WHEN insufficient_privilege THEN
+    IF SQLERRM <> 'elus_ai_agent_create_version_column_restricted' THEN RAISE; END IF;
+  END;
+  IF EXISTS(SELECT 1 FROM public.ai_agents WHERE id='dddddddd-dddd-4ddd-8ddd-dddddddddddd') THEN
+    RAISE EXCEPTION 'FAIL_extended_rpc_left_orphan'; END IF;
+  UPDATE public.organizations SET ai_autonomy='{}'::jsonb;
+  r := public.fn_elus_ai_agent_create_guarded(
+    '11111111-1111-4111-8111-111111111111',
+    '{"id":"aaaaaaaa-ffff-4aaa-8aaa-aaaaaaaaffff","name":"revoked",
+      "model":"openai/new","system_prompt":"instrucoes validas","kind":"mcp_agent",
+      "created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,
+    '{"id":"bbbbbbbb-ffff-4bbb-8bbb-bbbbbbbbffff",
+      "system_prompt":"instrucoes validas","provider":"openai","model":"new",
+      "created_by":"11111111-1111-4111-8111-111111111111"}'::jsonb,false);
+  IF r->>'error' IS DISTINCT FROM 'forbidden_platform_ai' THEN
+    RAISE EXCEPTION 'FAIL_extended_revoked_grant_%',r; END IF;
+END $extended_create$;
 RESET ROLE;
 SELECT set_config('request.jwt.claim.role','',false);

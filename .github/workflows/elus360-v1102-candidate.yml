@@ -1,0 +1,191 @@
+name: ELUS360 v1.102.0 - candidate verification
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elus360-v1102-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+
+jobs:
+  sql-source-parity:
+    name: SQL source parity - official v1.102 + ELUS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact committed source without writing or committing
+        run: python3 scripts/elus360-v1102-sql-reconcile.py
+      - name: Verify integration manifest has no unresolved paths
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("docs/elus360/upgrade-v1102-candidate.json").read_text())
+          assert report["target_commit"] == "4b5815721710c9b1e99078322593838fda1ee740"
+          assert not report["unresolved"], report["unresolved"]
+          print("manifest_unresolved=0 source_sha=" + report["target_commit"])
+          PY
+      - name: Confirm validation never changed the working tree
+        run: test -z "$(git status --porcelain)"
+
+  typecheck:
+    name: Global TypeScript - full tsconfig
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: TypeScript global (tests included) on public 16 GB runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          free -h
+          total_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+          echo "runner_memtotal_kib=$total_kb"
+          if (( total_kb < 14680064 )); then
+            echo "ERROR: less than 14 GiB RAM: do not silently bypass global TypeScript" >&2
+            exit 1
+          fi
+          ulimit -c 0
+          export NODE_OPTIONS="--max-old-space-size=12288"
+          pnpm exec tsc --noEmit -p tsconfig.typecheck.json --extendedDiagnostics
+
+  lint:
+    name: ESLint and channels restrictions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - run: pnpm lint
+      - run: pnpm lint:channels
+
+  unit:
+    name: Full unit suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - run: pnpm test:unit
+
+  governance:
+    name: ELUS governance and migration collision
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Guarded AI/tenant write boundaries
+        run: |
+          pnpm test:operational
+          pnpm exec vitest run \
+            lib/elus360/ai-managed/authorize-version-write.test.ts \
+            lib/elus360/ai-managed/server.test.ts \
+            tests/unit/elus360-ia-gerenciada-guard.test.ts \
+            tests/unit/elus360-version-governance.test.ts \
+            app/api/v1/admin/tenants/'[id]'/ai-permissions/route.test.ts \
+            tests/unit/versao-do-agente-referencias-da-org.test.ts
+      - name: Validate syntax of migration collision checker
+        run: bash -n scripts/checar-colisao-de-migration.sh
+      - run: pnpm checar:colisao-de-migration
+
+  build:
+    name: Production Next.js build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Build with memory budget and no secrets
+        env:
+          NODE_OPTIONS: "--max-old-space-size=12288"
+        run: pnpm build
+
+  shell:
+    name: Installation and update shell tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - run: pnpm test:shell
+
+  db-clean:
+    name: PostgreSQL disposable baseline, RLS and idempotency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Resolve and prove official DeskcommCRM release tags (no mutable latest API)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 \
+            https://github.com/melgarafael/DeskcommCRM.git \
+            +refs/tags/v1.102.0:refs/tags/v1.102.0 \
+            +refs/tags/v1.63.0:refs/tags/v1.63.0
+          pinned="$(git rev-parse 'refs/tags/v1.102.0^{commit}')"
+          test "$pinned" = "4b5815721710c9b1e99078322593838fda1ee740"
+          git cat-file -e 'refs/tags/v1.63.0^{commit}'
+          echo "official_release=v1.102.0 official_commit=$pinned"
+      - name: PostgreSQL install/update/RLS with pinned official release compatibility
+        env:
+          CONFERENCIA_KIT_RELEASE: "v1.102.0"
+        run: pnpm test:db
+
+  db-update:
+    name: PostgreSQL disposable schema update with seeded data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - run: pnpm test:db:update

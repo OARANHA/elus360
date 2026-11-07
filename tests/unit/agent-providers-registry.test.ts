@@ -12,6 +12,7 @@ describe("createDefaultRegistry", () => {
     const reg = createDefaultRegistry();
     expect(Object.keys(reg).sort()).toEqual([
       "anthropic",
+      "chutes",
       // Provedor personalizado (#1642): endpoint do operador, sem endpoint
       // canônico — a factory recusa a chamada quando falta o endereço.
       "custom",

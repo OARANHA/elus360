@@ -39,6 +39,7 @@ async function opcoesDoEditor(provedoresOferecidos?: readonly string[]) {
     <QueryClientProvider client={qc}>
       <AgentForm
         mode="create"
+        autonomiaTecnica={{ provider: true, model: true, credentials: true, operator_model: true }}
         credentials={[] as never}
         channelSessions={[] as never}
         provedoresOferecidos={provedoresOferecidos}
@@ -64,6 +65,15 @@ function opcoesDoOnboarding() {
 }
 
 describe("editor do agente", () => {
+  it("sem autonomia técnica, a tela não expõe o seletor de provedor", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <AgentForm mode="create" credentials={[] as never} channelSessions={[] as never} provedoresOferecidos={COM_ELA} />
+      </QueryClientProvider>,
+    );
+    expect(container.querySelector("#provider")).toBeNull();
+  });
   it("módulo desligado: a assinatura não é oferecida, os outros sim", async () => {
     const opcoes = await opcoesDoEditor(SEM_ELA);
     expect(opcoes).not.toContain(ROTULO);
