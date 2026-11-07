@@ -1421,6 +1421,18 @@ if [[ ! "${VERSAO_ALVO:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
    || ! trio_publicado "$VERSAO_ALVO"; then
   die "ELUS_DISTRIBUTION_NO_GO: nenhuma release própria ELUS360 com quatro imagens públicas foi verificada; não uso stable/latest nem compilo imagens nesta VPS."
 fi
+# O clone inicial pode ser shallow e não ter as tags. Buscar SOMENTE a tag
+# selecionada do origin canônico, sem depender de latest nem de tags locais.
+# Conferir release publicada/main e usar seu código (baseline) antes do banco.
+if ! git fetch --no-tags --quiet origin "refs/tags/v${VERSAO_ALVO}:refs/tags/v${VERSAO_ALVO}"; then
+  die "ELUS_DISTRIBUTION_NO_GO: falha ao obter tag ELUS360 verificável."
+fi
+if ! elus360_release_tag_comprovada "v${VERSAO_ALVO}"; then
+  die "ELUS_DISTRIBUTION_NO_GO: tag sem release própria publicada e procedência verificável."
+fi
+if ! git checkout --quiet "v${VERSAO_ALVO}"; then
+  die "ELUS_DISTRIBUTION_NO_GO: checkout seguro do código/base de schema da release recusado."
+fi
 IMAGEM_APP_DEFAULT="${IMG_APP}:${VERSAO_ALVO}"
 
 FIELDS=(
