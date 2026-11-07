@@ -63,18 +63,57 @@ test.describe("Criar um agente pela tela", () => {
     // O formulário recebe instruções PADRÃO válidas; ausência de aviso aqui
     // é correta porque não falta texto. O teste ainda exige texto utilizável.
     expect((await prompt.inputValue()).trim().length).toBeGreaterThanOrEqual(10);
-    for (const [id, mensagem] of [
-      ["model", /escolha o modelo/i],
-      ["credential_id", /escolha a chave de acesso|esta instalação não tem chave/i],
-    ] as const) {
-      const campo = page.locator(`#${id}`);
-      await expect(campo).toBeVisible();
-      const predefinido = await campo.evaluate((elemento) => {
-        if (elemento instanceof HTMLInputElement) return elemento.value.trim().length > 0;
-        return !elemento.hasAttribute("data-placeholder") &&
-          !/^(?:selecione|escolha|carregando)/i.test((elemento.textContent ?? "").trim());
-      });
-      if (!predefinido) await expect(page.getByText(mensagem).first()).toBeVisible();
+    // A captura e o trace do CI RED 42312779985 comprovaram uma corrida:
+    // #model ainda era um botão DESABILITADO com data-placeholder="",
+    // pois o catálogo React Query carregava. Depois aparecia "Claude Sonnet 5"
+    // selecionado; exigir "Escolha o modelo" no estado anterior era falso RED.
+    const modelo = page.locator("#model");
+    await expect(modelo).toBeVisible();
+    await expect(modelo, "aguardar a lista de modelos concluir o carregamento")
+      .toBeEnabled({ timeout: 15_000 });
+
+    const selecaoDoModelo = await modelo.evaluate((elemento) => {
+      const texto = (elemento instanceof HTMLInputElement
+        ? elemento.value
+        : elemento.textContent ?? "").trim();
+      return {
+        texto,
+        inputLivre: elemento instanceof HTMLInputElement,
+        selecionado: texto.length > 0 &&
+          !elemento.hasAttribute("data-placeholder") &&
+          !/^(?:selecione|escolha|carregando)/i.test(texto),
+      };
+    });
+    if (selecaoDoModelo.selecionado) {
+      // Não basta um rótulo qualquer no botão: a opção selecionada precisa
+      // EXISTIR na listagem do provedor atual e corresponder ao valor exibido.
+      if (!selecaoDoModelo.inputLivre) {
+        await modelo.click();
+        const selecionada = page.getByRole("listbox", { name: "Modelo" })
+          .getByRole("option", { selected: true });
+        await expect(selecionada, "modelo pré-selecionado deve existir no catálogo do provedor")
+          .toHaveCount(1);
+        await expect(selecionada).toContainText(selecaoDoModelo.texto);
+        await page.keyboard.press("Escape");
+      } else {
+        expect(selecaoDoModelo.texto.length).toBeGreaterThan(0);
+      }
+    } else {
+      // Sem modelo, a orientação continua obrigatória; não se mascara a falha.
+      await expect(page.getByText(/escolha o modelo/i).first()).toBeVisible();
+    }
+
+    const credencial = page.locator("#credential_id");
+    await expect(credencial).toBeVisible();
+    await expect(credencial).toBeEnabled();
+    const credencialPredefinida = await credencial.evaluate((elemento) =>
+      !elemento.hasAttribute("data-placeholder") &&
+      !/^(?:selecione|escolha|carregando)/i.test((elemento.textContent ?? "").trim()),
+    );
+    if (!credencialPredefinida) {
+      await expect(
+        page.getByText(/escolha a chave de acesso|esta instalação não tem chave/i).first(),
+      ).toBeVisible();
     }
 
     // ⚠️ O NÚMERO DE WHATSAPP NÃO ESTÁ NESSA LISTA, e a ausência é o teste.
