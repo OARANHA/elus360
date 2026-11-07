@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   corridaInternaDeFork,
-  DONO_DESTE_REPO,
   donoConfiavelDoRunner,
   donoDo,
   NAMESPACE_DESTE_REPO,
@@ -80,7 +79,7 @@ const RAIZ = process.cwd();
 
 const COMUM = fs.readFileSync(path.join(RAIZ, "hostgator-setup-kit/_common.sh"), "utf8");
 const COMPOSE = fs.readFileSync(path.join(RAIZ, "docker-compose.prod.yml"), "utf8");
-const PUBLICA = fs.readFileSync(path.join(RAIZ, ".github/workflows/publish-image.yml"), "utf8");
+const PUBLICA = fs.readFileSync(path.join(RAIZ, ".github/workflows/build-elus360.yml"), "utf8");
 const ENV_EXEMPLO = fs.readFileSync(path.join(RAIZ, ".env.hostgator.example"), "utf8");
 
 
@@ -237,7 +236,7 @@ describe("o kit aponta para o que o CI realmente publica", () => {
     // SÓ aquele literal faria a âncora se calar contra o upstream. Derivando, o
     // mesmo commit fica vermelho AQUI, contra seis arquivos que ele não tocou.
     // Medido nos dois sentidos, com a URL fixa e com ela derivada (ver cabeçalho).
-    const repo = `https://github.com/${DONO_DESTE_REPO}/DeskcommCRM`;
+    const repo = "https://github.com/OARANHA/elus360";
     for (const script of ["install.sh", "comecar.sh"]) {
       const texto = fs.readFileSync(path.join(RAIZ, "hostgator-setup-kit", script), "utf8");
       expect(texto).toContain(`REPO_URL="\${REPO_URL:-${repo}.git}"`);
@@ -275,7 +274,7 @@ describe("o kit aponta para o que o CI realmente publica", () => {
         log=$(mktemp)
         trap 'rm -f "$log"' EXIT
         # O dublê registra em arquivo porque a função captura stdout do curl.
-        ghcr_status deskcommcrm 1.2.3
+        ghcr_status elus360 1.2.3
         printf '\\n'
         cat "$log"
       `,
@@ -286,34 +285,25 @@ describe("o kit aponta para o que o CI realmente publica", () => {
       );
       expect(saida.trim().split("\n")).toEqual([
         "200",
-        `https://${registry}/token?scope=repository:${owner}/deskcommcrm:pull&service=${registry}`,
-        `https://${registry}/v2/${owner}/deskcommcrm/manifests/1.2.3`,
+        `https://${registry}/token?scope=repository:${owner}/elus360:pull&service=${registry}`,
+        `https://${registry}/v2/${owner}/elus360/manifests/1.2.3`,
       ]);
     },
   );
 
-  it("o registry do kit é o mesmo do workflow de publicação", () => {
-    const m = PUBLICA.match(/^\s*REGISTRY:\s*(\S+)$/m);
-    expect(m, "não achei `REGISTRY:` em .github/workflows/publish-image.yml").not.toBeNull();
-    expect(imgNs().split("/")[0]).toBe(m![1]);
+  it("o workflow de PR compila quatro imagens, mas não publica", () => {
+    expect(PUBLICA).toContain("name: ELUS360 distribution - four images smoke (no publish)");
+    expect(PUBLICA).toMatch(/\npermissions:\n  contents: read\n/);
+    expect(PUBLICA).toContain("push: false");
+    expect(PUBLICA).not.toContain("packages: write");
+    expect(PUBLICA).not.toMatch(/^  (?:push|workflow_dispatch):/m);
+    expect(PUBLICA).toContain("github.repository == 'OARANHA/elus360'");
+    expect(PUBLICA).toContain("linux/${{ matrix.arch }}");
   });
 
-  it("o workflow ainda deriva o dono do repositório, em vez de fixar um", () => {
-    // Se esta linha virar um literal, o namespace passa a ter três donos e um
-    // fork perde a única parte que já funcionava sozinha para ele.
-    expect(PUBLICA).toContain(
-      "images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.name }}",
-    );
-  });
-
-  it("as imagens do kit são exatamente as que o workflow constrói", () => {
-    // Eram três até a telefonia por SIP entrar como módulo opcional (#677) e
-    // trazer a quarta (`deskcomm-voice-agent`). O número não é o invariante — a
-    // IGUALDADE entre as duas listas é; prendê-lo em 3 fez este caso reprovar a
-    // imagem nova em vez de reprovar a divergência. Fica um piso, que é o que o
-    // caso precisa para não passar sobre lista vazia.
-    const naMatriz = [...PUBLICA.matchAll(/^\s{10}- name: (\S+)$/gm)].map((m) => m[1]);
-    expect(naMatriz.length, "a matriz de publish-image.yml veio vazia — o leitor cegou").toBeGreaterThanOrEqual(3);
+  it("as quatro imagens do kit correspondem às da matriz de smoke", () => {
+    const naMatriz = [...PUBLICA.matchAll(/^\s+- \{name: ([^,]+), file:/gm)].map((m) => m[1]);
+    expect(naMatriz).toHaveLength(4);
     expect([...naMatriz].sort()).toEqual([...reposDoKit()].sort());
   });
 });
@@ -332,6 +322,7 @@ describe("o kit aponta para o que o CI realmente publica", () => {
  */
 describe("catraca: ninguém mais repete o namespace", () => {
   const PERMITIDO = new Set([
+    "scripts/elus360-distribution-guard.py", // verificação offline de procedência ELUS
     "hostgator-setup-kit/_common.sh",
     "docker-compose.prod.yml",
     ".env.hostgator.example",

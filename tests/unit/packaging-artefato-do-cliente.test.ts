@@ -126,48 +126,16 @@ describe("packaging — o artefato que o cliente instala", () => {
   });
 
   /**
-   * Worker, scheduler e voz: `image:` + `build:` no mesmo bloco. O Compose
-   * constrói sozinho em QUALQUER falha de pull (medido: tag inexistente,
-   * registro fora por DNS, "no matching manifest", com `pull_policy` `always`,
-   * `missing` ou sem a chave) — e o build desses três é barato (`pnpm install`
-   * e `apk add`), então o escape fica: é o que faz um `up -d` rodado à mão
-   * (a dica que o próprio kit imprime) se sair sozinho.
+   * ELUS360 distribui as quatro imagens pré-buildadas no GHCR.
+   * O Compose de produção não pode construir app, worker, scheduler ou voz:
+   * com image+build, falhas de pull permitiriam compilar silenciosamente
+   * na VPS do cliente fora da pipeline de integridade.
    */
-  const COM_BUILD = ["worker", "scheduler", "voice-agent"] as const;
-
-  it.each(COM_BUILD)(
-    "o serviço '%s' declara build: ao lado do image: — escape barato (#1060)",
-    (nome) => {
-      const bloco = servicos.get(nome);
-      expect(bloco, `serviço '${nome}' sumiu do compose de produção`).toBeDefined();
-
-      const temBuild = /^ {4}build:/m.test(bloco!);
-      expect(
-        temBuild,
-        `'${nome}' perdeu o build: ao lado do image:. Sem ele, um 'up -d' à mão numa VPS ` +
-          `cuja arquitetura não é a das imagens publicadas (Oracle Ampere/ARM) morre com ` +
-          `"No such image" — e o build desses três é barato, não o next-build do app. ` +
-          `Ver docs/doctrine/packaging.md, invariante 1.`,
-      ).toBe(true);
-    },
-  );
-
-  it("o serviço 'app' NÃO declara build: no compose de produção — de propósito (#1060)", () => {
-    const bloco = servicos.get("app");
-    expect(bloco, "serviço 'app' sumiu do compose de produção").toBeDefined();
-
-    const temBuild = /^ {4}build:/m.test(bloco!);
-    expect(
-      temBuild,
-      `'app' ganhou build: ao lado do image: no compose de produção. Medido no Compose: ` +
-        `com os dois presentes o 'up -d' CONSTRÓI em QUALQUER falha de pull (tag inexistente, ` +
-        `registro fora por DNS, "no matching manifest"), e o portão ` +
-        `'build_local_permitido' do update.sh — que recusa construir com o registro fora, ` +
-        `depois do OOM no next-build da #1955 — só é consultado quando o 'up -d' FALHA. ` +
-        `Sem build: aqui é isso que entrega a decisão a ele. Quem quer construir o app usa ` +
-        `o docker-compose.build.yml, que passa APP_VERSION como argumento (por este build: o ` +
-        `app sairia com APP_VERSION=dev do Dockerfile).`,
-    ).toBe(false);
+  it.each(NOSSOS)("serviço '%s' possui image: e NÃO possui build: em produção", (nome) => {
+    const bloco = servicos.get(nome);
+    expect(bloco, `serviço '${nome}' ausente do compose`).toBeDefined();
+    expect(bloco).toMatch(/^ {4}image:/m);
+    expect(bloco, `build local indevido em ${nome}`).not.toMatch(/^ {4}build:/m);
   });
 
   it("nenhum serviço de produção é build-only", () => {
@@ -311,57 +279,27 @@ describe("packaging — o artefato que o cliente instala", () => {
     }
   });
 
-  it("o workflow publica as quatro imagens e injeta APP_VERSION", () => {
-    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/publish-image.yml"), "utf8");
-    for (const imagem of [
-      "deskcommcrm",
-      "deskcomm-worker",
-      "deskcomm-scheduler",
-      "deskcomm-voice-agent",
-    ]) {
-      expect(wf, `publish-image.yml não publica '${imagem}'`).toContain(`name: ${imagem}`);
+  it("workflow ELUS360 smoke constrói as quatro imagens sem credenciais GHCR", () => {
+    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/build-elus360.yml"), "utf8");
+    for (const imagem of ["elus360", "elus360-worker", "elus360-scheduler", "elus360-voice-agent"]) {
+      expect(wf, `imagem ELUS360 ausente na matriz: ${imagem}`)
+        .toContain(`name: ${imagem}, file:`);
     }
-    expect(wf, "publish-image.yml não passa APP_VERSION como build-arg").toContain(
-      "APP_VERSION=",
-    );
-    // A sonda prende o EFEITO (o canal `stable` passa a existir), não a forma.
-    // Ela já mudou uma vez: `stable` saiu da lista de tags da matriz — onde cada
-    // imagem o movia sozinha — para o job `promover-stable`, que só roda com as
-    // três publicadas (issue #488). Prender `value=stable` fazia esta guarda
-    // reprovar justamente o conserto.
-    expect(wf, "publish-image.yml não cria o canal 'stable'").toMatch(/:stable\b/);
+    expect(wf).toContain("APP_VERSION=distribution-smoke");
+    expect(wf).toContain("push: false");
+    expect(wf).toContain("contents: read");
+    expect(wf).not.toContain("packages: write");
+    expect(wf).not.toContain("docker/login-action");
   });
 
-  it("nenhum gatilho reconstrói uma tag já publicada", () => {
-    // Medido na v1.3.0: com `release: types: [published]` ligado ao lado de
-    // `push: tags`, `gh release create` disparou DOIS runs para o mesmo commit
-    // (19:53 push, 19:58 release). O segundo moveu `1.3.0` e `1.3` para um build
-    // novo e deixou `stable` no antigo — digests divergentes para o mesmo
-    // `revision`, e uma tag de VERSÃO movida depois de publicada, que é
-    // exatamente o que o invariante 3 da doutrina proíbe.
-    //
-    // Este teste guarda o COMPORTAMENTO (o que dispara um build que publica),
-    // não a ausência de uma string: qualquer gatilho novo que re-publique sobre
-    // uma tag existente reprova aqui, não só o `release`.
-    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/publish-image.yml"), "utf8");
-    const gatilhos = wf.split(/^jobs:/m)[0] ?? "";
-    const semComentarios = gatilhos
-      .split("\n")
-      .filter((l) => !/^\s*#/.test(l))
-      .join("\n");
-
-    for (const proibido of ["release:", "workflow_run:", "schedule:", "repository_dispatch:"]) {
-      expect(
-        semComentarios,
-        `publish-image.yml reagiria a '${proibido}' — esse gatilho pode reconstruir e MOVER uma tag de versão já publicada`,
-      ).not.toContain(proibido);
-    }
-
-    // E o gatilho que precisa existir continua existindo — sem esta linha o
-    // teste passaria num workflow que não publica coisa nenhuma.
-    expect(semComentarios, "publish-image.yml deixou de reagir a push de tag").toMatch(
-      /tags:\s*\["?v\*/,
-    );
+  it("sem aprovação operacional, nenhuma trigger do fork publica versão ou stable", () => {
+    const wf = fs.readFileSync(path.join(RAIZ, ".github/workflows/build-elus360.yml"), "utf8");
+    const trigger = wf.split(/^permissions:/m)[0] ?? "";
+    expect(trigger).toContain("pull_request:");
+    expect(trigger).not.toMatch(/^  (?:push|workflow_dispatch|release|schedule):/m);
+    expect(wf).not.toContain("promover-stable:");
+    expect(wf).not.toContain("github.event_name == 'push'");
+    expect(wf).toContain("github.event_name == 'pull_request'");
   });
 });
 
