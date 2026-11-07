@@ -45,6 +45,25 @@ done
 elus360_release_publicada_no_main "$TARGET_TAG" \
   || die "ELUS_DISTRIBUTION_NO_GO: release ELUS360 inválida, não publicada, fora de main ou inacessível (antes de qualquer mutação)."
 
+# Gate 2: esta árvore é dona dos serviços? Consultas apenas de metadados
+# sem alterar cron, banco, .env nem reiniciar contêineres.
+# ── 0-. Esta cópia do repo é a dona dos contêineres? ─────────────────────────
+# Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
+# parque com o .env DELA. Foi o que deixou o WhatsApp de uma VPS real três dias
+# em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
+recusar_projeto_de_outra_arvore || die "Atualização interrompida para não quebrar a instalação que está no ar."
+
+# Gate 3: após a prova remota, buscar refs para conferir OBJETO LOCAL com tag
+# oficial. Falha de fetch ou objeto divergente recusa ANTES do cron/GoTrue/
+# VAPID/backup/DDL. Somente a base de metadados Git (.git) poderá mudar.
+git fetch --tags --quiet origin 2>/dev/null \
+  || die "ELUS_DISTRIBUTION_NO_GO: falha ao buscar tag remota verificada; atualização bloqueada."
+git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
+  || die "ELUS_DISTRIBUTION_NO_GO: tag não encontrada no checkout local após fetch."
+elus360_release_tag_comprovada "$TARGET_TAG" \
+  || die "ELUS_DISTRIBUTION_NO_GO: objeto Git local/remoto divergente ou release sem procedência oficial."
+
+
 # ── 0-. O laço do diagnóstico (#1955) ───────────────────────────────────────
 # Toda execução termina com um arquivo legível — inclusive as que MORREM antes
 # de chegar ao banco (preflight, backup, checkout), que é justamente onde não
@@ -61,12 +80,6 @@ UPDATE_ETAPA="início, antes de decidir a versão"
 trap diagnostico_de_atualizacao EXIT
 
 # Argumentos e release já foram validados na etapa read-only inicial.
-
-# ── 0-. Esta cópia do repo é a dona dos contêineres? ─────────────────────────
-# Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
-# parque com o .env DELA. Foi o que deixou o WhatsApp de uma VPS real três dias
-# em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
-recusar_projeto_de_outra_arvore || die "Atualização interrompida para não quebrar a instalação que está no ar."
 
 # Single-server: o Supabase desta VPS também tem dono. E o e-mail de acesso
 # (GoTrue) acompanha o SMTP do CRM AQUI, antes da decisão de versão: é este
@@ -133,21 +146,8 @@ subir_para_ler_o_par() {
 
 # ── 1. Tem atualização mesmo? ────────────────────────────────────────────────
 step "Procurando atualizações"
-git fetch --tags --quiet origin 2>/dev/null \
-  || die "ELUS_DISTRIBUTION_NO_GO: falha ao buscar tag remota verificada; atualização bloqueada."
-# A AUTORIDADE é a release publicada, NUNCA a maior tag — ver
-# `ultima_release_estavel` em _common.sh. Um `TARGET_TAG` passado à mão
-# continua valendo (instalar uma versão específica é operação legítima de
-# quem sabe o que está fazendo); o que deixou de existir é ESCOLHER sozinho a
-# maior tag, que instalaria código sem release publicada.
-# Release já foi resolvida/atestada antes de qualquer escrita; jamais cair
-# para maior tag local, latest, stable ou upstream neste segundo estágio.
-git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
-  || die "Não conheço a versão $TARGET_TAG aqui. Confira o nome (ex.: v1.1.0) ou tente de novo quando o servidor conseguir falar com o GitHub."
-# Uma tag local ou o --to do operador NÃO constituem release publicada.
-# Requer a release do fork, tag idêntica no GitHub e ancestralidade em main.
-elus360_release_tag_comprovada "$TARGET_TAG" \
-  || die "ELUS_DISTRIBUTION_NO_GO: release/tag ELUS360 sem procedência oficial e ancestralidade em main comprovadas."
+# A referência Git da release foi obtida e revalidada ANTES do cron,
+# da configuração de login, do .env e do banco. Não buscar novamente aqui.
 CURRENT_TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
 
 # O código estar em dia NÃO significa que o app está: quem roda é a imagem.
