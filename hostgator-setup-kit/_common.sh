@@ -2473,13 +2473,13 @@ elus360_origem_confiavel() {
 # main. Faz apenas GETs/consultas antes de qualquer backup, checkout ou DDL.
 # Não prova OCI digests ou autorização de deploy: isso exige gate separado.
 elus360_release_tag_comprovada() {
-  local tag="\${1:-}" url_release url_compare release_json compare_json
+  local tag="${1:-}" url_release url_compare release_json compare_json
   local remoto local_tag remoto_tag resposta_tag estado
   [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
   remoto="$(git config --get remote.origin.url 2>/dev/null)" || return 1
   elus360_origem_confiavel "$remoto" || return 1
   # Um override de URL não pode apontar ao upstream ou a um servidor arbitrário.
-  [ -z "\${DESKCOMM_RELEASES_LATEST_URL:-}" ] || return 1
+  [ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || return 1
   local_tag="$(git rev-parse --verify "refs/tags/$tag" 2>/dev/null)" || return 1
   remoto_tag="$(git ls-remote --tags --refs origin "refs/tags/$tag" 2>/dev/null | awk 'NR==1 {print $1}')" || return 1
   [ -n "$remoto_tag" ] && [ "$local_tag" = "$remoto_tag" ] || return 1
