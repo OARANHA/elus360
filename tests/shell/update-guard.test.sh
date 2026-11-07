@@ -202,6 +202,16 @@ cp "$REPO_ROOT/hostgator-setup-kit/_common.sh" "$REPO_ROOT/hostgator-setup-kit/_
 # atualizacao nao explicou nada" — porque o script morre na linha 21, antes de
 # qualquer mensagem. Foi exatamente o que aconteceu ao escrever isto.
 cp -R "$REPO_ROOT/hostgator-setup-kit/manutencao" "$PROJ/hostgator-setup-kit/"
+
+# LEGACY test seam, only in the disposable fixture: the test below exercises
+# backup, pins, update sequencing and rollback with a local git origin. The
+# new origin/GitHub-release gate is tested separately by test_shell_release_gate.py
+# against the REAL _common.sh. No override is installed in the product.
+cat >> "$PROJ/hostgator-setup-kit/_common.sh" <<'OFFLINE_GATE'
+elus360_origem_confiavel() { return 0; }
+elus360_release_tag_comprovada() { return 0; }
+OFFLINE_GATE
+
 # backup.sh de mentira: deixa um rastro. É o marco "o script já começou a
 # mexer" — a guarda de retrocesso só vale se abortar ANTES dele.
 BACKUP_MARK="$WORK/backup-rodou"
