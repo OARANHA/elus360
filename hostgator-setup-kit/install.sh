@@ -24,6 +24,15 @@ case "$REPO_URL" in
 esac
 
 [ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: override de release externa proibido' >&2; exit 3; }
+# PROVENIÊNCIA ANTES DA INSTALAÇÃO: nenhuma alteração de pacotes,
+# .env, clone, container ou banco antes da release própria ser comprovada.
+# _common.sh é apenas sourced; não executa comandos de instalação.
+source "$KIT_DIR/_common.sh"
+ELUS_RELEASE_PREVALIDADA="$(elus360_ultima_release_do_fork)" \
+  || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: nenhuma release ELUS360 publicada verificável' >&2; exit 3; }
+elus360_release_publicada_no_main "$ELUS_RELEASE_PREVALIDADA" "$REPO_URL" \
+  || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: release do fork inválida, não publicada ou fora de main' >&2; exit 3; }
+
 # Uma constante, dois usos (o fim feliz e o fim travado) — e o comecar.sh tem a
 # gêmea. Link repetido à mão vira link divergente na primeira troca.
 COMUNIDADE_URL="https://lp-comunidade.automatiklabs.com.br"
@@ -1062,7 +1071,7 @@ fi
 # já tem amd64.
 PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)" 2>/dev/null || true)"
 if [ "$PLATAFORMA_HOST" = linux/arm64 ]; then
-  RELEASE_TAG="$(ultima_release_estavel)"
+  RELEASE_TAG="$ELUS_RELEASE_PREVALIDADA"
   VERSAO_ALVO="${RELEASE_TAG#v}"
   WAHA_EFETIVA="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
   if [ -z "$RELEASE_TAG" ] || ! preflight_instalacao "$VERSAO_ALVO" "$PLATAFORMA_HOST" "$WAHA_EFETIVA"; then
@@ -1415,7 +1424,7 @@ fi
 # a maior tag, :latest, :stable, nem imagens construídas na VPS por fallback.
 # ARM64 já resolve e verifica o pacote mais cedo no seu pré-voo.
 if [ "$PLATAFORMA_HOST" != linux/arm64 ]; then
-  VERSAO_ALVO="$(ultima_release_estavel)"
+  VERSAO_ALVO="$ELUS_RELEASE_PREVALIDADA"
   VERSAO_ALVO="${VERSAO_ALVO#v}"
 fi
 if [[ ! "${VERSAO_ALVO:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
