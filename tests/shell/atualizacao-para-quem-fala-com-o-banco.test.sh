@@ -461,13 +461,19 @@ grep -q 'rm -f deskcomm-manutencao' "$diario" \
   || ok "o aviso fica de pe explicando por que o CRM nao voltou"
 
 echo "caso 27 — o aviso desce ANTES de o CRM subir, nunca depois"
-# Com o Caddy os dois disputam o apelido `app`: o Docker faz rodizio, e metade
-# das pessoas veria "estamos atualizando" com o CRM ja no ar.
-# O texto inteiro de _common.sh tem comentários sobre manutenção; limitar a
-# verificação ao corpo REAL do trap impede um falso verde por menção em prosa.
-# O comando correto do fork é docker compose up -d --no-build, jamais build.
+# O aviso compartilha o apelido app com o CRM. A prova lê somente o corpo
+# de restaurar_servicos(), não comentários nem outros pontos de subida.
+# Ambos os ramos de recuperação devem usar --no-build; o padrão não liga voz.
 COMUM_RESTAURA="$(sed -n '/^restaurar_servicos() {/,/^}/p' "$RAIZ/hostgator-setup-kit/_common.sh")"
-p_desce="$(printf '%s\n' "$COMUM_RESTAURA" | grep -nE '^[[:space:]]*declare -F manutencao_desce .*&& manutencao_desce
+p_desce="$(printf '%s\n' "$COMUM_RESTAURA" | grep -nF 'declare -F manutencao_desce >/dev/null 2>&1 && manutencao_desce' | head -1 | cut -d: -f1)"
+p_up="$(printf '%s\n' "$COMUM_RESTAURA" | grep -nF 'dc up -d --no-build app worker scheduler >/dev/null 2>&1 || true' | head -1 | cut -d: -f1)"
+p_up_voz="$(printf '%s\n' "$COMUM_RESTAURA" | grep -nF 'dc up -d --no-build app worker scheduler voice-agent >/dev/null 2>&1 || true' | head -1 | cut -d: -f1)"
+if [ -n "$p_desce" ] && [ -n "$p_up" ] && [ -n "$p_up_voz" ] \
+    && [ "$p_desce" -lt "$p_up" ] && [ "$p_desce" -lt "$p_up_voz" ]; then
+  ok "a manutenção desce antes da restauração sem build (normal e telefonia)"
+else
+  nao "ordem da descida" "manutencao_desce antes das duas subidas --no-build" "desce=$p_desce normal=$p_up voz=$p_up_voz"
+fi
 
 echo "caso 28 — o aviso sobe ANTES de o CRM parar"
 # Entre parar e anunciar, quem estivesse com a tela aberta veria exatamente o
