@@ -90,11 +90,21 @@ class ReleaseGateShell(unittest.TestCase):
     def test_updater_gates_before_mutation(self):
         source = UPDATER.read_text()
         origin = source.index('elus360_origem_confiavel "$(git config')
+        release = source.index('elus360_release_publicada_no_main "$TARGET_TAG"')
+        tag = source.index('elus360_release_tag_comprovada "$TARGET_TAG"')
+        registry = source.index('ELUS_VEREDITO_IMAGENS="$(veredito_das_imagens_da_release')
         cron = source.index("setup_update_agent_cron", origin)
-        target = source.index('elus360_release_tag_comprovada "$TARGET_TAG"')
-        backup = source.index('step "Backup de segurança', target)
-        self.assertLess(origin, cron)
-        self.assertLess(target, backup)
+        gotrue = source.index("sincronizar_signup_mode_do_gotrue", origin)
+        vapid = source.index("completar_par_vapid .env", origin)
+        backup = source.index('step "Backup de segurança', tag)
+        for gate in (origin, release, tag, registry):
+            self.assertLess(gate, cron)
+            self.assertLess(gate, gotrue)
+            self.assertLess(gate, vapid)
+            self.assertLess(gate, backup)
+        # The agent must not mistake pre-mutation NO-GO for a failed upgrade
+        # and attempt to undo already-running containers.
+        self.assertIn('|| refuse "ELUS_DISTRIBUTION_NO_GO', source[:registry])
 
     def test_installer_has_no_fallback(self):
         source = INSTALLER.read_text()
