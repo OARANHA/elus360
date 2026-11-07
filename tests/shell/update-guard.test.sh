@@ -760,7 +760,7 @@ check "novo pin é imagem própria ELUS" grep -q "^APP_IMAGE=${NS}/elus360:1.1.0
 check "instalador usa --no-build e não expõe recuperação local" \
   grep -Fq 'if ! dc up -d --no-build; then' "$REPO_ROOT/hostgator-setup-kit/install.sh"
 
-echo "── 12b. Worker, scheduler e voz com image: + build:; o app SEM build:, de propósito (#1060)"
+echo "── 12b. Todas as quatro imagens ELUS têm image:, e nenhuma tem build: em produção"
 # A parte boa medida no Compose fica: com `image:` + `build:` no mesmo bloco,
 # o `up -d` CONSTRÓI em QUALQUER falha de pull (tag inexistente, registro fora
 # por DNS, "no matching manifest", com `pull_policy` `always`, `missing` ou sem
@@ -799,17 +799,20 @@ tem_chave() { # <bloco> <prefixo da linha> → 0 quando alguma linha começa com
   done <<< "$bloco"
   return 1
 }
-imagem_e_build_juntos() { # <serviço> → 0 quando image: e build: convivem no bloco
+imagem_publicada_sem_build() {
   local bloco
   bloco="$(bloco_do_servico "$1")"
   [ -n "$bloco" ] || return 1
   tem_chave "$bloco" "    image:" || return 1
-  tem_chave "$bloco" "    build:" || return 1
+  if tem_chave "$bloco" "    build:"; then
+    echo "build indevido no serviço ELUS: $1"
+    return 1
+  fi
   return 0
 }
-for svc in worker scheduler voice-agent; do
-  check "o serviço '$svc' declara image: e build: no mesmo bloco" \
-    imagem_e_build_juntos "$svc"
+for svc in app worker scheduler voice-agent; do
+  check "serviço '$svc' tem image: e NÃO contém build:" \
+    imagem_publicada_sem_build "$svc"
 done
 
 # O outro lado da régua, invertido: o `app` declara `image:` (nunca build-only)
