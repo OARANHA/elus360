@@ -25,6 +25,26 @@ elus360_origem_confiavel "$(git config --get remote.origin.url 2>/dev/null || tr
   || die "ELUS_DISTRIBUTION_NO_GO: remote.origin não é OARANHA/elus360; nenhuma atualização será executada."
 [ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || die "ELUS_DISTRIBUTION_NO_GO: override de release externa é proibido."
 
+# PROVENIÊNCIA PRIMEIRO: somente leituras (origin, API HTTPS GitHub e
+# ls-remote) até esta decisão. Uma release inválida não altera .env, cron,
+# serviço GoTrue, checkout, backup nem banco, inclusive em single-server.
+FORCE=""; SKIP_BACKUP=""; TARGET_TAG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1 ;;
+    --skip-backup) SKIP_BACKUP=1 ;;
+    --to)
+      [ "$#" -ge 2 ] || die "ELUS_DISTRIBUTION_NO_GO: --to exige tag vX.Y.Z"
+      shift; TARGET_TAG="$1" ;;
+    *) die "ELUS_DISTRIBUTION_NO_GO: argumento de atualização desconhecido" ;;
+  esac
+  shift
+done
+[ -n "$TARGET_TAG" ] || TARGET_TAG="$(ultima_release_estavel)"
+[ -n "$TARGET_TAG" ] || die "ELUS_DISTRIBUTION_NO_GO: o fork ELUS360 não tem release estável publicada acessível."
+elus360_release_publicada_no_main "$TARGET_TAG" \
+  || die "ELUS_DISTRIBUTION_NO_GO: release ELUS360 inválida, não publicada, fora de main ou inacessível (antes de qualquer mutação)."
+
 # ── 0-. O laço do diagnóstico (#1955) ───────────────────────────────────────
 # Toda execução termina com um arquivo legível — inclusive as que MORREM antes
 # de chegar ao banco (preflight, backup, checkout), que é justamente onde não
@@ -40,15 +60,7 @@ UPDATE_STATUS="em andamento"
 UPDATE_ETAPA="início, antes de decidir a versão"
 trap diagnostico_de_atualizacao EXIT
 
-FORCE=""; SKIP_BACKUP=""; TARGET_TAG=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --force) FORCE=1 ;;
-    --skip-backup) SKIP_BACKUP=1 ;;
-    --to) shift; TARGET_TAG="$1" ;;
-  esac
-  shift
-done
+# Argumentos e release já foram validados na etapa read-only inicial.
 
 # ── 0-. Esta cópia do repo é a dona dos contêineres? ─────────────────────────
 # Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
@@ -121,14 +133,15 @@ subir_para_ler_o_par() {
 
 # ── 1. Tem atualização mesmo? ────────────────────────────────────────────────
 step "Procurando atualizações"
-git fetch --tags --quiet origin 2>/dev/null || c_ylw "⚠ não consegui falar com o GitHub — sigo com o código que já está aqui."
+git fetch --tags --quiet origin 2>/dev/null \
+  || die "ELUS_DISTRIBUTION_NO_GO: falha ao buscar tag remota verificada; atualização bloqueada."
 # A AUTORIDADE é a release publicada, NUNCA a maior tag — ver
 # `ultima_release_estavel` em _common.sh. Um `TARGET_TAG` passado à mão
 # continua valendo (instalar uma versão específica é operação legítima de
 # quem sabe o que está fazendo); o que deixou de existir é ESCOLHER sozinho a
 # maior tag, que instalaria código sem release publicada.
-[ -n "$TARGET_TAG" ] || TARGET_TAG="$(ultima_release_estavel)"
-[ -n "$TARGET_TAG" ] || die "Não encontrei nenhuma versão publicada para instalar. (Tag existir não basta: o alvo é a última release estável publicada no GitHub. Se o servidor não conseguiu falar com a API, tente de novo mais tarde; para instalar uma versão específica, passe --to vX.Y.Z.)"
+# Release já foi resolvida/atestada antes de qualquer escrita; jamais cair
+# para maior tag local, latest, stable ou upstream neste segundo estágio.
 git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
   || die "Não conheço a versão $TARGET_TAG aqui. Confira o nome (ex.: v1.1.0) ou tente de novo quando o servidor conseguir falar com o GitHub."
 # Uma tag local ou o --to do operador NÃO constituem release publicada.
