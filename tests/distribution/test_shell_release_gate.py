@@ -98,9 +98,24 @@ class ReleaseGateShell(unittest.TestCase):
 
     def test_installer_has_no_fallback(self):
         source = INSTALLER.read_text()
-        self.assertIn('VERSAO_ALVO="$(ultima_release_estavel)"', source)
+        # The version MUST come from the published ELUS fork release preflight,
+        # not from legacy ultima_release_estavel() or any mutable channel.
+        resolve = source.index('ELUS_RELEASE_PREVALIDADA="$(elus360_ultima_release_do_fork)"')
+        provenance = source.index(
+            'elus360_release_publicada_no_main "$ELUS_RELEASE_PREVALIDADA" "$REPO_URL"'
+        )
+        quartet = source.index('trio_publicado "$ELUS_RELEASE_NUMERICA"')
+        clone = source.index('git clone --depth 1')
+        self.assertLess(resolve, provenance)
+        self.assertLess(provenance, quartet)
+        self.assertLess(quartet, clone)
+        self.assertIn('VERSAO_ALVO="$ELUS_RELEASE_PREVALIDADA"', source)
         self.assertIn('|| ! trio_publicado "$VERSAO_ALVO"', source)
+        self.assertIn('git fetch --no-tags --quiet origin "refs/tags/v', source)
+        self.assertIn('elus360_release_tag_comprovada "v${VERSAO_ALVO}"', source)
+        self.assertNotIn('VERSAO_ALVO="$(ultima_release_estavel)"', source)
         self.assertNotIn('VERSAO_ALVO="latest"', source)
+        self.assertNotIn('VERSAO_ALVO="stable"', source)
         self.assertIn("ELUS_DISTRIBUTION_NO_GO", source)
 
     def test_no_host_build_in_install_or_update(self):
