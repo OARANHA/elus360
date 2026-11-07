@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
 # Consultas OCI somente-leitura. Pode ser sourced sem iniciar Docker ou rede.
 
-plataforma_oci_do_host() { # <uname -m> -> somente linux/amd64
+plataforma_oci_do_host() { # <uname -m> [uname -s] -> somente linux/amd64
+  local sistema="${2:-$(uname -s 2>/dev/null || true)}"
+  [ "$sistema" = Linux ] || {
+    printf 'ELUS_DISTRIBUTION_NO_GO: sistema %s não suportado; use Linux AMD64 (x86_64).\n' "${sistema:-desconhecido}" >&2
+    return 1
+  }
   case "${1:-}" in
     x86_64|amd64) printf '%s\n' linux/amd64 ;;
     *) printf 'ELUS_DISTRIBUTION_NO_GO: arquitetura %s não suportada; use Linux AMD64 (x86_64).\n' "${1:-desconhecida}" >&2; return 1 ;;
   esac
 }
 
-manifesto_tem_plataforma() { # <ref> <linux/platform>
-  local ref="${1:-}" plataforma="${2:-}" bruto plataformas
+manifesto_tem_plataforma() { # <ref> <linux/platform> [exclusivo]
+  local ref="${1:-}" plataforma="${2:-}" modo="${3:-compativel}" bruto plataformas
+  # Imagens ELUS são estritamente AMD64; WAHA upstream pode ser multiarch.
+  case "$modo" in
+    exclusivo|compativel) ;;
+    *) printf 'Modo OCI inválido: %s\n' "$modo" >&2; return 1 ;;
+  esac
   case "$plataforma" in
     linux/amd64) ;;
     *) printf 'Plataforma OCI inválida: %s\n' "$plataforma" >&2; return 1 ;;
@@ -42,6 +52,11 @@ manifesto_tem_plataforma() { # <ref> <linux/platform>
       return 1
     fi
   fi
+  if [ "$modo" = exclusivo ]; then
+    [ "$plataformas" = "$plataforma" ] && return 0
+    printf 'ELUS_DISTRIBUTION_NO_GO: imagem própria %s não declara exclusivamente %s (OCI: %s).\n' "$ref" "$plataforma" "$plataformas" >&2
+    return 1
+  fi
   grep -Fxq "$plataforma" <<<"$plataformas" && return 0
   printf 'Imagem %s não oferece %s\n' "$ref" "$plataforma" >&2
   return 1
@@ -60,6 +75,6 @@ preflight_imagens_crm() { # <tag> <linux/platform>; IMG_NS e ghcr_status vêm de
       403) printf 'Pacote privado ou credencial necessária: %s (403)\n' "$ref" >&2; return 1 ;;
       *) printf 'Registro inacessível para %s (HTTP %s)\n' "$ref" "$status" >&2; return 1 ;;
     esac
-    manifesto_tem_plataforma "$ref" "$plataforma" || return 1
+    manifesto_tem_plataforma "$ref" "$plataforma" exclusivo || return 1
   done
 }

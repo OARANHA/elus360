@@ -165,6 +165,16 @@ class ReleaseGateShell(unittest.TestCase):
         self.assertIn("linux/amd64) ;;", manifest)
         self.assertNotIn("linux/amd64|linux/arm64", manifest)
 
+    def test_runtime_amd64_restriction_has_no_dangling_arm_reference(self):
+        common = COMMON.read_text()
+        manifest = (ROOT / "hostgator-setup-kit" / "_manifestos.sh").read_text()
+        self.assertNotIn("waha_amd64_conhecido_em_arm", common)
+        self.assertIn('sistema="$(uname -s', common)
+        self.assertIn('manifesto_tem_plataforma "${img}:${versao}" linux/amd64 exclusivo', common)
+        self.assertIn('manifesto_tem_plataforma "$ref" "$plataforma" exclusivo', manifest)
+        self.assertIn('modo="${3:-compativel}"', manifest)
+        self.assertIn('[ "$sistema" = Linux ]', manifest)
+
     def test_no_publication_permissions_in_smoke_workflow(self):
         smoke = (ROOT / ".github/workflows/build-elus360.yml").read_text()
         self.assertIn("push: false", smoke)

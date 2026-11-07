@@ -28,8 +28,9 @@ O proprietário decidiu atender exclusivamente a hosts Linux x86_64 (AMD64).
 3. **CI:** executar `verify-distribution` (Python, sintaxe Bash e regressões
    shell) mais **quatro** builds de smoke AMD64, um para cada Dockerfile.
    `push:false`, sem QEMU, login de publicação ou permissão `packages:write`.
-4. **Instalador, atualizador e helpers OCI:** recusar hosts `aarch64`/`arm64`,
-   outras arquiteturas e solicitações `linux/arm64`, com
+4. **Instalador, atualizador e helpers OCI:** exigir `uname -s=Linux` e
+   `uname -m=x86_64/amd64`; recusar hosts `aarch64`/`arm64`,
+   outros sistemas (inclusive Darwin/x86_64) e solicitações `linux/arm64`, com
    `ELUS_DISTRIBUTION_NO_GO` e código 3 nos entrypoints antes de clone,
    mutações no `.env`, cron, backup, Docker, Supabase ou migrações.
    Uma instalação antiga, marcador, override ou flag de build local **não**
@@ -38,7 +39,9 @@ O proprietário decidiu atender exclusivamente a hosts Linux x86_64 (AMD64).
    quatro pacotes com manifestos que comprovem execução AMD64; a atestação
    offline do conjunto exige **exatamente** a chave `linux/amd64` e
    digest/revisão por imagem. Não considerar mera resposta HTTP 200 prova
-   suficiente de arquitetura.
+   suficiente de arquitetura. Nas quatro imagens próprias, rejeitar também
+   índices mistos AMD64+ARM64 ou plataformas duplicadas. WAHA/upstream pode
+   ser multiarch, desde que ofereça AMD64; a escolha do operador é preservada.
 6. **Release e segurança permanecem independentes da plataforma:** origem
    `OARANHA/elus360`, GitHub Release publicada, tag imutável e contida em
    `main`, quatro imagens completas, sem build local, pins de rollback, plano

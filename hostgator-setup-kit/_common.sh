@@ -150,10 +150,11 @@ veredito_da_arquitetura() { # <uname -m> [instalação-existente]
 }
 
 verificar_arquitetura_do_kit() {
-  local arch
+  local arch sistema
   arch="$(uname -m 2>/dev/null || printf desconhecida)"
-  arquitetura_suportada_pelo_kit "$arch" && return 0
-  printf 'ELUS_DISTRIBUTION_NO_GO: servidor %s não suportado. ELUS360 exige Linux AMD64 (x86_64); ARM64 e demais arquiteturas são recusadas, inclusive em instalações existentes, sem build local.\n' "$arch" >&2
+  sistema="$(uname -s 2>/dev/null || printf desconhecido)"
+  [ "$sistema" = Linux ] && arquitetura_suportada_pelo_kit "$arch" && return 0
+  printf 'ELUS_DISTRIBUTION_NO_GO: host %s/%s não suportado. ELUS360 exige Linux AMD64 (x86_64); outros sistemas e arquiteturas são recusados, inclusive em instalações existentes, sem build local.\n' "$sistema" "$arch" >&2
   return 3
 }
 
@@ -1048,7 +1049,7 @@ veredito_das_imagens_da_release() {  # veredito_das_imagens_da_release <versão>
   for img in "$IMG_APP" "$IMG_WORKER" "$IMG_SCHEDULER" "$IMG_VOICE_AGENT"; do
     total=$((total + 1))
     if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1 \
-       && manifesto_tem_plataforma "${img}:${versao}" linux/amd64 >/dev/null 2>&1; then
+       && manifesto_tem_plataforma "${img}:${versao}" linux/amd64 exclusivo >/dev/null 2>&1; then
       achadas=$((achadas + 1))
     fi
   done
@@ -2679,22 +2680,9 @@ gravar_imagens() {
   # não no `stable` móvel do default do compose.
   set_env_var "$envfile" VOICE_AGENT_IMAGE       "${IMG_VOICE_AGENT}:${versao}"
   set_env_var "$envfile" VOICE_AGENT_PULL_POLICY "$politica"
-  # O WAHA de quem já roda em ARM mora AQUI, e não numa linha do update.sh: é
-  # esta função que o update.sh ANTIGO chama depois de reler o kit, então é
-  # assim que a troca chega já na atualização que a traz. O export vale porque
-  # o compose prefere a variável do ambiente (que o enter_project exportou com o
-  # valor velho) à do .env.
-  local waha_atual
-  waha_atual="$(sed -n 's/^WAHA_IMAGE=//p' "$envfile" 2>/dev/null | tail -1 | tr -d "\"'")"
-  if waha_amd64_conhecido_em_arm "$(uname -m 2>/dev/null || true)" "$waha_atual"; then
-    WAHA_IMAGE="$(imagem_waha_padrao_para_host)"
-    export WAHA_IMAGE
-    set_env_var "$envfile" WAHA_IMAGE "$WAHA_IMAGE"
-    c_ylw "$(t "  (WAHA trocado para a variante oficial ARM64: {1})" "$WAHA_IMAGE")"
-  fi
-  # O par dos avisos com o app fechado mora aqui pelo MESMO motivo do WAHA
-  # acima: é a função que o update.sh antigo chama depois de reler o kit, então
-  # o par chega já na primeira atualização. E chega antes do pull e do `up -d`.
+  # Preservar WAHA_IMAGE do operador: não selecionar variante ARM64 nem
+  # modificar a imagem upstream ao atualizar os quatro pacotes próprios.
+  # A geração do par VAPID permanece independente dos pins de imagens.
   completar_par_vapid "$envfile"
 }
 

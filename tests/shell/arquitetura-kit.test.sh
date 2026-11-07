@@ -9,6 +9,7 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/uname" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = "-m" ] && { printf '%s\n' "${FAKE_ARCH:-x86_64}"; exit 0; }
+[ "${1:-}" = "-s" ] && { printf '%s\n' "${FAKE_OS:-Linux}"; exit 0; }
 exec /usr/bin/uname "$@"
 SH
 for cmd in docker curl git; do
@@ -22,14 +23,14 @@ done
 chmod +x "$TMP/bin/uname"
 fail=0
 rodar_como() {
-  local name="$1" arch="$2" wrapper="$TMP/$name" out rc
+  local name="$1" arch="$2" sistema="${3:-Linux}" wrapper="$TMP/$name" out rc
   cat > "$wrapper" <<SH
 #!/usr/bin/env bash
 . "$COMMON"
 printf 'DEPOIS_DA_GUARDA\n'
 SH
   chmod +x "$wrapper"
-  if out="$(cd "$TMP" && env FAKE_ARCH="$arch" PATH="$TMP/bin:$PATH" bash "$wrapper" 2>&1)"; then rc=0; else rc=$?; fi
+  if out="$(cd "$TMP" && env FAKE_ARCH="$arch" FAKE_OS="$sistema" PATH="$TMP/bin:$PATH" bash "$wrapper" 2>&1)"; then rc=0; else rc=$?; fi
   printf '%s\n' "$rc" > "$TMP/rc-$name-$arch"
   printf '%s' "$out" > "$TMP/out-$name-$arch"
 }
@@ -47,7 +48,17 @@ for name in install.sh update.sh; do
       printf 'OK   %s recusa %s sem efeitos\n' "$name" "$arch"
     fi
   done
-  rodar_como "$name" x86_64
+  # O processador AMD64 fora do Linux nunca autoriza instalar/atualizar.
+  rodar_como "$name" x86_64 Darwin
+  rc="$(cat "$TMP/rc-$name-x86_64")"
+  out="$(cat "$TMP/out-$name-x86_64")"
+  if [ "$rc" -ne 3 ] || ! printf '%s' "$out" | grep -q 'ELUS_DISTRIBUTION_NO_GO' \
+      || printf '%s' "$out" | grep -q 'DEPOIS_DA_GUARDA'; then
+    printf 'FAIL %s aceitou Darwin/x86_64\n' "$name"; fail=1
+  else
+    printf 'OK   %s recusa Darwin/x86_64 antes de efeitos\n' "$name"
+  fi
+  rodar_como "$name" x86_64 Linux
   rc="$(cat "$TMP/rc-$name-x86_64")"
   if [ "$rc" -ne 0 ] || ! grep -q "DEPOIS_DA_GUARDA" "$TMP/out-$name-x86_64"; then
     printf 'FAIL %s recusa AMD64\n' "$name"; fail=1
