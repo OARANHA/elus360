@@ -23,6 +23,7 @@ case "$REPO_URL" in
   *) printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: repositório de origem não autorizado' >&2; exit 3 ;;
 esac
 
+[ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: override de release externa proibido' >&2; exit 3; }
 # Uma constante, dois usos (o fim feliz e o fim travado) — e o comecar.sh tem a
 # gêmea. Link repetido à mão vira link divergente na primeira troca.
 COMUNIDADE_URL="https://lp-comunidade.automatiklabs.com.br"
