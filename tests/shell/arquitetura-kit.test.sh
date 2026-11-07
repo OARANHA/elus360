@@ -3,6 +3,8 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMMON="$ROOT/hostgator-setup-kit/_common.sh"
+IMG_NS="$(awk -F'"' '/^IMG_NS=/{print $2; exit}' "$COMMON")"
+[ -n "$IMG_NS" ] || { echo "IMG_NS ausente no kit"; exit 1; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
@@ -68,7 +70,7 @@ for name in install.sh update.sh; do
 done
 # An old installation marker must not bypass the permanent ARM64 rejection.
 printf 'versao=v1.101.0\n' > "$TMP/.deskcomm-instalado"
-printf 'APP_IMAGE=ghcr.io/oaranha/elus360:1.101.0\n' > "$TMP/.env"
+printf 'APP_IMAGE=%s/elus360:1.101.0\n' "$IMG_NS" > "$TMP/.env"
 rodar_como update.sh aarch64
 if [ "$(cat "$TMP/rc-update.sh-aarch64")" -ne 3 ]; then
   echo 'FAIL instalação antiga ARM64 burlou bloqueio'; fail=1

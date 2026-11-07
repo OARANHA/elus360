@@ -43,6 +43,7 @@ RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NS="$(sed -n 's/^IMG_NS="\(.*\)"$/\1/p' "$RAIZ/hostgator-setup-kit/_common.sh" | head -1)"
 [ -n "$NS" ] || { echo "não consegui ler IMG_NS de _common.sh"; exit 1; }
 REAL_UNAME="$(command -v uname)"
+export REAL_GIT="$(command -v git)"
 
 falhas=0
 ok()  { printf '  ✓ %s\n' "$1"; }
@@ -71,7 +72,12 @@ cat > "$WORK/bin/docker" <<'DUBLE'
 printf '%s\n' "$*" >> "$DOCKER_LOG"
 case "${1:-}" in
   info|image|inspect|images|run|network|start|rm|volume|logs|ps) exit 0 ;;
-  buildx) exit 0 ;;
+  buildx)
+    case " $* " in
+      *" --raw "*) printf '{"schemaVersion":2,"config":{"digest":"sha256:fake"}}\n' ;;
+      *" --format "*) printf 'linux/amd64\n' ;;
+    esac
+    exit 0 ;;
 esac
 if [ "${1:-}" = compose ]; then
   args="$*"
@@ -114,6 +120,17 @@ cat > "$WORK/bin/curl" <<'STUB'
 url=""
 for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
 case "$url" in
+  *"/releases/latest")
+    printf '{\n  "tag_name": "v0.9.0"\n}\n'; exit 0 ;;
+  *"/releases/tags/v0.8.0"|*"/releases/tags/v0.9.0")
+    tag="${url##*/}"
+    printf '{\n  "tag_name": "%s",\n  "draft": false,\n  "prerelease": false,\n  "published_at": "2026-11-07T00:00:00Z"\n}\n' "$tag"; exit 0 ;;
+  *"/compare/main...v0.8.0"|*"/compare/main...v0.9.0")
+    printf '{\n  "status": "behind"\n}\n'; exit 0 ;;
+  *"ghcr.io/token?scope="*)
+    printf '{"token":"fixture-only"}\n'; exit 0 ;;
+  *"ghcr.io/v2/"*"/manifests/"*)
+    printf '200'; exit 0 ;;
   *api.github.com*)
     printf '{"tag_name":"v0.9.0"}\n'; exit 0 ;;
   *api/v1/health*)
@@ -138,7 +155,20 @@ cat > "$WORK/bin/uname" <<STUB
 exec "$REAL_UNAME" "\$@"
 STUB
 
-chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname"
+# O Git sintético só impede acesso remoto; todos os commits/tags são reais no sandbox.
+cat > "$WORK/bin/git" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  ls-remote)
+    tag="${@: -1}"; tag="${tag##*/}"
+    obj="$("$REAL_GIT" rev-parse --verify "refs/tags/$tag" 2>/dev/null)" || exit 1
+    printf '%s\trefs/tags/%s\n' "$obj" "$tag"
+    ;;
+  fetch) exit 0 ;;
+  *) exec "$REAL_GIT" "$@" ;;
+esac
+STUB
+chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname" "$WORK/bin/git"
 export PATH="$WORK/bin:$PATH"
 
 preparar_vps() {
@@ -182,6 +212,7 @@ ENV
   (
     cd "$proj" || exit 1
     git init --quiet
+    git remote add origin https://github.com/OARANHA/elus360.git
     printf 'instalada 0.8.0\n' > versao.txt
     git add -A && git commit --quiet -m "v0.8.0"
     git tag v0.8.0

@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 COMMON = ROOT / "hostgator-setup-kit" / "_common.sh"
 AGENT = ROOT / "hostgator-setup-kit" / "agent.sh"
+IMG_NS = next(line.split('"')[1] for line in COMMON.read_text().splitlines() if line.startswith('IMG_NS="'))
 NAMES = {"APP": "elus360", "WORKER": "elus360-worker",
          "SCHEDULER": "elus360-scheduler", "VOICE_AGENT": "elus360-voice-agent"}
 
@@ -17,7 +18,7 @@ def pins(version, voice=True):
     for key, package in NAMES.items():
         if key == "VOICE_AGENT" and not voice:
             continue
-        out[f"{key}_IMAGE"] = f"ghcr.io/oaranha/{package}:{version}"
+        out[f"{key}_IMAGE"] = f"{IMG_NS}/{package}:{version}"
         out[f"{key}_PULL_POLICY"] = "missing"
     return out
 
@@ -58,7 +59,7 @@ class RollbackInTempdir(unittest.TestCase):
         old = pins("1.101.0", voice=False)
         self.write_env(old)
         cmd = ('armar_rollback_de_versao .env\n'
-               'set_env_var .env VOICE_AGENT_IMAGE "ghcr.io/oaranha/elus360-voice-agent:1.102.0"\n'
+               f'set_env_var .env VOICE_AGENT_IMAGE "{IMG_NS}/elus360-voice-agent:1.102.0"\n'
                'set_env_var .env VOICE_AGENT_PULL_POLICY missing\n'
                'restaurar_versao_anterior\n')
         result = self.shell(cmd)
@@ -67,12 +68,12 @@ class RollbackInTempdir(unittest.TestCase):
 
     def test_disarm_preserves_new_version(self):
         cmd = ('armar_rollback_de_versao .env\n'
-               'set_env_var .env APP_IMAGE "ghcr.io/oaranha/elus360:1.102.0"\n'
+               f'set_env_var .env APP_IMAGE "{IMG_NS}/elus360:1.102.0"\n'
                'desarmar_rollback_de_versao\n'
                'restaurar_versao_anterior\n')
         result = self.shell(cmd)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(read_env(self.env_file)["APP_IMAGE"], "ghcr.io/oaranha/elus360:1.102.0")
+        self.assertEqual(read_env(self.env_file)["APP_IMAGE"], f"{IMG_NS}/elus360:1.102.0")
 
     def test_snapshot_excludes_credentials(self):
         result = self.shell("armar_rollback_de_versao .env\n")

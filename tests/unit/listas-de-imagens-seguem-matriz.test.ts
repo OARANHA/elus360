@@ -7,7 +7,7 @@ const RAIZ = process.cwd();
 const publish = readFileSync(join(RAIZ, ".github/workflows/build-elus360.yml"), "utf8");
 const common = readFileSync(join(RAIZ, "hostgator-setup-kit/_common.sh"), "utf8");
 const manifestos = readFileSync(join(RAIZ, "hostgator-setup-kit/_manifestos.sh"), "utf8");
-const tagSoNasceDaMain = readFileSync(join(RAIZ, "tests/unit/tag-so-nasce-da-main.test.ts"), "utf8");
+const tagSoNasceDaMain = readFileSync(join(RAIZ, "tests/unit/elus360-tag-so-nasce-da-main.test.ts"), "utf8");
 const packaging = readFileSync(join(RAIZ, "tests/unit/packaging-artefato-do-cliente.test.ts"), "utf8");
 
 function job(yml: string, nome: string): string {
@@ -87,7 +87,7 @@ describe("listas de imagens Docker seguem a matriz segura ELUS360", () => {
   it("a guarda de criação de tag usa exatamente as imagens publicadas", () => {
     expect(
       imagensDoTesteDaTag(),
-      "tag-so-nasce-da-main ficou com uma cópia diferente da matriz de imagens",
+      "guarda de tag do fork ELUS360 divergiu das quatro imagens (guarda upstream independente)",
     ).toEqual(IMAGENS);
   });
 

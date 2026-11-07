@@ -10,6 +10,7 @@ COMMON = ROOT / "hostgator-setup-kit" / "_common.sh"
 UPDATER = ROOT / "hostgator-setup-kit" / "update.sh"
 INSTALLER = ROOT / "hostgator-setup-kit" / "install.sh"
 SCRIPT = ROOT / "scripts" / "elus360-distribution-guard.py"
+IMG_NS = next(line.split('"')[1] for line in COMMON.read_text().splitlines() if line.startswith('IMG_NS="'))
 TAG = "a" * 40
 
 SHELL = r'''
@@ -150,8 +151,8 @@ class ReleaseGateShell(unittest.TestCase):
         for key, name in (("APP", "elus360"), ("WORKER", "elus360-worker"),
                           ("SCHEDULER", "elus360-scheduler"),
                           ("VOICE_AGENT", "elus360-voice-agent")):
-            self.assertIn(f"ghcr.io/oaranha/{name}:stable", compose)
-            self.assertIn(f"{key}_IMAGE=ghcr.io/oaranha/{name}:stable", env)
+            self.assertIn(f"{IMG_NS}/{name}:stable", compose)
+            self.assertIn(f"{key}_IMAGE={IMG_NS}/{name}:stable", env)
 
     def test_exclusive_amd64_ci_and_oci_contract(self):
         workflow = (ROOT / ".github/workflows/build-elus360.yml").read_text()

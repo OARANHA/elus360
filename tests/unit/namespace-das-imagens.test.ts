@@ -298,7 +298,9 @@ describe("o kit aponta para o que o CI realmente publica", () => {
     expect(PUBLICA).not.toContain("packages: write");
     expect(PUBLICA).not.toMatch(/^  (?:push|workflow_dispatch):/m);
     expect(PUBLICA).toContain("github.repository == 'OARANHA/elus360'");
-    expect(PUBLICA).toContain("linux/${{ matrix.arch }}");
+    expect(PUBLICA).toContain("arch: [amd64]");
+    expect(PUBLICA).toContain("platforms: linux/amd64");
+    expect(PUBLICA).not.toContain("platforms: linux/arm64");
   });
 
   it("as quatro imagens do kit correspondem às da matriz de smoke", () => {

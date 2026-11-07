@@ -262,7 +262,14 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   // Jobs próprios do fork. Cada um precisa continuar no inventário para
   // detectar remoção, desativação silenciosa ou mudança de gatilho.
   // Nenhum publica releases nem mexe no Supabase de produção.
-  "build-elus360.yml::images": { condicao: null, efeito: "Build das imagens ELUS360 em CI isolado." },
+  "build-elus360.yml::verify-distribution": {
+    condicao: "github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'",
+    efeito: "Valida procedência, rollback e AMD64 antes dos builds; um skipped anula a prova.",
+  },
+  "build-elus360.yml::smoke-images": {
+    condicao: "github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'",
+    efeito: "Compila as quatro imagens AMD64 sem publicar; sem ele não há smoke Docker.",
+  },
   "elus360-ai-autonomy-triple.yml::baseline-parity": { condicao: null, efeito: "Paridade SQL obrigatória." },
   "elus360-ai-autonomy-triple.yml::governance-unit-and-types": { condicao: null, efeito: "Gates de governança IA." },
   "elus360-ai-autonomy-triple.yml::autonomy-postgres": { condicao: null, efeito: "Segurança Postgres descartável." },

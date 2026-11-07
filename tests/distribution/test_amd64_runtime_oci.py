@@ -15,6 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 MANIFESTOS = ROOT / "hostgator-setup-kit" / "_manifestos.sh"
 COMMON = ROOT / "hostgator-setup-kit" / "_common.sh"
+IMG_NS = next(line.split('"')[1] for line in COMMON.read_text().splitlines() if line.startswith('IMG_NS="'))
 
 DOCKER_FAKE = r'''#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$ELUS_OCI_CALLS"
@@ -71,7 +72,7 @@ class AMD64RuntimeOCI(unittest.TestCase):
     def preflight(self, **overrides):
         return self.bash(
             'source "$ELUS_MANIFESTOS"\n'
-            'IMG_NS=ghcr.io/oaranha\n'
+            'source "$ELUS_COMMON"\n'
             'ghcr_status() { printf 200; }\n'
             'preflight_imagens_crm 1.102.0 linux/amd64\n',
             **overrides,
@@ -161,7 +162,7 @@ class AMD64RuntimeOCI(unittest.TestCase):
             ("VOICE_AGENT", "elus360-voice-agent"),
         ):
             self.assertEqual(parsed[f"{key}_IMAGE"],
-                             f"ghcr.io/oaranha/{image}:1.102.0")
+                             f"{IMG_NS}/{image}:1.102.0")
             self.assertEqual(parsed[f"{key}_PULL_POLICY"], "missing")
         self.assertEqual(stat.S_IMODE(envfile.stat().st_mode), 0o600)
 

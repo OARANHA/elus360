@@ -21,13 +21,16 @@ describe("ELUS360 — release não nasce em PR nem em workflow sem autorização
   });
 
   it("a tag publicada deve corresponder ao fork e estar contida na main", () => {
-    const start = common.indexOf("elus360_release_tag_comprovada()");
+    const start = common.indexOf("elus360_release_publicada_no_main()");
     const end = common.indexOf("ultima_versao_publicada()", start);
     expect(start).toBeGreaterThan(0);
     const guard = common.slice(start, end);
     expect(guard).toContain("https://api.github.com/repos/OARANHA/elus360/releases/tags/$tag");
     expect(guard).toContain("https://api.github.com/repos/OARANHA/elus360/compare/main...$tag");
     expect(guard).toMatch(/identical\|behind/);
+    const localGuard = common.slice(common.indexOf("elus360_release_tag_comprovada()"), end);
+    expect(localGuard).toContain('elus360_release_publicada_no_main "$tag" || return 1');
+    expect(localGuard).toContain('[ "$local_tag" = "$remoto_tag" ]');
     expect(guard).toContain('DESKCOMM_RELEASES_LATEST_URL');
   });
 

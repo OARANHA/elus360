@@ -30,7 +30,7 @@ check 'four-image preflight linux/amd64' preflight_imagens_crm 1.102.0 linux/amd
 check 'registry probed exactly four packages' test "$(grep -vc '^OCI ' "$LOG")" -eq 4
 for img in $expected; do
   check "$img registry probe" grep -Fq "$img 1.102.0" "$LOG"
-  check "$img OCI probe AMD64" grep -Fq "OCI ghcr.io/oaranha/$img:1.102.0 linux/amd64" "$LOG"
+  check "$img OCI probe AMD64" grep -Fq "OCI ${IMG_NS}/$img:1.102.0 linux/amd64" "$LOG"
 done
 : > "$LOG"
 ELUS_403_IMAGE=elus360-voice-agent

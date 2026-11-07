@@ -2,6 +2,8 @@
 # ELUS360 distribution: failed image pulls must NEVER build on host.
 # Offline regression of the REAL _common.sh; no Docker or registry calls.
 set -euo pipefail
+# Os dublês Git deste teste não herdam metadados do checkout chamador.
+unset $(git rev-parse --local-env-vars)
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/hostgator-setup-kit/_common.sh"
 fails=0

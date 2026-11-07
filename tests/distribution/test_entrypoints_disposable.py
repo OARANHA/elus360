@@ -14,6 +14,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 INSTALL = ROOT / "hostgator-setup-kit" / "install.sh"
 UPDATE = ROOT / "hostgator-setup-kit" / "update.sh"
+IMG_NS = next(line.split('"')[1] for line in (ROOT / "hostgator-setup-kit" / "_common.sh").read_text().splitlines() if line.startswith('IMG_NS="'))
 
 GIT_FAKE = r'''#!/usr/bin/env bash
 printf 'git:%s\n' "$*" >> "$ELUS_CALLS"
@@ -80,7 +81,7 @@ class DisposableEntrypoints(unittest.TestCase):
         self.env_path = self.project / ".env"
         self.env_initial = (
             "SINGLE_SERVER=1\n"
-            "APP_IMAGE=ghcr.io/oaranha/elus360:1.101.0\n"
+            f"APP_IMAGE={IMG_NS}/elus360:1.101.0\n"
             "SUPABASE_DB_URL=postgresql://none/no-database\n"
             "INTERNAL_SECRET=test-only\n"
         )

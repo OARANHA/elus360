@@ -23,3 +23,21 @@ Branch: test/elus360-v1102-distribuicao-integrada-20261107.
 O CI com dublês não equivale a instalação e atualização reais. As quatro imagens ELUS360 e uma release do fork ainda não foram comprovadas publicadas.
 
 NO-GO: merge das PRs #21/#22, publicação GHCR, corte de release, promoção stable, deploy e alterações em produção.
+
+## Correção do primeiro CI da integração (2026-11-07)
+
+O HEAD `af28edcdc51bb09d6784ebae2cc994d5fbe5dea9` teve duas frentes RED:
+sete testes unitários desalinhados ao contrato do fork/AMD64, além de dublês
+históricos do instalador e do atualizador que não modelavam a nova prova de
+origin/release GitHub e de manifestos OCI.
+
+O patch corretivo preserva o teste upstream separado, atualiza as expectativas
+dos dois jobs de smoke, deriva a identidade do registry de `IMG_NS` sem
+ampliar a allowlist e isola os repositórios Git dos testes. Os dublês simulam
+uma release do fork somente dentro dos testes descartáveis; a validação real
+continua fail-closed. **Não existe evidência nova de publicação GHCR ou release.**
+
+**Status de aceite deste patch: NÃO TESTADO EM CI NO NOVO SHA.** O resultado
+permanecerá NO-GO até a execução integral dos gates sobre o próprio commit,
+seguida de ensaio real de instalação, atualização e recuperação com dados
+exclusivamente descartáveis. Sem merge/deploy/autorização operacional.
