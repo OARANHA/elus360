@@ -15,7 +15,32 @@ set -euo pipefail
 # de qualquer 'cd' (step 2 pode entrar num repo clonado à parte).
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
-REPO_URL="${REPO_URL:-https://github.com/melgarafael/DeskcommCRM.git}"
+REPO_URL="${REPO_URL:-https://github.com/OARANHA/elus360.git}"
+# ELUS360 nunca clona automaticamente um repositório externo: mesmo um REPO_URL
+# injetado no ambiente deve ser validado antes de qualquer instalação.
+case "$REPO_URL" in
+  https://github.com/OARANHA/elus360|https://github.com/OARANHA/elus360.git|git@github.com:OARANHA/elus360.git) ;;
+  *) printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: repositório de origem não autorizado' >&2; exit 3 ;;
+esac
+
+[ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: override de release externa proibido' >&2; exit 3; }
+# PROVENIÊNCIA ANTES DA INSTALAÇÃO: nenhuma alteração de pacotes,
+# .env, clone, container ou banco antes da release própria ser comprovada.
+# _common.sh é apenas sourced; não executa comandos de instalação.
+source "$KIT_DIR/_common.sh"
+ELUS_RELEASE_PREVALIDADA="$(elus360_ultima_release_do_fork)" \
+  || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: nenhuma release ELUS360 publicada verificável' >&2; exit 3; }
+elus360_release_publicada_no_main "$ELUS_RELEASE_PREVALIDADA" "$REPO_URL" \
+  || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: release do fork inválida, não publicada ou fora de main' >&2; exit 3; }
+# Conferir os QUATRO pacotes via API GHCR em modo somente leitura, antes
+# da primeira operação que cria arquivo, instala dependência ou altera serviço.
+# Um manifesto 404/403, token ausente ou falha de rede recusa a instalação.
+ELUS_RELEASE_NUMERICA="${ELUS_RELEASE_PREVALIDADA#v}"
+if ! trio_publicado "$ELUS_RELEASE_NUMERICA"; then
+  printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: pacote ELUS360 inexistente, privado ou inacessível; nenhuma instalação iniciada.' >&2
+  exit 3
+fi
+
 # Uma constante, dois usos (o fim feliz e o fim travado) — e o comecar.sh tem a
 # gêmea. Link repetido à mão vira link divergente na primeira troca.
 COMUNIDADE_URL="https://lp-comunidade.automatiklabs.com.br"
@@ -1059,23 +1084,18 @@ if [ -f "$PARTIAL_FILE" ]; then
   c_dim "$(t "  (o token do Supabase é de conta e nunca entra no rascunho: ele é perguntado de novo. Enter pula)")"
 fi
 
-# ARM64: resolver uma release publicada e conferir as quatro imagens e a WAHA
-# efetiva no índice OCI ANTES de criar projeto Supabase, rede, .env ou schema.
-# Uma tag Git pode existir antes do CI. Em AMD64 a versão segue a cascata de
-# sempre (mais abaixo): a sonda exige `docker buildx`, e toda imagem publicada
-# já tem amd64.
-PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)" 2>/dev/null || true)"
-if [ "$PLATAFORMA_HOST" = linux/arm64 ]; then
-  RELEASE_TAG="$(ultima_release_estavel)"
-  VERSAO_ALVO="${RELEASE_TAG#v}"
-  WAHA_EFETIVA="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
-  if [ -z "$RELEASE_TAG" ] || ! preflight_instalacao "$VERSAO_ALVO" "$PLATAFORMA_HOST" "$WAHA_EFETIVA"; then
-    c_red "$(t "✖ Não há release numérica completa para ARM64, ou a WAHA escolhida não oferece ARM64.")"
-    c_red "$(t "  Confira registry, visibilidade das quatro imagens e WAHA_IMAGE; depois repita.")"
-    # O painel genérico sugeriria down -v/drop schema antes de qualquer efeito.
-    trap - EXIT
-    exit 1
-  fi
+# Pré-voo obrigatório AMD64: as quatro imagens ELUS360 e WAHA efetiva
+# devem oferecer linux/amd64 antes de criar Supabase, rede ou schema.
+PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)")" || {
+  printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: servidor fora de Linux AMD64.' >&2
+  exit 3
+}
+VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"
+WAHA_EFETIVA="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
+if ! preflight_instalacao "$VERSAO_ALVO" "$PLATAFORMA_HOST" "$WAHA_EFETIVA"; then
+  c_red "ELUS_DISTRIBUTION_NO_GO: quatro imagens e WAHA devem oferecer linux/amd64."
+  trap - EXIT
+  exit 3
 fi
 
 # ── Proxy reverso: quem está com as portas 80 e 443? ────────────────────────
@@ -1413,44 +1433,24 @@ fi
 # descrevendo o ambiente como "latest do dia 06/08/2026", que é a admissão de
 # que a versão não era nomeável.
 #
-# Resolvido no REMOTO porque o clone é `--depth 1` e não traz tag nenhuma.
-# Em ARM64 a versão já foi resolvida e conferida pelo pré-voo, lá em cima.
-[ "$PLATAFORMA_HOST" = linux/arm64 ] || VERSAO_ALVO="$(ultima_versao_publicada "$REPO_URL")"
-
-# A tag do git é condição NECESSÁRIA, não suficiente: ela nasce minutos antes
-# das imagens, e `deskcomm-worker`/`deskcomm-scheduler` só passaram a existir
-# depois das releases que já estão publicadas — `deskcomm-worker:1.2.1` nunca
-# vai existir, porque a v1.2.1 é passado. Sem esta conferência, o .env do
-# cliente receberia duas referências impossíveis e o kit as construiria aqui em
-# silêncio, do topo da main: app de uma release + worker de outro código.
-#
-# Cascata, do mais específico ao mais disponível. Cada nível pergunta pelas TRÊS
-# imagens juntas, porque instalar com elas desalinhadas é o defeito, não a
-# solução.
-if [ "$PLATAFORMA_HOST" = linux/arm64 ]; then
-  : # pré-voo OCI já passou
-elif [ -n "$VERSAO_ALVO" ] && trio_publicado "$VERSAO_ALVO"; then
-  : # o caminho normal: as três publicadas na última versão
-elif trio_publicado "stable"; then
-  c_ylw "$(t "⚠ A versão {1} ainda não tem as três imagens publicadas." "${VERSAO_ALVO:-$(t "mais recente")}")"
-  c_ylw "$(t "  Instalando pelo canal 'stable' (a última versão completa).")"
-  VERSAO_ALVO="stable"
-elif [ -n "$VERSAO_ALVO" ]; then
-  # Nem a versão nem o `stable` têm o trio. Segue assim mesmo — o compose tem
-  # `build:` ao lado do `image:` do worker e do scheduler, então eles são
-  # construídos aqui. É lento, mas instala. O que NÃO pode é isso acontecer
-  # calado: o dono precisa saber que duas peças dele saíram do fonte local.
-  c_ylw "$(t "⚠ As imagens do worker e do agendador ainda não estão publicadas.")"
-  c_ylw "$(t "  Elas serão construídas neste servidor — leva alguns minutos a mais.")"
-  c_ylw "$(t "  Rode 'bash hostgator-setup-kit/update.sh' quando a próxima versão sair.")"
-else
-  # Falha ABERTA: sem rede ou sem tag no remoto, segue como antes. Travar a
-  # instalação por não resolver um número seria trocar previsibilidade por
-  # disponibilidade — mas o aviso sai, porque o dono precisa saber que ficou
-  # num canal móvel em vez de numa versão.
-  VERSAO_ALVO="latest"
-  c_ylw "$(t "⚠ Não consegui descobrir a última versão publicada (rede?).")"
-  c_ylw "$(t "  Instalando pelo canal 'latest'. Depois rode: bash hostgator-setup-kit/update.sh")"
+# Clone shallow; release numérica pré-validada no fork, sem canal móvel
+# e sem recuperação por build local.
+VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"
+if [[ ! "${VERSAO_ALVO:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+   || ! trio_publicado "$VERSAO_ALVO"; then
+  die "ELUS_DISTRIBUTION_NO_GO: nenhuma release própria ELUS360 com quatro imagens públicas foi verificada; não uso stable/latest nem compilo imagens nesta VPS."
+fi
+# O clone inicial pode ser shallow e não ter as tags. Buscar SOMENTE a tag
+# selecionada do origin canônico, sem depender de latest nem de tags locais.
+# Conferir release publicada/main e usar seu código (baseline) antes do banco.
+if ! git fetch --no-tags --quiet origin "refs/tags/v${VERSAO_ALVO}:refs/tags/v${VERSAO_ALVO}"; then
+  die "ELUS_DISTRIBUTION_NO_GO: falha ao obter tag ELUS360 verificável."
+fi
+if ! elus360_release_tag_comprovada "v${VERSAO_ALVO}"; then
+  die "ELUS_DISTRIBUTION_NO_GO: tag sem release própria publicada e procedência verificável."
+fi
+if ! git checkout --quiet "v${VERSAO_ALVO}"; then
+  die "ELUS_DISTRIBUTION_NO_GO: checkout seguro do código/base de schema da release recusado."
 fi
 IMAGEM_APP_DEFAULT="${IMG_APP}:${VERSAO_ALVO}"
 
@@ -2439,52 +2439,13 @@ step "$(t "Puxando a imagem e subindo os serviços")"
 # provisionado e o .env já escrito. O `up -d` seguinte não precisa do pull: o
 # worker e o scheduler têm `build:` ao lado do `image:`, e o Compose os constrói
 # quando a imagem não existe (medido).
+# ELUS360 não usa fallback de compilação no host. Ausência de imagem,
+# 403, rede e arquitetura incompatível interrompem a instalação.
 if ! dc pull; then
-  c_ylw "$(t "⚠ Não consegui puxar todas as imagens do registro.")"
-  c_ylw "$(t "  Sigo assim mesmo: o que faltar é construído aqui (mais lento, mesmo resultado).")"
+  die "ELUS_DISTRIBUTION_NO_GO: pull das imagens ELUS360 falhou; nenhum build local será executado."
 fi
-# A frase de cima só é verdade com rede de segurança embaixo dela. Worker,
-# scheduler e voz têm `build:` ao lado do `image:` e o Compose os constrói em
-# QUALQUER falha de pull (medido, não só na de arquitetura); o `app` não tem,
-# de propósito (#1060). Se a imagem dele não veio do registro (arquitetura da
-# VPS diferente da das imagens publicadas, tag ainda publicando, pacote
-# privado, registro fora), o `up -d` morre e a instalação acabava sem CRM no
-# ar — e a resposta a qualquer falha era construir.
-#
-# ── O PORTÃO DO BUILD LOCAL, AQUI TAMBÉM (#1955, #2631) ──────────────────────
-# O gatilho continua sendo o CÓDIGO DE SAÍDA do `up -d` (nunca o texto do erro
-# — arquitetura, tag publicando, pacote privado e registro fora caem todos no
-# mesmo caminho), mas quem DECIDE se constrói é `build_local_permitido`, o
-# mesmo portão que o update.sh consultava sozinho. A assimetria é o defeito:
-# uma instalação nova com o registro fora do ar construía o `app` na VPS do
-# mesmo jeito, e o OOM do `next-build` (#1955) derruba o resto da VPS junto —
-# não há serviço no ar para proteger numa instalação, mas há uma memória para
-# não gastar.
-#
-# Quem tem registro respondendo continua se recuperando sozinho: é a
-# recuperação de arquitetura do #1060/#1143 e ela não pode sumir. Quem quer
-# construir de propósito pede com DESKCOMM_BUILD_LOCAL=1.
-#
-# Na instalação não há versão anterior para onde voltar (o update.sh devolve a
-# anterior e aponta o diagnóstico), então a recusa é UM die com a mensagem da
-# instalação — e o que ela DIZ sobre o motivo é separado (#2648): o veredito
-# 'indisponivel' que o portão lê junta causas com diagnósticos OPOSTOS (sem
-# buildx, registro fora, tag ainda publicando, sonda estourada no prazo), e a
-# mesma separação que o preflight do update.sh já fazia agora cabe aqui. Quem
-# decide a frase é `motivo_da_recusa_do_build_local` (em _common.sh), na mesma
-# ordem em que o portão decide: o operador sem buildx recebe "instale o
-# buildx", não "mexa na rede". A saída de propósito continua sendo o
-# DESKCOMM_BUILD_LOCAL=1.
-CONSTRUIU_AQUI=""
-if ! dc up -d; then
-  if ! build_local_permitido "$VERSAO_ALVO"; then
-    die "$(t "Não coloquei o CRM no ar: {1} A construção local segue fechada por padrão, e numa instalação não há versão anterior para onde voltar. Para construir as imagens aqui DE PROPÓSITO (mais lento, exige memória): {2}" "$(motivo_da_recusa_do_build_local "$VERSAO_ALVO")" "DESKCOMM_BUILD_LOCAL=1 bash hostgator-setup-kit/install.sh --yes")"
-  fi
-  if construir_aqui_e_subir "$VERSAO_ALVO"; then
-    CONSTRUIU_AQUI=1
-  else
-    die "$(t "Não coloquei o CRM no ar: nem as imagens prontas desta versão nem a construção aqui funcionaram. O erro está logo acima; para reproduzir só a construção: {1}" "docker compose $(dc_files) -f ${COMPOSE_BUILD} build")"
-  fi
+if ! dc up -d --no-build; then
+  die "ELUS_DISTRIBUTION_NO_GO: falha ao subir imagens ELUS360 já publicadas (sem build local)."
 fi
 c_grn "$(t "✓ containers no ar")"
 if [ -n "$CONSTRUIU_AQUI" ]; then

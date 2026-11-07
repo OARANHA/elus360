@@ -460,6 +460,14 @@ if grep -qE '^SCHEDULER_IMAGE=' .env 2>/dev/null; then
 fi
 PREV_WORKER_IMAGE="${PREV_WORKER_IMAGE:-}"
 PREV_SCHEDULER_IMAGE="${PREV_SCHEDULER_IMAGE:-}"
+PREV_VOICE_AGENT_IMAGE=""
+VOZ_ATIVA=""
+case ",${COMPOSE_PROFILES:-}," in
+  *,telefonia,*) VOZ_ATIVA=1 ;;
+esac
+if [ -n "$VOZ_ATIVA" ] && grep -qE '^VOICE_AGENT_IMAGE=' .env 2>/dev/null; then
+  PREV_VOICE_AGENT_IMAGE="$(dc images -q voice-agent 2>/dev/null | head -1)" || true
+fi
 if [ -z "$PREV_IMAGE" ]; then
   # Registrado, não ignorado: sem imagem anterior conhecida, se o update.sh
   # falhar mais adiante NÃO HÁ como voltar — o status vai sair "failed", nunca
@@ -540,12 +548,22 @@ elif [ $RC -ne 0 ]; then
     ROLLBACK_ARGS=(app)
     [ -n "$PREV_WORKER_IMAGE" ] && ROLLBACK_ARGS+=(worker)
     [ -n "$PREV_SCHEDULER_IMAGE" ] && ROLLBACK_ARGS+=(scheduler)
+    [ -n "$VOZ_ATIVA" ] && [ -n "$PREV_VOICE_AGENT_IMAGE" ] && ROLLBACK_ARGS+=(voice-agent)
 
     if APP_IMAGE="$PREV_IMAGE" APP_PULL_POLICY=missing \
        WORKER_IMAGE="${PREV_WORKER_IMAGE:-}" WORKER_PULL_POLICY=missing \
        SCHEDULER_IMAGE="${PREV_SCHEDULER_IMAGE:-}" SCHEDULER_PULL_POLICY=missing \
-         dc up -d "${ROLLBACK_ARGS[@]}" >>"$LOG" 2>&1; then
-      STATUS="failed_rolled_back"
+       VOICE_AGENT_IMAGE="${PREV_VOICE_AGENT_IMAGE:-}" VOICE_AGENT_PULL_POLICY=missing \
+         dc up -d --no-build "${ROLLBACK_ARGS[@]}" >>"$LOG" 2>&1; then
+      # Nunca chamar de rollback completo com worker/scheduler sem imagem
+      # anterior ou com telefonia ativa sem o agente de voz recuperado.
+      if [ -n "$PREV_WORKER_IMAGE" ] && [ -n "$PREV_SCHEDULER_IMAGE" ] \
+         && { [ -z "$VOZ_ATIVA" ] || [ -n "$PREV_VOICE_AGENT_IMAGE" ]; }; then
+        STATUS="failed_rolled_back"
+      else
+        STATUS="failed"
+        log_err "Rollback parcial de imagens, sem confirmação de todas as peças — banco não foi restaurado."
+      fi
       # Persiste a volta: o update.sh já gravou as imagens NOVAS (quebradas) no
       # .env antes do pull. Sem reescrever aqui, o próximo `up -d` — o do
       # cliente, semanas depois — traria o app quebrado de volta e desfaria o
@@ -561,6 +579,11 @@ elif [ $RC -ne 0 ]; then
         set_env_var .env SCHEDULER_IMAGE "$PREV_SCHEDULER_IMAGE"
         set_env_var .env SCHEDULER_PULL_POLICY missing
       fi
+      if [ -n "$VOZ_ATIVA" ] && [ -n "$PREV_VOICE_AGENT_IMAGE" ]; then
+        set_env_var .env VOICE_AGENT_IMAGE "$PREV_VOICE_AGENT_IMAGE"
+        set_env_var .env VOICE_AGENT_PULL_POLICY missing
+      fi
+      log_err "Rollback de imagens local concluído apenas para os serviços restaurados; schema/banco NÃO revertido."
     fi
   fi
 fi

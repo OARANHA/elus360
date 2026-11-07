@@ -77,7 +77,7 @@ mkdir -p "$WORK/bin"
 cat > "$WORK/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DOCKER_LOG"
-case " $* " in *" up -d --no-deps app worker "*) printf 'pull_policy=%s/%s\n' "${APP_PULL_POLICY:-}" "${WORKER_PULL_POLICY:-}" >> "$DOCKER_LOG" ;; esac
+case " $* " in *" up -d --no-build --no-deps app worker "*) printf 'pull_policy=%s/%s\n' "${APP_PULL_POLICY:-}" "${WORKER_PULL_POLICY:-}" >> "$DOCKER_LOG" ;; esac
 case " $* " in
   # Healthcheck do update.sh: "docker compose ... exec -T app node -e ...".
   # O dublê responde o que o app RESPONDE DE VERDADE — capturado da instalação
@@ -98,6 +98,8 @@ case " $* " in
   # a combinação que leva o update.sh à saída "nada a atualizar".
   *" ps "*) [ "${AVISO_PRESO:-0}" = "1" ] && printf 'deskcomm-manutencao\n' ;;
   *" image inspect "*) [ "${IMAGEM_EM_DIA:-0}" = "1" ] && printf 'x@sha256:aaa\n' ;;
+  *" imagetools inspect --raw "*) printf '{"schemaVersion":2,"config":{"digest":"sha256:fake"}}\n' ;;
+  *" imagetools inspect --format "*) printf 'linux/amd64\n' ;;
   *" imagetools inspect "*) [ "${IMAGEM_EM_DIA:-0}" = "1" ] && printf 'Digest: sha256:aaa\n' ;;
   # Aplicação do baseline. Só com BASELINE_ROTEIRO no ambiente (caso 4c): cada
   # chamada imprime a próxima passada do roteiro. Fora dele, sai limpa como antes.
@@ -144,6 +146,12 @@ STUB
 # como a prova lê o desfecho reportado.
 cat > "$WORK/bin/curl" <<'STUB'
 #!/usr/bin/env bash
+# Emulate the GHCR token + HTTP manifest status used by AMD64 preflight.
+# The dummy token never leaves this disposable workspace.
+case " $* " in
+  *"ghcr.io/token?scope="*) printf '{"token":"disposable-fake-ghcr-token"}\n'; exit 0 ;;
+  *"ghcr.io/v2/oaranha/"*"/manifests/"*) printf '200'; exit 0 ;;
+esac
 payload=""
 while [ $# -gt 0 ]; do
   [ "$1" = "-d" ] && { shift; payload="$1"; }
@@ -202,6 +210,24 @@ cp "$REPO_ROOT/hostgator-setup-kit/_common.sh" "$REPO_ROOT/hostgator-setup-kit/_
 # atualizacao nao explicou nada" — porque o script morre na linha 21, antes de
 # qualquer mensagem. Foi exatamente o que aconteceu ao escrever isto.
 cp -R "$REPO_ROOT/hostgator-setup-kit/manutencao" "$PROJ/hostgator-setup-kit/"
+
+# LEGACY test seam, only in the disposable fixture: the test below exercises
+# backup, pins, update sequencing and rollback with a local git origin. The
+# new origin/GitHub-release gate is tested separately by test_shell_release_gate.py
+# against the REAL _common.sh. No override is installed in the product.
+cat >> "$PROJ/hostgator-setup-kit/_common.sh" <<'OFFLINE_GATE'
+# Só neste harness: origin é uma árvore Git local descartável, e
+# "release publicada" é o conjunto de refs numéricas desse remote. O
+# verificador de procedência real continua coberto pelos 62 testes Python.
+elus360_origem_confiavel() { return 0; }
+elus360_release_publicada_no_main() { return 0; }
+elus360_release_tag_comprovada() { return 0; }
+ultima_release_estavel() {
+  git ls-remote --tags --refs origin 'refs/tags/v[0-9]*' 2>/dev/null \
+    | sed -n 's#.*refs/tags/##p' | sort -V | tail -1
+}
+OFFLINE_GATE
+
 # backup.sh de mentira: deixa um rastro. É o marco "o script já começou a
 # mexer" — a guarda de retrocesso só vale se abortar ANTES dele.
 BACKUP_MARK="$WORK/backup-rodou"
@@ -217,7 +243,7 @@ printf 'services:\n  app:\n    image: \${APP_IMAGE:-x}\n' > "$PROJ/docker-compos
 printf 'services:\n  app:\n    pull_policy: never\n    build:\n      context: .\n' > "$PROJ/docker-compose.build.yml"
 printf 'select 1;\n' > "$PROJ/supabase/baseline.sql"
 cat > "$PROJ/.env" <<ENV
-APP_IMAGE=${NS}/deskcommcrm:latest
+APP_IMAGE=${NS}/elus360:latest
 APP_PULL_POLICY=always
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
@@ -236,6 +262,12 @@ git init --quiet
 git add -A
 git commit --quiet -m "v0.9.0"
 git tag v0.9.0
+# ELUS360 requires git fetch --tags success BEFORE any backup or SQL.
+# The old harness had no origin at all and therefore died in its new read-only
+# gate before entering any scenarios. Give the disposable project a REAL,
+# local-only Git remote; no production override, GitHub or network involved.
+git remote add origin "$PROJ"
+git fetch --tags --quiet origin || { echo "fixture: origin local indisponível"; exit 1; }
 # Instalação que SEGUE A MAIN: HEAD à frente da última tag publicada.
 echo topo > topo.txt; git add -A; git commit --quiet -m "topo da main"
 
@@ -249,6 +281,13 @@ run_update() {  # run_update <args...> → saída em $OUTFILE, status em $RC
   # que é justamente o silêncio que este arquivo existe para caçar.
   RC=0
   bash hostgator-setup-kit/update.sh "$@" > "$OUTFILE" 2>&1 || RC=$?
+  # Erro inesperado no harness: não esconder a causa sob dezenas de checks
+  # em cascata. Mostra SOMENTE mensagens de falha da instalação fictícia;
+  # credenciais e payloads do .env nunca entram no diagnóstico.
+  if [ "$RC" -ne 0 ] && [ "$RC" -ne 3 ]; then
+    printf '  [fixture updater RC=%s — motivo resumido]\n' "$RC"
+    { grep -Ei 'ELUS_DISTRIBUTION_NO_GO|falha|erro|fatal|recusad|não consegui|not found|error:' "$OUTFILE" || true; } | tail -8
+  fi
 }
 
 echo "── 1. Alvo anterior ao instalado é recusado antes do backup"
@@ -287,7 +326,7 @@ echo nova > nova.txt; git add -A; git commit --quiet -m "v1.1.0"; git tag v1.1.0
 git checkout --quiet v0.9.0
 run_update --to v1.1.0
 check "a atualização termina com sucesso" test "$RC" -eq 0
-check ".env aponta para a imagem da versão instalada" grep -q "^APP_IMAGE=${NS}/deskcommcrm:1.1.0$" .env
+check ".env aponta para a imagem da versão instalada" grep -q "^APP_IMAGE=${NS}/elus360:1.1.0$" .env
 check "a chave APP_IMAGE não duplicou" test "$(grep -c '^APP_IMAGE=' .env)" -eq 1
 run_update --to v1.1.0 --force
 check "segunda execução também não duplica" test "$(grep -c '^APP_IMAGE=' .env)" -eq 1
@@ -317,9 +356,9 @@ echo "── 4b. As três imagens sobem juntas, na mesma versão"
 # runtime do agente de IA — ficava congelado no código do dia da instalação.
 # Se estas três linhas voltarem a divergir, o defeito voltou.
 check "o worker é pinado na MESMA versão do app" \
-  grep -q "^WORKER_IMAGE=${NS}/deskcomm-worker:1.1.0$" .env
+  grep -q "^WORKER_IMAGE=${NS}/elus360-worker:1.1.0$" .env
 check "o scheduler é pinado na MESMA versão do app" \
-  grep -q "^SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.1.0$" .env
+  grep -q "^SCHEDULER_IMAGE=${NS}/elus360-scheduler:1.1.0$" .env
 check "o worker herda a política da tag imutável" \
   grep -q '^WORKER_PULL_POLICY=missing$' .env
 check "o scheduler herda a política da tag imutável" \
@@ -447,7 +486,7 @@ echo topo > topo.txt; git add -A; git commit --quiet -m "main, depois da release
 clona_raso() {  # clona_raso <destino> — igual ao install.sh: --depth 1
   git clone --depth 1 --quiet "file://$SRC" "$1"
   cat > "$1/.env" <<ENV
-APP_IMAGE=${NS}/deskcommcrm:latest
+APP_IMAGE=${NS}/elus360:latest
 APP_PULL_POLICY=always
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
@@ -464,12 +503,12 @@ cd "$RASO" || exit 1
 check "o fixture é mesmo um clone raso (senão esta prova não vale nada)" \
   test "$(git rev-parse --is-shallow-repository)" = "true"
 HEAD_ANTES="$(git rev-parse HEAD)"
-run_update
+run_update --to v0.9.0
 check "aborta com o código de recusa (3), não com falha genérica" test "$RC" -eq 3
 check "explica em português que é retrocesso" grep -q "ANTERIOR à que já está instalada" "$OUTFILE"
 check "não chegou a rodar o backup" test ! -f "$BACKUP_MARK"
 check "NÃO rebobinou: o HEAD é o mesmo de antes" test "$(git rev-parse HEAD)" = "$HEAD_ANTES"
-check "a imagem do .env continua intacta" grep -q "^APP_IMAGE=${NS}/deskcommcrm:latest$" .env
+check "a imagem do .env continua intacta" grep -q "^APP_IMAGE=${NS}/elus360:latest$" .env
 check "completou a história para poder decidir (deixou de ser raso)" \
   test "$(git rev-parse --is-shallow-repository)" = "false"
 
@@ -480,9 +519,12 @@ cd "$CEGO" || exit 1
 git fetch --tags --quiet origin            # conhece a tag…
 git remote set-url origin "$WORK/nao-existe"  # …mas perdeu o caminho de volta
 HEAD_ANTES="$(git rev-parse HEAD)"
-run_update
-check "aborta com o código de recusa (3)" test "$RC" -eq 3
-check "diz que não teve CERTEZA, em vez de agir" grep -q "consegui ter CERTEZA" "$OUTFILE"
+run_update --to v0.9.0
+check "remote indisponível recusa atualização (sem false success)" test "$RC" -ne 0
+check "não tenta adivinhar release sem origin" \
+  grep -q "falha ao buscar tag remota verificada" "$OUTFILE"
+check "um clone com origin quebrado permanece raso" \
+  test "$(git rev-parse --is-shallow-repository)" = "true"
 check "não chegou a rodar o backup" test ! -f "$BACKUP_MARK"
 check "NÃO rebobinou: o HEAD é o mesmo de antes" test "$(git rev-parse HEAD)" = "$HEAD_ANTES"
 
@@ -498,7 +540,7 @@ bash hostgator-setup-kit/agent.sh > "$WORK/agente.out" 2>&1
 check "o agente chegou a executar o update (o app de mentira pediu)" \
   grep -q '"kind":"run_progress"\|"kind":"run_result"' "$CURL_LOG"
 check "NÃO reiniciou o container" test -z "$(grep -F 'up -d app' "$DOCKER_LOG" || true)"
-check "NÃO reescreveu a imagem do .env" grep -q "^APP_IMAGE=${NS}/deskcommcrm:latest$" .env
+check "NÃO reescreveu a imagem do .env" grep -q "^APP_IMAGE=${NS}/elus360:latest$" .env
 check "reportou 'failed', não 'failed_rolled_back'" \
   test -n "$(grep -F '"status":"failed"' "$CURL_LOG" || true)"
 check "não reportou rollback nenhum" test -z "$(grep -F 'failed_rolled_back' "$CURL_LOG" || true)"
@@ -569,26 +611,26 @@ pin_caso() {  # pin_caso <descrição> <conteúdo do .env> <esperado>
   check "$d" test "$r" = "$esperado"
 }
 pin_caso "app pinado + worker/scheduler AUSENTES → acusa os dois" \
-  "APP_IMAGE=${NS}/deskcommcrm:1.3.0" "worker scheduler"
+  "APP_IMAGE=${NS}/elus360:1.3.0" "worker scheduler"
 pin_caso "app pinado + worker em canal móvel → acusa" \
-  "APP_IMAGE=${NS}/deskcommcrm:1.3.0
-WORKER_IMAGE=${NS}/deskcomm-worker:stable
-SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.3.0" "worker"
+  "APP_IMAGE=${NS}/elus360:1.3.0
+WORKER_IMAGE=${NS}/elus360-worker:stable
+SCHEDULER_IMAGE=${NS}/elus360-scheduler:1.3.0" "worker"
 pin_caso "as três na mesma versão → silêncio" \
-  "APP_IMAGE=${NS}/deskcommcrm:1.3.0
-WORKER_IMAGE=${NS}/deskcomm-worker:1.3.0
-SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.3.0" ""
+  "APP_IMAGE=${NS}/elus360:1.3.0
+WORKER_IMAGE=${NS}/elus360-worker:1.3.0
+SCHEDULER_IMAGE=${NS}/elus360-scheduler:1.3.0" ""
 pin_caso "app num canal deliberado (:latest) → não é 'metade', silêncio" \
-  "APP_IMAGE=${NS}/deskcommcrm:latest" ""
+  "APP_IMAGE=${NS}/elus360:latest" ""
 # As aspas SIMPLES são o objeto deste caso — o `install.sh` grava assim. Elas
 # ficam literais porque estão DENTRO da string de aspas duplas; trocá-las por
 # duplas FECHA a string, e o conteúdo sai sem aspa nenhuma. Medido: nessa forma
 # o caso vira byte-a-byte igual ao "as três na mesma versão" logo acima, e o
 # rótulo passa a mentir sobre o que está sendo exercitado.
 pin_caso "valores entre aspas, como o install grava → silêncio" \
-  "APP_IMAGE='${NS}/deskcommcrm:1.3.0'
-WORKER_IMAGE='${NS}/deskcomm-worker:1.3.0'
-SCHEDULER_IMAGE='${NS}/deskcomm-scheduler:1.3.0'" ""
+  "APP_IMAGE='${NS}/elus360:1.3.0'
+WORKER_IMAGE='${NS}/elus360-worker:1.3.0'
+SCHEDULER_IMAGE='${NS}/elus360-scheduler:1.3.0'" ""
 rm -f "$PROJ/.env.pin"
 
 
@@ -610,7 +652,7 @@ case "$*" in
   # O heredoc é quoted ('STUBDOCKER') para proteger $* e $DUBLE_VERSION, então
   # $NS NÃO é expandido na escrita: ele chega literal aqui e é resolvido quando o
   # dublê RODA, lendo do ambiente (por isso o `export NS` lá em cima). Sem essa
-  # resolução o dublê devolvia a string `${NS}/deskcomm-worker:stable` — uma
+  # resolução o dublê devolvia a string `${NS}/elus360-worker:stable` — uma
   # fixture que não representa instalação nenhuma. O `:?` faz o dublê morrer alto
   # se a variável não vier, em vez de devolver um nome começando em "/".
   *"Config.Image"*)  printf '%s/deskcomm-worker:stable\n' "${NS:?dublê de docker sem NS no ambiente}" ;;
@@ -628,10 +670,10 @@ autopin() {  # autopin <conteúdo do .env> → ecoa o que a função corrigiu
       ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null ) || true
 }
 
-R="$(autopin "APP_IMAGE=${NS}/deskcommcrm:1.3.0")"
+R="$(autopin "APP_IMAGE=${NS}/elus360:1.3.0")"
 check "chave AUSENTE → preenche os dois" test "$R" = "worker scheduler"
 check "  e grava a versão da imagem em execução, não um canal" \
-  grep -q "^WORKER_IMAGE=${NS}/deskcomm-worker:1.3.0$" "$PIN_DIR/.env"
+  grep -q "^WORKER_IMAGE=${NS}/elus360-worker:1.3.0$" "$PIN_DIR/.env"
 check "  com pull_policy de tag imutável" \
   grep -q "^WORKER_PULL_POLICY=missing$" "$PIN_DIR/.env"
 
@@ -643,21 +685,21 @@ check "  e não altera um byte do .env" test "$ANTES_MD5" = "$(md5sum "$PIN_DIR/
 
 # A REGRA QUE PROTEGE O OPERADOR. Se esta cair, o cron passa a sobrescrever
 # escolha explícita — e a decisão de implementar a autocorreção deixa de valer.
-R="$(autopin "APP_IMAGE=${NS}/deskcommcrm:1.3.0
-WORKER_IMAGE=${NS}/deskcomm-worker:stable
-SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:stable")"
+R="$(autopin "APP_IMAGE=${NS}/elus360:1.3.0
+WORKER_IMAGE=${NS}/elus360-worker:stable
+SCHEDULER_IMAGE=${NS}/elus360-scheduler:stable")"
 check "canal móvel EXPLÍCITO → não toca (é decisão de quem opera)" test -z "$R"
 check "  o :stable escolhido continua lá, intacto" \
-  grep -q "^WORKER_IMAGE=${NS}/deskcomm-worker:stable$" "$PIN_DIR/.env"
+  grep -q "^WORKER_IMAGE=${NS}/elus360-worker:stable$" "$PIN_DIR/.env"
 
-R="$(autopin "APP_IMAGE=${NS}/deskcommcrm:1.3.0
-WORKER_IMAGE=${NS}/deskcomm-worker:1.3.0
-SCHEDULER_IMAGE=${NS}/deskcomm-scheduler:1.3.0")"
+R="$(autopin "APP_IMAGE=${NS}/elus360:1.3.0
+WORKER_IMAGE=${NS}/elus360-worker:1.3.0
+SCHEDULER_IMAGE=${NS}/elus360-scheduler:1.3.0")"
 check "já pinada → silêncio" test -z "$R"
 
 # Imagem sem o label (build local): não há versão para gravar, e inventar uma
 # seria pior que não fazer nada.
-R="$( printf "APP_IMAGE=${NS}/deskcommcrm:1.3.0\n" > "$PIN_DIR/.env"
+R="$( printf "APP_IMAGE=${NS}/elus360:1.3.0\n" > "$PIN_DIR/.env"
       cd "$PIN_DIR" && PATH="$PIN_DIR/bin:$PATH" DUBLE_VERSION="<no value>" bash -c \
         ". '$KIT_DIR_TESTE/_common.sh'; completar_pin_ausente .env" 2>/dev/null || true )"
 check "imagem sem label de versão → não inventa pin" test -z "$R"
@@ -721,68 +763,35 @@ check "  o arquivo de cabeçalho nasceu com permissão 600" \
   test "$(modo_do_arquivo "$CASO11/.env.cron-drain")" = "600"
 cd "$PROJ" || exit 1
 
-echo "── 12. VPS de outra arquitetura: atualizar se recupera sozinho (issue 1060)"
-# O defeito: o registro responde "no matching manifest for linux/arm64/v8", o
-# `pull` não traz imagem nenhuma e o `up -d` morre junto. Medido no Compose,
-# worker, scheduler e voz — que TÊM `build:` ao lado do `image:` — são
-# reconstruídos sozinhos em qualquer falha de pull; o `app` fica SEM `build:`
-# de propósito (#1060), e é a falta da imagem dele que faz o `up -d` falhar e
-# entrega a decisão à guarda, que é quem julga quando o registro não responde.
-# Antes da guarda o script terminava como se tivesse dado certo: o CRM ficava
-# na versão velha e o dono não era avisado. Pelo botão "Atualizar" nem isso,
-# porque o agente roda sozinho no cron. O desfecho certo é construir aqui a
-# MESMA versão alvo e dizer, em português, o que aconteceu.
+echo "── 12. Imagem inacessível na arquitetura: recusa, sem build local nem troca de pins"
+# No ELUS360 a arquitetura sem pacote NÃO autoriza compilar na VPS. O
+# runner devolve a mesma falha OCI do teste herdado, mas agora exige NO-GO.
 cd "$PROJ" || exit 1
 export DOCKER_BUILD_FEITO="$WORK/build-feito"
 rm -f "$DOCKER_BUILD_FEITO"
-# Instalado numa versão anterior à alvo: sem isto a guarda de retrocesso
-# recusaria antes de chegar ao `up -d`.
-sed -i.bak "s|^APP_IMAGE=.*|APP_IMAGE=${NS}/deskcommcrm:0.9.0|" .env && rm -f .env.bak
+sed -i.bak "s|^APP_IMAGE=.*|APP_IMAGE=${NS}/elus360:0.9.0|" .env && rm -f .env.bak
 : > "$DOCKER_LOG"
 export ARQ_DIFERENTE=1
 run_update --to v1.1.0
 unset ARQ_DIFERENTE
-check "termina com sucesso, sem intervenção manual" test "$RC" -eq 0
-check "o pull falhou de verdade no meio do caminho" \
-  grep -q "no matching manifest for linux/arm64/v8" "$OUTFILE"
-check "caiu para o build local do overlay de build" \
-  grep -q -- "-f docker-compose.build.yml build" "$DOCKER_LOG"
-check "subiu pelo override (pull_policy: never), sem voltar ao registro" \
-  grep -q -- "-f docker-compose.build.yml up -d" "$DOCKER_LOG"
-check "explica em português o que aconteceu" grep -q "não servem para esta VPS" "$OUTFILE"
-# O que sobra na tela do site é o rabo da saída (agent.sh: tail -40). Explicação
-# que fica só lá em cima não chega a quem clicou em "Atualizar".
-fim_tem() { tail -40 "$OUTFILE" | grep -q "$1"; }
-check "e diz no FIM, que é o que o agente manda para a tela" \
-  fim_tem "construídas aqui nesta VPS"
+check "imagem/arquitetura inválida → updater recusa" test "$RC" -ne 0
+check "não compilou nada na VPS" bash -c "! grep -q 'docker-compose.build.yml.*build' '$DOCKER_LOG'"
+check "a imagem anterior continua pinada" grep -q "^APP_IMAGE=${NS}/elus360:0.9.0$" .env
+check "diagnóstico da recusa ficou disponível" bash -c "grep -Eiq 'registro|preflight|imagem|atualiza' '$OUTFILE'"
+check "não executou build mesmo com escape de propósito" test ! -e "$DOCKER_BUILD_FEITO"
 
-# O caminho feliz NÃO muda de comportamento: imagem disponível, nada de build
-# local e nenhuma menção a arquitetura.
-sed -i.bak "s|^APP_IMAGE=.*|APP_IMAGE=${NS}/deskcommcrm:0.9.0|" .env && rm -f .env.bak
+echo "── 12a. Mesmo alvo com registry disponível: o caminho normal não constrói"
+sed -i.bak "s|^APP_IMAGE=.*|APP_IMAGE=${NS}/elus360:0.9.0|" .env && rm -f .env.bak
 : > "$DOCKER_LOG"
 run_update --to v1.1.0
-check "caminho feliz: conclui normalmente" test "$RC" -eq 0
-check "caminho feliz: não constrói nada aqui (não paga o build à toa)" \
-  bash -c "! grep -q 'docker-compose.build.yml' '$DOCKER_LOG'"
-check "caminho feliz: a saída não fala em arquitetura nem em construção local" \
-  bash -c "! grep -qiE 'arquitetura|construídas aqui nesta VPS' '$OUTFILE'"
+check "caminho feliz executado sem falha" test "$RC" -eq 0
+check "nenhum build local em caminho feliz" bash -c "! grep -q 'docker-compose.build.yml' '$DOCKER_LOG'"
+check "novo pin é imagem própria ELUS" grep -q "^APP_IMAGE=${NS}/elus360:1.1.0$" .env
 
-# O passo 9 do install.sh tinha o MESMO buraco do `up -d` sem guarda, e a saída
-# dele também. A recuperação é a MESMA função de _common.sh, exercitada acima de
-# ponta a ponta pelo update.sh; aqui se prova que o install.sh a chama — e logo
-# depois do `up -d` que pode falhar, não em outro lugar qualquer.
-#
-# A janela do grep era -A1 e virou -A6 na #2631: o portão `build_local_permitido`
-# entrou EXATAMENTE entre o `if ! dc up -d; then` e a chamada da recuperação, e
-# -A1 passou a apontar para o portão. A intenção da prova não mudou (a
-# recuperação fica no bloco do `up -d`); o que se ganhou é a segunda metade da
-# mesma régua: o portão vem ANTES de construir. O comportamento dos dois lados
-# — portão aberto e portão fechado — é provado de ponta a ponta em
-# tests/shell/install-portao-do-build.test.sh.
-check "install.sh consulta o portão build_local_permitido no mesmo bloco do up -d, antes de chamar a recuperação" \
-  bash -c "b=\"\$(grep -A6 'if ! dc up -d; then' '$REPO_ROOT/hostgator-setup-kit/install.sh')\"; printf '%s\n' \"\$b\" | grep -q build_local_permitido && printf '%s\n' \"\$b\" | grep -q construir_aqui_e_subir"
+check "instalador usa --no-build e não expõe recuperação local" \
+  grep -Fq 'if ! dc up -d --no-build; then' "$REPO_ROOT/hostgator-setup-kit/install.sh"
 
-echo "── 12b. Worker, scheduler e voz com image: + build:; o app SEM build:, de propósito (#1060)"
+echo "── 12b. Todas as quatro imagens ELUS têm image:, e nenhuma tem build: em produção"
 # A parte boa medida no Compose fica: com `image:` + `build:` no mesmo bloco,
 # o `up -d` CONSTRÓI em QUALQUER falha de pull (tag inexistente, registro fora
 # por DNS, "no matching manifest", com `pull_policy` `always`, `missing` ou sem
@@ -821,17 +830,20 @@ tem_chave() { # <bloco> <prefixo da linha> → 0 quando alguma linha começa com
   done <<< "$bloco"
   return 1
 }
-imagem_e_build_juntos() { # <serviço> → 0 quando image: e build: convivem no bloco
+imagem_publicada_sem_build() {
   local bloco
   bloco="$(bloco_do_servico "$1")"
   [ -n "$bloco" ] || return 1
   tem_chave "$bloco" "    image:" || return 1
-  tem_chave "$bloco" "    build:" || return 1
+  if tem_chave "$bloco" "    build:"; then
+    echo "build indevido no serviço ELUS: $1"
+    return 1
+  fi
   return 0
 }
-for svc in worker scheduler voice-agent; do
-  check "o serviço '$svc' declara image: e build: no mesmo bloco" \
-    imagem_e_build_juntos "$svc"
+for svc in app worker scheduler voice-agent; do
+  check "serviço '$svc' tem image: e NÃO contém build:" \
+    imagem_publicada_sem_build "$svc"
 done
 
 # O outro lado da régua, invertido: o `app` declara `image:` (nunca build-only)
@@ -903,23 +915,23 @@ sem_vapid; : > "$DOCKER_LOG"
 IMAGEM_EM_DIA=1 run_update --to v1.1.0
 check "\"nada a atualizar\" sai com sucesso" test "$RC" -eq 0
 check "  e cria o par no .env" test "$(tamanho_da_publica)" = 87
-check "  e sobe de novo o app e o worker para lerem o par" grep -q "up -d --no-deps app worker" "$DOCKER_LOG"
+check "  e sobe de novo o app e o worker para lerem o par" grep -q "up -d --no-build --no-deps app worker" "$DOCKER_LOG"
 check "  sem baixar imagem nova (pull_policy never no app e no worker)" grep -qx "pull_policy=never/never" "$DOCKER_LOG"
 check "  sem virar atualização (não rodou o backup)" test ! -f "$BACKUP_MARK"
 cp .env .env.com-par; : > "$DOCKER_LOG"
 IMAGEM_EM_DIA=1 run_update --to v1.1.0
 check "2ª passada: o par segue o mesmo" cmp -s .env .env.com-par
-check "  e não reinicia nada à toa" bash -c "! grep -q 'up -d --no-deps app worker' '$DOCKER_LOG'"
+check "  e não reinicia nada à toa" bash -c "! grep -q 'up -d --no-build --no-deps app worker' '$DOCKER_LOG'"
 rm -f .env.com-par
 sem_vapid; : > "$DOCKER_LOG"
 run_update --to v0.9.0
 check "recusa de versão anterior (quem segue a main) também cria o par" test "$(tamanho_da_publica)" = 87
-check "  e sobe de novo o app e o worker" grep -q "up -d --no-deps app worker" "$DOCKER_LOG"
+check "  e sobe de novo o app e o worker" grep -q "up -d --no-build --no-deps app worker" "$DOCKER_LOG"
 check "  sem baixar imagem nova, mesmo seguindo a main" grep -qx "pull_policy=never/never" "$DOCKER_LOG"
 check "  e a recusa diz que as chaves foram a única mudança" grep -q "Não mexi em nada além das chaves dos avisos" "$OUTFILE"
 : > "$DOCKER_LOG"
 run_update --to v0.9.0
-check "recusa com o par já presente: não reinicia nada" bash -c "! grep -q 'up -d --no-deps app worker' '$DOCKER_LOG'"
+check "recusa com o par já presente: não reinicia nada" bash -c "! grep -q 'up -d --no-build --no-deps app worker' '$DOCKER_LOG'"
 check "  e diz só 'Não mexi em nada', sem citar as chaves" bash -c "grep -q 'Não mexi em nada: nem no banco' '$OUTFILE' && ! grep -q 'além das chaves' '$OUTFILE'"
 
 if [ "$FAILS" -eq 0 ]; then echo "OK — todas as provas passaram."; else echo "FALHOU — $FAILS prova(s)."; fi

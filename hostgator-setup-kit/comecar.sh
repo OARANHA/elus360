@@ -9,11 +9,18 @@
 #
 # Uso:
 #   bash comecar.sh
-#   curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/hostgator-setup-kit/comecar.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/OARANHA/elus360/main/hostgator-setup-kit/comecar.sh | bash
 #
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/melgarafael/DeskcommCRM.git}"
+REPO_URL="${REPO_URL:-https://github.com/OARANHA/elus360.git}"
+# ELUS360 nunca clona automaticamente um repositório externo: mesmo um REPO_URL
+# injetado no ambiente deve ser validado antes de qualquer instalação.
+case "$REPO_URL" in
+  https://github.com/OARANHA/elus360|https://github.com/OARANHA/elus360.git|git@github.com:OARANHA/elus360.git) ;;
+  *) printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: repositório de origem não autorizado' >&2; exit 3 ;;
+esac
+
 # Link de parceria com a HostGator. Mesma URL e mesmo rótulo do README: uma
 # promessa só, num lugar só — duas redações da mesma oferta viram duas ofertas.
 VPS_URL="https://www.hostgator.com.br/52708-141-3-52.html"

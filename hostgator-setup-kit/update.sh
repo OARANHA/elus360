@@ -20,6 +20,58 @@ source "$KIT_DIR/_common.sh"
 # shellcheck source=manutencao.sh
 source "$KIT_DIR/manutencao.sh"
 enter_project
+# A origem é comprovada ANTES de cron, notificações, autenticação ou DDL.
+elus360_origem_confiavel "$(git config --get remote.origin.url 2>/dev/null || true)" \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: remote.origin não é OARANHA/elus360; nenhuma atualização será executada."
+[ -z "${DESKCOMM_RELEASES_LATEST_URL:-}" ] || refuse "ELUS_DISTRIBUTION_NO_GO: override de release externa é proibido."
+
+# PROVENIÊNCIA PRIMEIRO: somente leituras (origin, API HTTPS GitHub e
+# ls-remote) até esta decisão. Uma release inválida não altera .env, cron,
+# serviço GoTrue, checkout, backup nem banco, inclusive em single-server.
+FORCE=""; SKIP_BACKUP=""; TARGET_TAG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1 ;;
+    --skip-backup) SKIP_BACKUP=1 ;;
+    --to)
+      [ "$#" -ge 2 ] || refuse "ELUS_DISTRIBUTION_NO_GO: --to exige tag vX.Y.Z"
+      shift; TARGET_TAG="$1" ;;
+    *) die "ELUS_DISTRIBUTION_NO_GO: argumento de atualização desconhecido" ;;
+  esac
+  shift
+done
+[ -n "$TARGET_TAG" ] || TARGET_TAG="$(ultima_release_estavel)"
+[ -n "$TARGET_TAG" ] || refuse "ELUS_DISTRIBUTION_NO_GO: o fork ELUS360 não tem release estável publicada acessível."
+elus360_release_publicada_no_main "$TARGET_TAG" \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: release ELUS360 inválida, não publicada, fora de main ou inacessível (antes de qualquer mutação)."
+
+# Gate 2: esta árvore é dona dos serviços? Consultas apenas de metadados
+# sem alterar cron, banco, .env nem reiniciar contêineres.
+# ── 0-. Esta cópia do repo é a dona dos contêineres? ─────────────────────────
+# Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
+# parque com o .env DELA. Foi o que deixou o WhatsApp de uma VPS real três dias
+# em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
+recusar_projeto_de_outra_arvore || refuse "Atualização interrompida para não quebrar a instalação que está no ar."
+
+# Gate 3: após a prova remota, buscar refs para conferir OBJETO LOCAL com tag
+# oficial. Falha de fetch ou objeto divergente recusa ANTES do cron/GoTrue/
+# VAPID/backup/DDL. Somente a base de metadados Git (.git) poderá mudar.
+git fetch --tags --quiet origin 2>/dev/null \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: falha ao buscar tag remota verificada; atualização bloqueada."
+git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: tag não encontrada no checkout local após fetch."
+elus360_release_tag_comprovada "$TARGET_TAG" \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: objeto Git local/remoto divergente ou release sem procedência oficial."
+# Gate 4: a release não pode começar a mexer em cron, banco ou .env
+# quando faltam os artefatos no GHCR. Apenas docker buildx imagetools inspect
+# (consulta de manifestos), sem pull, build, up ou alteração de pins.
+ELUS_VEREDITO_IMAGENS="$(veredito_das_imagens_da_release "$TARGET_TAG")"
+[ "$ELUS_VEREDITO_IMAGENS" = "prontas" ] \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: as quatro imagens da release ELUS360 não estão públicas e acessíveis (veredito: $ELUS_VEREDITO_IMAGENS)."
+
+
+
+# Preservado da v1.102.0: executar somente após comprovar a release/OCI.
 aviso_rede_do_supabase
 
 # ── 0-. O laço do diagnóstico (#1955) ───────────────────────────────────────
@@ -37,21 +89,7 @@ UPDATE_STATUS="em andamento"
 UPDATE_ETAPA="início, antes de decidir a versão"
 trap diagnostico_de_atualizacao EXIT
 
-FORCE=""; SKIP_BACKUP=""; TARGET_TAG=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --force) FORCE=1 ;;
-    --skip-backup) SKIP_BACKUP=1 ;;
-    --to) shift; TARGET_TAG="$1" ;;
-  esac
-  shift
-done
-
-# ── 0-. Esta cópia do repo é a dona dos contêineres? ─────────────────────────
-# Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
-# parque com o .env DELA. Foi o que deixou o WhatsApp de uma VPS real três dias
-# em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
-recusar_projeto_de_outra_arvore || die "Atualização interrompida para não quebrar a instalação que está no ar."
+# Argumentos e release já foram validados na etapa read-only inicial.
 
 # Single-server: o Supabase desta VPS também tem dono. E o e-mail de acesso
 # (GoTrue) acompanha o SMTP do CRM AQUI, antes da decisão de versão: é este
@@ -108,7 +146,7 @@ subir_para_ler_o_par() {
   # `never`: recriar para ler o .env, nunca trocar de imagem. Com tag de canal
   # (`always`) o compose baixaria o topo do canal antes de recriar — app novo sem
   # o baseline, logo antes de uma recusa que diz que nada mudou.
-  if ( export APP_PULL_POLICY=never WORKER_PULL_POLICY=never; dc up -d --no-deps app worker ) >/dev/null 2>&1; then
+  if ( export APP_PULL_POLICY=never WORKER_PULL_POLICY=never; dc up -d --no-build --no-deps app worker ) >/dev/null 2>&1; then
     PAR_LIGADO_AGORA=1
     c_grn "$(t "✓ app e worker reiniciados para ligar os avisos com o app fechado")"
   else
@@ -118,16 +156,8 @@ subir_para_ler_o_par() {
 
 # ── 1. Tem atualização mesmo? ────────────────────────────────────────────────
 step "Procurando atualizações"
-git fetch --tags --quiet origin 2>/dev/null || c_ylw "⚠ não consegui falar com o GitHub — sigo com o código que já está aqui."
-# A AUTORIDADE é a release publicada, NUNCA a maior tag — ver
-# `ultima_release_estavel` em _common.sh. Um `TARGET_TAG` passado à mão
-# continua valendo (instalar uma versão específica é operação legítima de
-# quem sabe o que está fazendo); o que deixou de existir é ESCOLHER sozinho a
-# maior tag, que instalaria código sem release publicada.
-[ -n "$TARGET_TAG" ] || TARGET_TAG="$(ultima_release_estavel)"
-[ -n "$TARGET_TAG" ] || die "Não encontrei nenhuma versão publicada para instalar. (Tag existir não basta: o alvo é a última release estável publicada no GitHub. Se o servidor não conseguiu falar com a API, tente de novo mais tarde; para instalar uma versão específica, passe --to vX.Y.Z.)"
-git rev-parse --verify --quiet "${TARGET_TAG}^{commit}" >/dev/null \
-  || die "Não conheço a versão $TARGET_TAG aqui. Confira o nome (ex.: v1.1.0) ou tente de novo quando o servidor conseguir falar com o GitHub."
+# A referência Git da release foi obtida e revalidada ANTES do cron,
+# da configuração de login, do .env e do banco. Não buscar novamente aqui.
 CURRENT_TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
 
 # O código estar em dia NÃO significa que o app está: quem roda é a imagem.
@@ -212,17 +242,13 @@ if [ -z "$FORCE" ] && [ -z "$MESMA_TAG" ]; then
   esac
 fi
 
-# Aqui já sabemos que há atualização real ou --force. Em ARM64, a release
-# inteira (quatro imagens + WAHA efetiva) é conferida no índice OCI antes de
-# backup, checkout, banco ou contêiner: recusar aqui não deixa nada pela metade.
-# Em AMD64 não há este pré-voo: toda imagem publicada tem amd64, e o preflight
-# geral abaixo (#1955) já confere as quatro imagens em toda arquitetura.
-# Com DESKCOMM_BUILD_LOCAL o escape da #1955 vale aqui também: quem pediu
-# construção local não depende do registro, e recusá-la aqui a anularia
-# justamente com o registro fora.
-PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)" 2>/dev/null || true)"
-if [ "$PLATAFORMA_HOST" = linux/arm64 ] && ! build_local_pedido && ! preflight_plataforma_atualizacao "$TARGET_TAG" "$PLATAFORMA_HOST"; then
-  refuse "A versão $TARGET_TAG não está completa para $PLATAFORMA_HOST ou a WAHA configurada é incompatível. Não alterei banco, imagens nem código. Confira o registry e repita."
+# Uma atualização real exige OCI verificável para Linux AMD64, inclusive a
+# WAHA efetiva. ARM64 já foi recusado no source de _common.sh, antes do cron.
+# Falha de manifesto não autoriza build local, checkout nem alteração de DB.
+PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)")" \
+  || refuse "ELUS_DISTRIBUTION_NO_GO: somente Linux AMD64."
+if ! preflight_plataforma_atualizacao "$TARGET_TAG" "$PLATAFORMA_HOST"; then
+  refuse "ELUS_DISTRIBUTION_NO_GO: manifestos do ELUS360 ou WAHA incompatíveis com linux/amd64; banco, imagens e código preservados."
 fi
 if [ -n "$MESMA_TAG" ] && [ -n "$FORCE" ]; then
   # Com --force na mesma tag ninguém conferiu a imagem: quem chega aqui pediu
@@ -776,30 +802,11 @@ VOZ_CRIADA="$(completar_segredos_da_voz .env)" || VOZ_CRIADA=""
 # imagem dele não veio, o `up -d` logo abaixo FALHA e quem decide é o portão
 # `build_local_permitido` — construir aqui ou recusar, conforme o registro
 # responde ou não.
+# Uma falha depois do DDL não autoriza build no host: o trap recupera
+# o checkpoint de imagens anterior sem fingir reversão do schema.
 if ! dc pull; then
-  # A mensagem distingue os dois casos porque a CAUSA é diferente, e uma frase
-  # tranquilizadora sobre o caso errado é o pior desfecho possível. Se a do app
-  # veio, o que faltar em worker, scheduler ou voz o Compose constrói sozinho no
-  # `up -d` (medido: qualquer falha de pull, não só a de arquitetura). Se a do
-  # app NÃO veio, ele não tem `build:` no compose de produção de propósito: o
-  # `up -d` falha e quem decide é o portão `build_local_permitido` — com o
-  # registro respondendo ele constrói a versão aqui; sem resposta do registro ele
-  # RECUSA, de propósito (guarda da #1955). "Construído aqui" sem essa ressalva
-  # prometeria justamente o que o portão nega no pior caso. Os dois diagnósticos
-  # também contam coisas distintas: "o app veio e falta outra peça" × "o app não
-  # veio", que aponta para a versão ainda não publicada (ou o pacote privado).
-  if dc pull app >/dev/null 2>&1; then
-    c_ylw "⚠ Não consegui puxar todas as imagens da versão ${VERSAO_ALVO}."
-    c_ylw "  A do app veio; o que faltar é construído aqui (mais lento, mesmo resultado)."
-  else
-    c_ylw "⚠ Não consegui puxar a imagem do APP na versão ${VERSAO_ALVO}."
-    c_ylw "  Causas comuns: a versão ainda está publicando, ou o pacote está privado no GHCR."
-    c_ylw "  Vou tentar subir mesmo assim — se o up -d falhar, quem decide o passo"
-    c_ylw "  seguinte é a recuperação: com o registro respondendo ela constrói as"
-    c_ylw "  imagens desta versão aqui (15 a 25 min); sem resposta do registro ela"
-    c_ylw "  recusa, de propósito, para não gastar a memória desta VPS."
-    c_ylw "  Se não subir, rode de novo em alguns minutos."
-  fi
+  c_red "ELUS_DISTRIBUTION_NO_GO: pull incompleto; não vou construir imagens na VPS."
+  exit 1
 fi
 # A rede do proxy externo é declarada como EXTERNA no compose: se ela sumiu
 # (um `docker network prune`, ou o `down -v` que o próprio kit ensina como
@@ -847,34 +854,8 @@ esac
 manutencao_desce
 CONSTRUIU_AQUI=""
 if ! subir_o_parque; then
-  # ── O PORTÃO DO BUILD LOCAL (#1955, critério 2) ─────────────────────────
-  # O gatilho continua sendo o CÓDIGO DE SAÍDA do `up -d` (nunca o texto do
-  # erro — arquitetura, tag publicando, pacote privado e registro fora caem no
-  # mesmo caminho), mas a CONSTRUÇÃO deixou de ser o que acontece SOZINHO
-  # quando quem falhou é o REGISTRO: foi o que transformou um apagão de DNS em
-  # OOM no `next-build` e a instalação em 502.
-  #
-  # Quem tem registro respondendo continua se recuperando sozinho — é a
-  # recuperação de arquitetura do #1060/#1143 e ela não pode sumir. Quem quer
-  # construir de propósito pede com DESKCOMM_BUILD_LOCAL=1.
-  if ! build_local_permitido "$VERSAO_ALVO"; then
-    c_red "✖ A atualização não terminou: o registro de imagens não responde, e a construção local está DESLIGADA por padrão."
-    c_ylw "  Sem resposta do registro (DNS/rede) a construção local gastaria a memória"
-    c_ylw "  desta VPS e deixaria os serviços parados — é exatamente o defeito da #1955."
-    c_ylw "  A versão anterior volta sozinha no fim desta saída; o diagnóstico fica em:"
-    c_ylw "    .deskcomm-update-diagnostico.log"
-    c_ylw "  Para construir as imagens aqui DE PROPÓSITO (mais lento, exige memória):"
-    c_ylw "    DESKCOMM_BUILD_LOCAL=1 bash hostgator-setup-kit/update.sh --to $TARGET_TAG --force"
-    exit 1
-  fi
-  if construir_aqui_e_subir "$VERSAO_ALVO"; then
-    CONSTRUIU_AQUI=1
-  else
-    c_red "✖ A atualização não terminou: nem as imagens prontas desta versão nem a construção aqui funcionaram."
-    c_ylw "  A versão anterior volta sozinha no fim desta saída. O erro está logo acima;"
-    c_ylw "  para reproduzir só a construção: docker compose $(dc_files) -f ${COMPOSE_BUILD} build"
-    exit 1
-  fi
+  c_red "ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build."
+  exit 1
 fi
 
 # O Caddyfile entra no container por bind mount de UM ARQUIVO, e bind mount de
