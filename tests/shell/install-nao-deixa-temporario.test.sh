@@ -184,6 +184,8 @@ ENV
   if [ "$RC" -ne 0 ]; then
     printf '  [fixture %s: rc=%s]\n' "$caso" "$RC"
     grep -E 'ELUS_DISTRIBUTION_NO_GO|^fatal:|^✖|^Erro:|^ERRO:' "$OUT" | tail -4 || true
+    # Não omitir erros de Bash sem prefixo, mas nunca imprimir credenciais.
+    grep -E 'unbound variable|command not found|No such file|^bash:|^git:' "$OUT" | tail -4 || true
   fi
 }
 sobras() { find "$TMPD" -mindepth 1 | sed "s#^$TMPD/#  sobra: #"; }

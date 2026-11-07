@@ -14,6 +14,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # escrita cai no repositório de quem roda. Zerar o ambiente local do git é o
 # idioma canônico do próprio git para isso.
 unset $(git rev-parse --local-env-vars)
+REAL_GIT="$(command -v git)"
+export REAL_GIT
 
 # O _common.sh vem antes porque é dele que saem `nome_do_projeto_compose`,
 # `veredito_rede_do_proxy` e `garantir_rede_do_proxy` — o install.sh e o update.sh
@@ -586,13 +588,32 @@ STUBDOCKER
   cat > "$TMP3/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
-  *releases/latest*) printf '%s' '{"tag_name":"v1.66.1"}' ;;
-  *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
+  *releases/latest*) printf '{\n "tag_name": "v1.102.0"\n}\n' ;;
+  *releases/tags/v1.102.0*) printf '{\n "tag_name": "v1.102.0",\n "draft": false,\n "prerelease": false,\n "published_at": "2026-11-07T00:00:00Z"\n}\n' ;;
+  *compare/main...v1.102.0*) printf '{\n "status": "behind"\n}\n' ;;
+  *ghcr.io/token*) printf '{"token":"teste"}' ;;
   *ghcr.io/v2/*) printf 200 ;;
   *) printf 200 ;;
 esac
 STUBCURL
   chmod +x "$TMP3/bin/curl"
+  # O remoto sintético representa SOMENTE esta instalação descartável.
+  "$REAL_GIT" -C "$TMP3/proj" init -q
+  "$REAL_GIT" -C "$TMP3/proj" add -A
+  "$REAL_GIT" -C "$TMP3/proj" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm fixture
+  "$REAL_GIT" -C "$TMP3/proj" tag v1.102.0
+  "$REAL_GIT" -C "$TMP3/proj" remote add origin https://github.com/OARANHA/elus360.git
+  cat > "$TMP3/bin/git" <<'STUBGIT'
+#!/usr/bin/env bash
+case "${1:-}" in
+  ls-remote) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1.102.0\n'; exit 0;;
+  rev-parse) case " $* " in *" refs/tags/v1.102.0"*) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'; exit 0;; esac;;
+  fetch) exit 0;;
+  checkout) [ "${2:-}" = --quiet ] && exit 0;;
+esac
+exec "$REAL_GIT" "$@"
+STUBGIT
+  chmod +x "$TMP3/bin/git"
   dublar_uname_amd64 "$TMP3/bin"
   cat > "$TMP3/supabase-provision.sh" <<'PROV'
 #!/usr/bin/env bash
@@ -607,7 +628,6 @@ PROV
 
   saida="$(cd "$TMP3/proj" && env PATH="$TMP3/bin:$PATH" MARCA="$MARCA" \
     SUPABASE_ACCESS_TOKEN=fake NEXT_PUBLIC_SUPABASE_URL= \
-    DESKCOMM_RELEASES_LATEST_URL=https://example.invalid/releases/latest \
     bash "$TMP3/install.sh" --yes 2>&1 || true)"
 
   # Sem esta checagem o teste passaria por VACUIDADE: se o install.sh morresse
@@ -1942,6 +1962,12 @@ montar_vps() {
   cp install.sh update.sh backup.sh _common.sh _manifestos.sh _i18n.sh marca-emails.sh manutencao.sh "$raiz/"
   cp -R manutencao "$raiz/"
   : > "$VPS_PROJ/docker-compose.prod.yml"
+  if [ ! -d "$VPS_PROJ/.git" ]; then
+    "$REAL_GIT" -C "$VPS_PROJ" init -q
+    "$REAL_GIT" -C "$VPS_PROJ" add -A
+    "$REAL_GIT" -C "$VPS_PROJ" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm "fixture ELUS360"
+    "$REAL_GIT" -C "$VPS_PROJ" remote add origin https://github.com/OARANHA/elus360.git
+  fi
   cat > "$raiz/bin/docker"
   # O corpo fornecido por cada cenário continua cuidando de compose/exec.
   # O wrapper só dublê o registry OCI que o preflight novo consulta.
@@ -1952,9 +1978,9 @@ if [ "${1:-}" = buildx ] && [ "${2:-}" = imagetools ] && [ "${3:-}" = inspect ];
   case " $* " in
     *' --raw '*)
       if [ -n "${DUBLE_MANIFEST:-}" ]; then printf '%s' "$DUBLE_MANIFEST"
-      else printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}},{"platform":{"os":"linux","architecture":"arm64"}}]}'
+      else printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}}]}'
       fi ;;
-    *) printf 'linux/amd64\nlinux/arm64\n' ;;
+    *) printf 'linux/amd64\n' ;;
   esac
   exit 0
 fi
@@ -1976,12 +2002,17 @@ STUBOCI
   cat > "$raiz/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
-  *releases/latest*) printf '{"tag_name":"%s"}' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
+  *api.github.com/repos/OARANHA/elus360/releases/latest*)
+    printf '{\n "tag_name": "%s"\n}\n' "${DUBLE_RELEASE_TAG:-v1.102.0}" ;;
+  *api.github.com/repos/OARANHA/elus360/releases/tags/*)
+    tag="${@: -1}"; tag="${tag##*/}"
+    printf '{\n "tag_name": "%s",\n "draft": false,\n "prerelease": false,\n "published_at": "2026-11-07T00:00:00Z"\n}\n' "$tag" ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...*)
+    printf '{\n "status": "behind"\n}\n' ;;
   *ghcr.io/token*) printf '{"token":"dublê"}' ;;
   *ghcr.io/v2/*)   printf '%s' "${DUBLE_GHCR:-200}" ;;
-  # O v_supabase_url exige o GoTrue: o JSON de /auth/v1/verify sem parâmetros.
   *auth/v1/verify*) printf '{"msg":"Verify requires a verification type"}\n400' ;;
-  *)               printf 200 ;;
+  *) printf 200 ;;
 esac
 STUBCURL
   # O install.sh e o update.sh vão até o fim, e no fim eles AGENDAM CRON. Sem
@@ -2019,7 +2050,25 @@ case "${1:-}" in
 esac
 exit 0
 STUB
-  chmod +x "$raiz/bin/docker" "$raiz/bin/curl" "$raiz/bin/crontab"
+  cat > "$raiz/bin/git" <<'STUBGIT'
+#!/usr/bin/env bash
+SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+case "${1:-}" in
+  ls-remote)
+    last="${@: -1}"
+    case "$last" in refs/tags/v*) printf '%s\t%s\n' "$SHA" "$last"; exit 0;; esac
+    ;;
+  rev-parse)
+    case " $* " in *" refs/tags/v"*|*" v"*"^{commit}"*) printf '%s\n' "$SHA"; exit 0;; esac
+    ;;
+  fetch) exit 0 ;;
+  checkout)
+    if [ "${2:-}" = "--quiet" ] && [[ "${3:-}" == v* ]]; then exit 0; fi
+    ;;
+esac
+exec "$REAL_GIT" "$@"
+STUBGIT
+  chmod +x "$raiz/bin/docker" "$raiz/bin/curl" "$raiz/bin/crontab" "$raiz/bin/git"
   dublar_uname_amd64 "$raiz/bin"
 }
 
@@ -2036,18 +2085,16 @@ STUB
 # partir de um .env de mentira. O cenário declara o próprio ambiente.
 rodar() {
   local script="$1" flags="$2"
-  local -a release_env=()
-  [ "$script" = install.sh ] && release_env=(DESKCOMM_RELEASES_LATEST_URL=https://api.github.com/repos/exemplo/releases/latest)
   printf '%s\n%s\n' "$BASE_ENV" "${3-}" > "$VPS_PROJ/.env"
   : > "$VPS_LOG"
   if [ $# -ge 4 ]; then
     printf '%s' "$4" > "$VPS_RAIZ/respostas.txt"
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
+      SUPABASE_ACCESS_TOKEN= \
       bash "$VPS_RAIZ/$script" $flags <"$VPS_RAIZ/respostas.txt" 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   else
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
+      SUPABASE_ACCESS_TOKEN= \
       bash "$VPS_RAIZ/$script" $flags 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   fi
 }
@@ -2369,12 +2416,11 @@ case "$1" in
 esac
 exit 0
 STUB
-  export REPO_URL="$origem"
   export DUBLE_RELEASE_TAG=v1.10.0
   rodar install.sh --yes >/dev/null
-  unset REPO_URL DUBLE_RELEASE_TAG
+  unset DUBLE_RELEASE_TAG
 
-  for par in "APP_IMAGE:deskcommcrm" "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
+  for par in "APP_IMAGE:elus360" "WORKER_IMAGE:elus360-worker" "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
     chave="${par%%:*}"; repo="${par##*:}"
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:1.10.0" ]; then
       printf '  ✗ %s não foi pinado na versão resolvida (1.10.0): %s\n' "$chave" \
@@ -2386,7 +2432,7 @@ STUB
   if [ "$(valor_no_env "$VPS_PROJ/.env" APP_PULL_POLICY)" = "always" ]; then
     printf '  ✗ tag imutável com pull_policy=always: o CRM só sobe se o GHCR estiver de pé\n'; exit 1
   fi
-  printf '  ✓ com v1.0.0/v1.9.0/v1.10.0 no remoto, o .env nasce pinado em 1.10.0 (as três imagens)\n'
+  printf '  ✓ com release ELUS360 v1.10.0 publicada no dublê, as quatro imagens são pinadas\n'
 ) || fail=1
 rm -rf "$TMP_PIN"
 
@@ -2426,23 +2472,21 @@ case "$1" in
 esac
 exit 0
 STUB
-  export REPO_URL="$origem"
   export DUBLE_GHCR=403          # pacote existe mas está PRIVADO
   saida="$(rodar install.sh --yes)"
-  unset DUBLE_GHCR REPO_URL
+  unset DUBLE_GHCR
 
-  if ! grep -q "construídas neste servidor" <<<"$saida"; then
-    printf '  ✗ com as imagens inalcançáveis, o instalador não avisou que ia construir aqui\n'
-    printf '     silêncio aqui é o defeito: o dono não descobre que duas peças saíram do fonte local.\n'
-    exit 1
+  # Política ELUS360: privado/403 recusa SEM gerar .env nem compilar na VPS.
+  if ! grep -q "ELUS_DISTRIBUTION_NO_GO" <<<"$saida"; then
+    printf '  ✗ pacote privado não foi recusado pelo instalador ELUS360\n'; exit 1
   fi
-  printf '  ✓ imagens inalcançáveis (403): avisa que vai construir no servidor, em vez de calar\n'
-
-  # E ainda assim a instalação COMPLETA — construir é lento, não é impedimento.
-  if ! grep -qE "^APP_IMAGE=" "$VPS_PROJ/.env"; then
-    printf '  ✗ a instalação não chegou a escrever o .env\n'; exit 1
+  if grep -qE "^APP_IMAGE=" "$VPS_PROJ/.env"; then
+    printf '  ✗ pacote privado alterou o pin do app apesar da recusa\n'; exit 1
   fi
-  printf '  ✓ e mesmo assim conclui a instalação (constrói é lento, não é impedimento)\n'
+  if grep -qE "(^| )build( |$)" "$VPS_LOG"; then
+    printf '  ✗ houve build local após 403 (proibido no ELUS360)\n'; exit 1
+  fi
+  printf '  ✓ imagens privadas 403 bloqueiam instalação antes de alterar pins ou construir\n'
 ) || fail=1
 rm -rf "$TMP_PRIV"
 

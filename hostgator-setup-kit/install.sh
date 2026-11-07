@@ -2454,10 +2454,6 @@ if ! dc up -d --no-build; then
   die "ELUS_DISTRIBUTION_NO_GO: falha ao subir imagens ELUS360 já publicadas (sem build local)."
 fi
 c_grn "$(t "✓ containers no ar")"
-if [ -n "$CONSTRUIU_AQUI" ]; then
-  c_ylw "$(t "  (as três imagens desta versão foram construídas aqui nesta VPS: as prontas")"
-  c_ylw "$(t "   não servem para a arquitetura dela. É mais lento e não precisa de nada manual.)")"
-fi
 
 # ── 10. Healthcheck ─────────────────────────────────────────────────────────
 step "$(t "Aguardando o app ficar saudável")"

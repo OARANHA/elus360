@@ -73,6 +73,13 @@ declare -F v_supabase_url >/dev/null
         self.assertNotIn("network was called", result.stderr)
         self.assertNotIn("git was called", result.stderr)
 
+    def test_install_has_no_legacy_local_build_branch(self):
+        """No caminho feliz, nenhuma variável legada indefinida derruba o install."""
+        source = INSTALLER.read_text()
+        self.assertNotIn("CONSTRUIU_AQUI", source)
+        self.assertIn("if ! dc pull; then", source)
+        self.assertIn("if ! dc up -d --no-build; then", source)
+
     def test_valid_synthetic_tag(self):
         self.assertEqual(call_gate().returncode, 0)
 

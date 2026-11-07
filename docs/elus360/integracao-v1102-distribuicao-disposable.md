@@ -41,3 +41,27 @@ continua fail-closed. **Não existe evidência nova de publicação GHCR ou rele
 permanecerá NO-GO até a execução integral dos gates sobre o próprio commit,
 seguida de ensaio real de instalação, atualização e recuperação com dados
 exclusivamente descartáveis. Sem merge/deploy/autorização operacional.
+
+## Segundo diagnóstico do CI e ajuste de integração (2026-11-07)
+
+No commit `8a6eb7fcf51930b04e8563e71b2d5c9dcc7c5b26`, 8 dos 10 workflows
+concluíram com sucesso; `ci` e `ELUS360 v1.102.0 - candidate verification`
+falharam na suíte Bash legada. Houve dois achados independentes:
+
+- **Defeito no instalador integrado:** após `dc up -d --no-build`, o código ainda
+  avaliava `CONSTRUIU_AQUI` (variável não inicializada) sob `set -u`. Esse
+  bloco vinha do fallback de build local do upstream, proibido pela ADR-0007.
+  O bloco foi removido. Um teste de regressão inspeciona sua ausência.
+- **Fixtures herdadas do upstream:** os testes da instalação e da atualização
+  montavam origens Git não canônicas, URLs alternativas de release, manifestos
+  OCI multiarch e esperavam construir no host quando o GHCR respondesse 403.
+  O harness foi adaptado com GitHub/GHCR/OCI sintéticos somente nos diretórios
+  descartáveis: `origin` oficial, release não draft, SHA de tag consistente,
+  imagens exclusivamente AMD64 e bloqueio antes de mutações quando houver 403.
+
+A regra de produção **não mudou**: sem release publicada no fork e imagens
+comprovadas o instalador/atualizador falham fechados. Os dublês não existem
+na instalação de clientes. **CI do novo HEAD ainda não verificado**; não atribuir
+GREEN nem equivaler testes simulados a instalação real.
+
+**NO-GO** permanece para merge, publicação, release e deploy até aceite.
