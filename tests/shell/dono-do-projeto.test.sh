@@ -106,8 +106,10 @@ printf '\n▶ os call sites (guardar a função não basta se ninguém a chama)\
 
 check "agent.sh chama o guarda e desiste" \
   grep -qE '^recusar_projeto_de_outra_arvore .*\|\| exit 0' "$KIT_DIR/agent.sh"
-check "update.sh chama o guarda e morre" \
-  grep -qE '^recusar_projeto_de_outra_arvore .*\|\| die ' "$KIT_DIR/update.sh"
+# A recusa operacional do atualizador tem RC=3 (refuse), distinto de erro (die=1).
+# Trocar refuse por die apenas para satisfazer este grep quebraria o contrato.
+check "update.sh chama o guarda e recusa (RC=3)" \
+  grep -qE '^recusar_projeto_de_outra_arvore .*\|\| refuse ' "$KIT_DIR/update.sh"
 # O TERCEIRO call site, e o que faltava: quem INSTALA.
 #
 # O `install.sh` tem um painel próprio para cópia irmã, mas ele vive dentro de
@@ -141,6 +143,113 @@ linha_guarda="$(grep -n '^recusar_projeto_de_outra_arvore' "$KIT_DIR/agent.sh" |
 linha_post="$(grep -n '^RESP="\$(post ' "$KIT_DIR/agent.sh" | cut -d: -f1)"
 check "no agent.sh o guarda vem ANTES de anunciar a versão" \
   test -n "$linha_guarda" -a -n "$linha_post" -a "${linha_guarda:-9999}" -lt "${linha_post:-0}"
+
+
+# ── Contrato ponta a ponta: duas árvores Git e update.sh REAL ───────────────
+# Ao contrário da asserção do call site acima, este cenário executa update.sh,
+# _common.sh, _i18n.sh, _manifestos.sh e manutencao.sh reais. Só GitHub API,
+# ls-remote e Docker são dublados. Não há rede, banco ou contêiner real.
+# A release sintética é aceita PRIMEIRO: se falhasse na procedência em vez de
+# chegar ao guarda de propriedade, RC=3 sozinho seria falso positivo.
+printf '\n▶ atualização da árvore rival: RC=3 e nenhum efeito colateral\n'
+LAB="$WORK/laboratorio-atualizador"
+mkdir -p "$LAB/bin" "$LAB/kit"
+cp "$KIT_DIR/update.sh" "$KIT_DIR/_common.sh" "$KIT_DIR/_i18n.sh" \
+   "$KIT_DIR/_manifestos.sh" "$KIT_DIR/manutencao.sh" "$LAB/kit/"
+REAL_GIT="$(command -v git)"
+for raiz in "$PROD" "$TESTE"; do
+  "$REAL_GIT" -C "$raiz" init -q
+  "$REAL_GIT" -C "$raiz" remote add origin https://github.com/OARANHA/elus360.git
+done
+
+cat > "$PROD/.env" <<'ENV'
+APP_IMAGE="ghcr.io/oaranha/elus360:1.101.0"
+ENV
+cat > "$TESTE/.env" <<'ENV'
+APP_IMAGE="ghcr.io/oaranha/elus360:1.100.0"
+WORKER_IMAGE="ghcr.io/oaranha/elus360-worker:1.100.0"
+SCHEDULER_IMAGE="ghcr.io/oaranha/elus360-scheduler:1.100.0"
+VOICE_AGENT_IMAGE="ghcr.io/oaranha/elus360-voice-agent:1.100.0"
+ENV
+cp "$PROD/.env" "$LAB/prod.env.antes"
+cp "$TESTE/.env" "$LAB/teste.env.antes"
+: > "$LAB/efeitos.log"
+: > "$LAB/consultas-docker.log"
+
+cat > "$LAB/bin/git" <<'DUBLE_GIT'
+#!/usr/bin/env bash
+case "$1" in
+  config) exec "$REAL_GIT" "$@" ;;
+  ls-remote)
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1.102.0\n'
+    exit 0 ;;
+  *) printf 'git MUTANTE: %s\n' "$*" >> "$EFEITOS_LOG"; exit 97 ;;
+esac
+DUBLE_GIT
+cat > "$LAB/bin/curl" <<'DUBLE_CURL'
+#!/usr/bin/env bash
+case "$*" in
+  *https://api.github.com/repos/OARANHA/elus360/releases/tags/v1.102.0*)
+    printf '{\n "tag_name": "v1.102.0",\n "draft": false,\n "prerelease": false,\n "published_at": "2026-11-07T00:00:00Z"\n}\n' ;;
+  *https://api.github.com/repos/OARANHA/elus360/compare/main...v1.102.0*)
+    printf '{\n "status": "behind"\n}\n' ;;
+  *) printf 'curl inesperado: %s\n' "$*" >> "$EFEITOS_LOG"; exit 97 ;;
+esac
+DUBLE_CURL
+cat > "$LAB/bin/docker" <<'DUBLE_DOCKER'
+#!/usr/bin/env bash
+if [ "$1" = ps ]; then
+  printf '%s\n' "$*" >> "$CONSULTAS_DOCKER"
+  exec "$DOCKER_DE_LEITURA" "$@"
+fi
+printf 'docker MUTANTE: %s\n' "$*" >> "$EFEITOS_LOG"
+exit 97
+DUBLE_DOCKER
+for cmd in crontab psql pg_dump pg_restore; do
+  cat > "$LAB/bin/$cmd" <<'DUBLE_MUTACAO'
+#!/usr/bin/env bash
+printf '%s MUTANTE: %s\n' "$(basename "$0")" "$*" >> "$EFEITOS_LOG"
+exit 97
+DUBLE_MUTACAO
+done
+chmod +x "$LAB/bin/"*
+
+# O --to evita depender de /releases/latest; a release pedida AINDA passa
+# por verificação oficial simulada (tag remota, publicação, main).
+# Nenhum flag de override de guarda é fornecido.
+(
+  cd "$TESTE" || exit 90
+  env PATH="$LAB/bin:$PATH" DONOS="$PROD" \
+    REAL_GIT="$REAL_GIT" DOCKER_DE_LEITURA="$WORK/bin/docker" \
+    CONSULTAS_DOCKER="$LAB/consultas-docker.log" EFEITOS_LOG="$LAB/efeitos.log" \
+    bash "$LAB/kit/update.sh" --to v1.102.0
+) > "$LAB/resultado.txt" 2>&1
+RC_ATUALIZADOR=$?
+
+check "update.sh da árvore rival devolve RC=3, não RC=1" \
+  test "$RC_ATUALIZADOR" -eq 3
+check "recusa é explicitamente pela árvore alheia" \
+  grep -qF 'Atualização interrompida para não quebrar a instalação que está no ar' "$LAB/resultado.txt"
+check "diagnóstico identifica a árvore proprietária" \
+  grep -qF "$PROD" "$LAB/resultado.txt"
+check "o guarda consultou os labels reais simulados do Docker" \
+  grep -q -- 'ps -a' "$LAB/consultas-docker.log"
+check "o .env da árvore rival está byte a byte intacto" \
+  cmp -s "$LAB/teste.env.antes" "$TESTE/.env"
+check "o .env da árvore dona está byte a byte intacto" \
+  cmp -s "$LAB/prod.env.antes" "$PROD/.env"
+check "nenhum git fetch/checkout, Docker mutante, crontab, psql ou backup" \
+  test ! -s "$LAB/efeitos.log"
+check "não surgiram diagnóstico, cron, backup nem pins no projeto rival" \
+  test -z "$(find "$TESTE" -maxdepth 1 -name '.deskcomm-*' -print -quit)"
+
+# Controle de ordem: consultar a propriedade deve acontecer antes de Git fetch
+# (que já poderia mudar o checkout) e antes de qualquer .env/cron/banco.
+linha_guarda_update="$(grep -n '^recusar_projeto_de_outra_arvore' "$KIT_DIR/update.sh" | cut -d: -f1 | head -1)"
+linha_fetch_update="$(grep -n '^git fetch --tags' "$KIT_DIR/update.sh" | cut -d: -f1 | head -1)"
+check "no update.sh o guarda precede o primeiro fetch mutante" \
+  test -n "$linha_guarda_update" -a -n "$linha_fetch_update" \
+       -a "$linha_guarda_update" -lt "$linha_fetch_update"
 
 printf '\n'
 if [ "$FAILS" -gt 0 ]; then printf '✗ %d falha(s)\n' "$FAILS"; exit 1; fi
