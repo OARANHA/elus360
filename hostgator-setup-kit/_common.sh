@@ -2458,6 +2458,18 @@ IMG_SCHEDULER="${IMG_NS}/elus360-scheduler"
 # imagem NOSSA e segue a mesma versão das outras três (gravar_imagens).
 IMG_VOICE_AGENT="${IMG_NS}/elus360-voice-agent"
 
+# A origem das atualizações da distribuição ELUS360 é FIXA: nunca usar tags
+# do DeskcommCRM ou de outra instalação via um remote trocado.
+# Política de publicação ainda exige gate independente e revisão gerencial.
+elus360_origem_confiavel() {
+  case "${1:-}" in
+    https://github.com/OARANHA/elus360|https://github.com/OARANHA/elus360.git|git@github.com:OARANHA/elus360.git)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+
 # A última versão publicada (ex.: "1.2.1"), ou vazio se não deu para saber.
 #
 # Consulta o REMOTO, não o clone: o install.sh clona com `--depth 1`, que não
