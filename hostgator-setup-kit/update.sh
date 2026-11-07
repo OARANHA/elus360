@@ -123,7 +123,7 @@ subir_para_ler_o_par() {
   # `never`: recriar para ler o .env, nunca trocar de imagem. Com tag de canal
   # (`always`) o compose baixaria o topo do canal antes de recriar — app novo sem
   # o baseline, logo antes de uma recusa que diz que nada mudou.
-  if ( export APP_PULL_POLICY=never WORKER_PULL_POLICY=never; dc up -d --no-deps app worker ) >/dev/null 2>&1; then
+  if ( export APP_PULL_POLICY=never WORKER_PULL_POLICY=never; dc up -d --no-build --no-deps app worker ) >/dev/null 2>&1; then
     PAR_LIGADO_AGORA=1
     c_grn "$(t "✓ app e worker reiniciados para ligar os avisos com o app fechado")"
   else
