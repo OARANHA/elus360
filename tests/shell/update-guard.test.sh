@@ -208,9 +208,16 @@ cp -R "$REPO_ROOT/hostgator-setup-kit/manutencao" "$PROJ/hostgator-setup-kit/"
 # new origin/GitHub-release gate is tested separately by test_shell_release_gate.py
 # against the REAL _common.sh. No override is installed in the product.
 cat >> "$PROJ/hostgator-setup-kit/_common.sh" <<'OFFLINE_GATE'
+# Só neste harness: origin é uma árvore Git local descartável, e
+# "release publicada" é o conjunto de refs numéricas desse remote. O
+# verificador de procedência real continua coberto pelos 62 testes Python.
 elus360_origem_confiavel() { return 0; }
 elus360_release_publicada_no_main() { return 0; }
 elus360_release_tag_comprovada() { return 0; }
+ultima_release_estavel() {
+  git ls-remote --tags --refs origin 'refs/tags/v[0-9]*' 2>/dev/null \
+    | sed -n 's#.*refs/tags/##p' | sort -V | tail -1
+}
 OFFLINE_GATE
 
 # backup.sh de mentira: deixa um rastro. É o marco "o script já começou a
