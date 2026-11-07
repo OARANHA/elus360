@@ -162,15 +162,12 @@ for raiz in "$PROD" "$TESTE"; do
   "$REAL_GIT" -C "$raiz" remote add origin https://github.com/OARANHA/elus360.git
 done
 
-cat > "$PROD/.env" <<'ENV'
-APP_IMAGE="ghcr.io/oaranha/elus360:1.101.0"
-ENV
-cat > "$TESTE/.env" <<'ENV'
-APP_IMAGE="ghcr.io/oaranha/elus360:1.100.0"
-WORKER_IMAGE="ghcr.io/oaranha/elus360-worker:1.100.0"
-SCHEDULER_IMAGE="ghcr.io/oaranha/elus360-scheduler:1.100.0"
-VOICE_AGENT_IMAGE="ghcr.io/oaranha/elus360-voice-agent:1.100.0"
-ENV
+# IMG_NS vem da única fonte oficial, não de um literal repetido.
+IMG_NS="$(sed -n 's/^IMG_NS="\([^"]*\)".*/\1/p' "$KIT_DIR/_common.sh" | head -1)"
+[ -n "$IMG_NS" ] || { echo "fixture: IMG_NS ausente" >&2; exit 1; }
+printf 'APP_IMAGE="%s/elus360:1.101.0"\n' "$IMG_NS" > "$PROD/.env"
+printf 'APP_IMAGE="%s/elus360:1.100.0"\nWORKER_IMAGE="%s/elus360-worker:1.100.0"\nSCHEDULER_IMAGE="%s/elus360-scheduler:1.100.0"\nVOICE_AGENT_IMAGE="%s/elus360-voice-agent:1.100.0"\n' \
+  "$IMG_NS" "$IMG_NS" "$IMG_NS" "$IMG_NS" > "$TESTE/.env"
 cp "$PROD/.env" "$LAB/prod.env.antes"
 cp "$TESTE/.env" "$LAB/teste.env.antes"
 : > "$LAB/efeitos.log"

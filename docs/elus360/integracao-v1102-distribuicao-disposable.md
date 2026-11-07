@@ -86,3 +86,24 @@ No HEAD `68d30bd64af0ed3cca03e2c3bbed9d0aa79110b9`, o CI concluiu com
 
 Somente o harness de teste foi alterado neste ajuste. **CI do novo SHA ainda
 não verificado; merge, release e deploy continuam NO-GO.**
+
+## Correção de fixtures após CI do SHA 684d9a4 (2026-11-07)
+
+No commit `684d9a4894dec0661aafa25909d8686dc51721c6`, 8/10 workflows
+terminaram com sucesso; o job de cercas registrou 1/3730 falha no contrato de
+namespace GHCR e o shell do candidato registrou 16 falhas nos cenários da
+senha do cron. A suite de segurança do atualizador contra árvores rivais passou.
+
+- `dono-do-projeto.test.sh`: deixou de repetir `ghcr.io/oaranha` em
+  `.env` sintéticos; agora deriva `IMG_NS` da única declaração em `_common.sh`.
+  A recusa RC=3, o isolamento das duas árvores e as provas de ausência
+  de alterações permanecem.
+- `senha-do-cron-vazada.test.sh`: o dublê de `uname` responde `Linux` a `-s`
+  e `x86_64` a `-m`. Antes devolvia `x86_64` também ao perguntar o sistema;
+  o gate de arquitetura legítimo recusava os wrappers de install/update antes
+  de alcançar a função sob teste. O comportamento de produção não foi alterado.
+
+Estado no momento do patch: implementado em branch candidata, testes de CI
+do novo SHA ainda não comprovados. Homologação de instalação, atualização e
+rollback com dados e infraestrutura descartáveis continua obrigatória após
+CI GREEN. NO-GO para merge, GHCR release, stable, staging, deploy e produção.
