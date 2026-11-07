@@ -103,5 +103,37 @@ class ReleaseGateShell(unittest.TestCase):
         self.assertNotIn('VERSAO_ALVO="latest"', source)
         self.assertIn("ELUS_DISTRIBUTION_NO_GO", source)
 
+    def test_no_host_build_in_install_or_update(self):
+        install = INSTALLER.read_text()
+        update = UPDATER.read_text()
+        common = COMMON.read_text()
+        self.assertIn("if ! dc up -d --no-build; then", install)
+        self.assertIn("if ! dc pull; then", install)
+        self.assertIn("if ! subir_o_parque; then", update)
+        self.assertIn("ELUS_DISTRIBUTION_NO_GO: pull incompleto", update)
+        self.assertIn('dc up -d --no-build', common)
+        self.assertIn('return 1\n}', common[common.index('build_local_permitido()'):][:140])
+        self.assertIn("construir_aqui_e_subir()", common)
+        self.assertIn("imagens só podem vir do CI", common)
+
+    def test_four_own_image_defaults_in_compose_and_env(self):
+        compose = (ROOT / "docker-compose.prod.yml").read_text()
+        env = (ROOT / ".env.hostgator.example").read_text()
+        for key, name in (("APP", "elus360"), ("WORKER", "elus360-worker"),
+                          ("SCHEDULER", "elus360-scheduler"),
+                          ("VOICE_AGENT", "elus360-voice-agent")):
+            self.assertIn(f"ghcr.io/oaranha/{name}:stable", compose)
+            self.assertIn(f"{key}_IMAGE=ghcr.io/oaranha/{name}:stable", env)
+
+    def test_no_publication_permissions_in_smoke_workflow(self):
+        smoke = (ROOT / ".github/workflows/build-elus360.yml").read_text()
+        self.assertIn("push: false", smoke)
+        self.assertIn("pull_request:", smoke)
+        self.assertIn("permissions:\n  contents: read", smoke)
+        self.assertNotIn("packages: write", smoke)
+        self.assertNotIn("docker/login-action", smoke)
+        self.assertNotIn("promover-stable:", smoke)
+
+
 if __name__ == "__main__":
     unittest.main()
