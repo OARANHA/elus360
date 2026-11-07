@@ -357,13 +357,56 @@ while [ $# -gt 0 ]; do [ "$1" = --project-dir ] && d="$2"; shift; done
 mkdir -p "$d"
 printf 'ANON_KEY=a\nSERVICE_ROLE_KEY=s\nPOSTGRES_PASSWORD=p\nAPI_GW_HTTP_PORT=8000\nDISABLE_SIGNUP=false\n' > "$d/.env"
 DUBLO
+# Reutiliza a mesma fixture de onze imagens pinadas da prova de OCI. O mock
+# entrega Compose para o pré-voo e setup.sh para a geração de credenciais:
+# antes esta única rota devolvia shell script até quando pediam Compose.
+cp "$ROOT_DIR/tests/fixtures/supabase-self-hosted-v0.8.1-compose.yml" "$WORK/compose-preflight.yml"
 cat > "$WORK/bin-setup/curl" <<DUBLO
 #!/usr/bin/env bash
-while [ \$# -gt 0 ]; do [ "\$1" = -o ] && cp "$WORK/setup-falso.sh" "\$2"; shift; done
+case "\$*" in
+  *"/docker/docker-compose.yml"*) source_file="$WORK/compose-preflight.yml" ;;
+  *"/docker/setup.sh"*) source_file="$WORK/setup-falso.sh" ;;
+  *) echo 'mock curl: caminho inesperado' >&2; exit 91 ;;
+esac
+while [ "\$#" -gt 0 ]; do
+  if [ "\$1" = -o ]; then
+    [ "\$#" -ge 2 ] || exit 92
+    cp "\$source_file" "\$2"
+    exit \$?
+  fi
+  shift
+done
+exit 93
+DUBLO
+# Configuração de Compose e OCI são SOMENTE leituras sobre o YAML baixado,
+# sem contato com Docker real. O JSON vem das 11 imagens da MESMA fixture;
+# se o curl entregar um script/Compose errado, a verificação falha.
+cat > "$WORK/bin-setup/docker" <<DUBLO
+#!/usr/bin/env bash
+case "\$*" in
+  *" config --format json"*)
+    config_file=''
+    previous=''
+    for part in "\$@"; do
+      if [ "\$previous" = -f ]; then config_file="\$part"; break; fi
+      previous="\$part"
+    done
+    [ -n "\$config_file" ] && cmp -s "\$config_file" "$WORK/compose-preflight.yml" || exit 94
+    awk '\$1 == "image:" && NF == 2 {print \$2}' "\$config_file" |
+      jq -Rsc 'split("\\n") | map(select(length > 0)) | to_entries | map({key: ("service" + (.key|tostring)), value: {image: .value}}) | {services: from_entries}'
+    ;;
+  *"buildx imagetools inspect --raw "*)
+    printf '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}}]}\n'
+    ;;
+  *"buildx imagetools inspect --format "*)
+    printf 'linux/amd64\n'
+    ;;
+  *) exec "$WORK/bin/docker" "\$@" ;;
+esac
 DUBLO
 sha_fixo="$(sed -n 's/^readonly SUPABASE_SETUP_SHA256="\(.*\)"$/\1/p' "$KIT/install-single-server.sh")"
 printf '#!/usr/bin/env bash\necho "%s  -"\n' "$sha_fixo" > "$WORK/bin-setup/sha256sum"
-chmod +x "$WORK/bin-setup/curl" "$WORK/bin-setup/sha256sum"
+chmod +x "$WORK/bin-setup/curl" "$WORK/bin-setup/docker" "$WORK/bin-setup/sha256sum"
 
 SETUP="$WORK/setup";  montar_arvore "$SETUP"; rm -f "$SETUP/.runtime/supabase/.env"
 LOG_SETUP="$SETUP/.runtime/supabase-setup.log"

@@ -4,31 +4,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
-cat > "$TMP/compose.yml" <<'YAML'
-services:
-  studio:
-    image: supabase/studio:2026.09.07-sha-7996410
-  api-gw:
-    image: envoyproxy/envoy:v1.39.1
-  auth:
-    image: supabase/gotrue:v2.196.0
-  rest:
-    image: postgrest/postgrest:v14.17
-  realtime:
-    image: supabase/realtime:v2.134.10
-  storage:
-    image: supabase/storage-api:v1.74.0
-  imgproxy:
-    image: darthsim/imgproxy:v3.31.4
-  meta:
-    image: supabase/postgres-meta:v0.99.0
-  functions:
-    image: supabase/edge-runtime:v1.76.2
-  db:
-    image: supabase/postgres:17.6.1.136
-  supavisor:
-    image: supabase/supavisor:2.9.12
-YAML
+# Única fixture canônica compartilhada com o teste de setup.sh/single-server.
+cp "$ROOT/tests/fixtures/supabase-self-hosted-v0.8.1-compose.yml" "$TMP/compose.yml"
 cp "$TMP/compose.yml" "$TMP/compose-oficial.yml"
 cat > "$TMP/bin/curl" <<'STUB'
 #!/usr/bin/env bash
