@@ -32,6 +32,14 @@ ELUS_RELEASE_PREVALIDADA="$(elus360_ultima_release_do_fork)" \
   || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: nenhuma release ELUS360 publicada verificável' >&2; exit 3; }
 elus360_release_publicada_no_main "$ELUS_RELEASE_PREVALIDADA" "$REPO_URL" \
   || { printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: release do fork inválida, não publicada ou fora de main' >&2; exit 3; }
+# Conferir os QUATRO pacotes via API GHCR em modo somente leitura, antes
+# da primeira operação que cria arquivo, instala dependência ou altera serviço.
+# Um manifesto 404/403, token ausente ou falha de rede recusa a instalação.
+ELUS_RELEASE_NUMERICA="${ELUS_RELEASE_PREVALIDADA#v}"
+if ! trio_publicado "$ELUS_RELEASE_NUMERICA"; then
+  printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: pacote ELUS360 inexistente, privado ou inacessível; nenhuma instalação iniciada.' >&2
+  exit 3
+fi
 
 # Uma constante, dois usos (o fim feliz e o fim travado) — e o comecar.sh tem a
 # gêmea. Link repetido à mão vira link divergente na primeira troca.
