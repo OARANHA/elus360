@@ -38,6 +38,17 @@ case "$*" in
   *"/compare/main..."*)
     printf '{\n "status": "%s"\n}\n' "$ELUS_COMPARE"
     ;;
+  *"/token?scope=repository:"*)
+    [ "$ELUS_MODE" != "no_ghcr_token" ] || exit 22
+    printf '{"token":"test-only-disposable"}\n'
+    ;;
+  *"/v2/oaranha/"*"/manifests/"*)
+    if [ -n "${ELUS_MISSING_IMAGE:-}" ] && [[ "$*" == *"/v2/oaranha/${ELUS_MISSING_IMAGE}/manifests/"* ]]; then
+      printf '%s' "${ELUS_MISSING_HTTP_CODE:-404}"
+    else
+      printf '200'
+    fi
+    ;;
   *) exit 13 ;;
 esac
 '''
@@ -172,6 +183,24 @@ class DisposableEntrypoints(unittest.TestCase):
     def test_installer_tag_object_missing_has_no_side_effect(self):
         result = self.run_script(INSTALL, "--yes", ELUS_REMOTE_SHA="")
         self.assert_no_mutation_before_proof(result)
+    def test_installer_missing_worker_image_has_no_side_effect(self):
+        result = self.run_script(INSTALL, "--yes", ELUS_MISSING_IMAGE="elus360-worker")
+        self.assert_no_mutation_before_proof(result)
+        self.assertIn("/v2/oaranha/elus360-worker/manifests/1.102.0", self.calls.read_text())
+
+    def test_installer_private_voice_image_has_no_side_effect(self):
+        result = self.run_script(INSTALL, "--yes", ELUS_MISSING_IMAGE="elus360-voice-agent",
+                                 ELUS_MISSING_HTTP_CODE="403")
+        self.assert_no_mutation_before_proof(result)
+
+    def test_installer_no_registry_token_has_no_side_effect(self):
+        result = self.run_script(INSTALL, "--yes", ELUS_MODE="no_ghcr_token")
+        self.assert_no_mutation_before_proof(result)
+
+    def test_installer_missing_scheduler_image_has_no_side_effect(self):
+        result = self.run_script(INSTALL, "--yes", ELUS_MISSING_IMAGE="elus360-scheduler")
+        self.assert_no_mutation_before_proof(result)
+
 
 
 if __name__ == "__main__":
