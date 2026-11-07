@@ -2238,7 +2238,8 @@ STUB
   # sobrevive aos dois caminhos, com rede e sem.
   img_app="$(valor_no_env "$VPS_PROJ/.env" APP_IMAGE)"
   tag_app="${img_app##*:}"
-  for par in "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
+  for par in "APP_IMAGE:elus360" "WORKER_IMAGE:elus360-worker" \
+             "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
     chave="${par%%:*}"; repo="${par##*:}"
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:${tag_app}" ]; then
       printf '  ✗ %s não acompanha a versão do app (%s): %s\n' "$chave" "$tag_app" \
@@ -2246,17 +2247,15 @@ STUB
       printf '     app numa versão e worker em outra é a matriz que ninguém testou.\n'; exit 1
     fi
   done
-  case "$tag_app" in
-    latest|main|stable) esperado="always" ;;
-    *)                  esperado="missing" ;;
-  esac
-  for chave in APP_PULL_POLICY WORKER_PULL_POLICY SCHEDULER_PULL_POLICY; do
+  [[ "$tag_app" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { printf '  ✗ APP_IMAGE fora de release numérica ELUS360: %s\n' "$img_app"; exit 1; }
+  esperado="missing"
+  for chave in APP_PULL_POLICY WORKER_PULL_POLICY SCHEDULER_PULL_POLICY VOICE_AGENT_PULL_POLICY; do
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "$esperado" ]; then
       printf '  ✗ %s devia ser %s para a tag %s: %s\n' "$chave" "$esperado" "$tag_app" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"; exit 1
     fi
   done
-  printf '  ✓ as três imagens saem na MESMA referência (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
+  printf '  ✓ as quatro imagens ELUS360 usam a MESMA release (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
 
   # O .env VENCE o compose — e é por isso que este bloco existe. O compose já
   # pinava o WAHA, e o install gravava `WAHA_IMAGE=devlikeapro/waha` (sem tag,
@@ -3631,7 +3630,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'")"
 
   # Vacuidade: se o update.sh parou antes (git, tag, dublê incompleto), a
   # ausência do erro do compose não prova nada.
-  n_up="$(grep -n -E '^compose .* up -d$' "$VPS_LOG" | head -1 | cut -d: -f1)"
+  n_up="$(grep -n -E '^compose .* up -d --no-build$' "$VPS_LOG" | head -1 | cut -d: -f1)"
   if [ -z "$n_up" ]; then
     printf '  ✗ o update.sh não chegou ao "up -d" — teste inconclusivo, não verde\n'
     printf '     última linha da saída: %s\n' "$(printf '%s' "$saida" | tail -1)"; exit 1
@@ -3674,7 +3673,7 @@ PROXY_NETWORK_NAME='proxy_network'
 INTERNAL_SECRET='segredo-de-teste'
 NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'")"
 
-  if grep -q -E '^compose .* up -d$' "$VPS_LOG"; then
+  if grep -q -E '^compose .* up -d --no-build$' "$VPS_LOG"; then
     printf '  ✗ o update.sh subiu a stack mesmo com a rede do NPM ausente\n'; exit 1
   fi
   if ! grep -q 'PROXY_NETWORK_NAME' <<<"$saida"; then
@@ -3771,7 +3770,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
     n_val="$(grep -n 'caddy validate' "$VPS_LOG" | head -1 | cut -d: -f1)"
     # `up -d --no-deps app worker` é a subida do par VAPID recém-criado, antes da
     # decisão de versão: nomeia os dois serviços e não alcança o Caddy.
-    n_up="$(grep -nE '^compose .* up -d( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | grep -v -- '--no-deps app worker$' | head -1 | cut -d: -f1)"
+    n_up="$(grep -nE '^compose .* up -d --no-build( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | grep -v -- '--no-deps app worker$' | head -1 | cut -d: -f1)"
     falhou=""
     [ -n "$n_val" ] && [ -n "$n_up" ] && [ "$n_val" -lt "$n_up" ] \
       || { printf '    a conferência não veio antes do primeiro up -d (validate=%s up=%s)\n' "$n_val" "$n_up"; falhou=1; }
@@ -3780,7 +3779,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
     if [ "$esperado" = bom ]; then
       grep -qF -- '--force-recreate --no-deps caddy' "$VPS_LOG" \
         || { printf '    com a configuração aceita o Caddy não foi recriado\n'; falhou=1; }
-      grep -qE '^compose .* up -d$' "$VPS_LOG" \
+      grep -qE '^compose .* up -d --no-build$' "$VPS_LOG" \
         || { printf '    o up -d do parque não foi o de sempre (sem lista de serviços)\n'; falhou=1; }
       grep -q '✓ proxy recarregado' <<<"$saida" \
         || { printf '    a saída não confirma o proxy recarregado\n'; falhou=1; }
@@ -3789,7 +3788,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
         || { printf '    o Caddy foi recriado com a configuração recusada\n'; falhou=1; }
       ! grep -E '^compose .* up -d' "$VPS_LOG" | grep -qw caddy \
         || { printf '    um up -d do parque alcançou o caddy\n'; falhou=1; }
-      grep -qE '^compose .* up -d app worker scheduler waha$' "$VPS_LOG" \
+      grep -qE '^compose .* up -d --no-build app worker scheduler waha$' "$VPS_LOG" \
         || { printf '    o up -d do parque não subiu os outros serviços\n'; falhou=1; }
       grep -q 'caddy-sites/' <<<"$saida" && grep -q 'unrecognized directive' <<<"$saida" \
         && grep -q 'proxy anterior segue no ar' <<<"$saida" \

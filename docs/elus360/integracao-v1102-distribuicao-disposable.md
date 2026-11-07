@@ -65,3 +65,24 @@ na instalação de clientes. **CI do novo HEAD ainda não verificado**; não atr
 GREEN nem equivaler testes simulados a instalação real.
 
 **NO-GO** permanece para merge, publicação, release e deploy até aceite.
+
+## Terceiro ajuste — contrato dos testes shell (2026-11-07)
+
+No HEAD `68d30bd64af0ed3cca03e2c3bbed9d0aa79110b9`, o CI concluiu com
+8/10 workflows aprovados. As duas falhas de workflows têm a mesma origem:
+`hostgator-setup-kit/test-validators.sh`, na etapa de integração Bash.
+
+- O teste de pinagem ainda procurava os nomes `deskcomm-worker` e
+  `deskcomm-scheduler`, apesar de o instalador gravar os nomes do fork.
+  A asserção agora exige **quatro referências da mesma release numérica**:
+  app, worker, scheduler e voice-agent, e quatro `pull_policy=missing`.
+  Tags móveis como `latest` e `stable` deixam de ser aceitas nesse cenário.
+- Três expectativas exigiam `docker compose up -d` sem flags, e a validação
+  de Caddy recusado exigia lista de serviços sem `--no-build`. A execução
+  real de `subir_o_parque` usa `up -d --no-build`, tanto no modo normal
+  quanto no modo que preserva o proxy. Os testes agora conferem essa forma,
+  mantendo os controles de **ordem: recriar rede antes de subir, validar
+  Caddy antes de recriar, e nunca subir Caddy recusado**.
+
+Somente o harness de teste foi alterado neste ajuste. **CI do novo SHA ainda
+não verificado; merge, release e deploy continuam NO-GO.**
