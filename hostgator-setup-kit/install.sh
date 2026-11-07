@@ -16,6 +16,13 @@ set -euo pipefail
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 REPO_URL="${REPO_URL:-https://github.com/OARANHA/elus360.git}"
+# ELUS360 nunca clona automaticamente um repositório externo: mesmo um REPO_URL
+# injetado no ambiente deve ser validado antes de qualquer instalação.
+case "$REPO_URL" in
+  https://github.com/OARANHA/elus360|https://github.com/OARANHA/elus360.git|git@github.com:OARANHA/elus360.git) ;;
+  *) printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: repositório de origem não autorizado' >&2; exit 3 ;;
+esac
+
 # Uma constante, dois usos (o fim feliz e o fim travado) — e o comecar.sh tem a
 # gêmea. Link repetido à mão vira link divergente na primeira troca.
 COMUNIDADE_URL="https://lp-comunidade.automatiklabs.com.br"
