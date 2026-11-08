@@ -92,10 +92,9 @@ jobs:
             test -n "$raw"
             arch="$(docker buildx imagetools inspect --format '{{.Image.OS}}/{{.Image.Architecture}}' "$ref")"
             test "$arch" = linux/amd64 || { echo "::error::$ref plataforma $arch"; exit 1; }
-            digest="sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)"
-            test "$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref")" = "$digest" || {
-              echo "::error::Digest divergente: $ref"; exit 1;
-            }
+            # Digest do registry, nao hash do stdout do CLI (que pode alterar newline).
+            digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::Digest invalido: $ref"; exit 1; }
             printf '%s@%s\n' "$ref" "$digest" >> /tmp/elus360-images-digests.txt
           done
           test "$(wc -l < /tmp/elus360-images-digests.txt)" -eq 4
