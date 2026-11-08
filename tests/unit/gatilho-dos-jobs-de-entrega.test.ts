@@ -262,6 +262,14 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   // Jobs próprios do fork. Cada um precisa continuar no inventário para
   // detectar remoção, desativação silenciosa ou mudança de gatilho.
   // Nenhum publica releases nem mexe no Supabase de produção.
+  "elus360-release-manual.yml::publicar": {
+    condicao: "github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main' && inputs.authorization == 'PUBLICAR-ELUS360'",
+    efeito: "Publica apenas sob autorização manual no fork/main; alterar ou pular este gate impede a prova de release.",
+  },
+  "elus360-homologacao-descartavel.yml::integridade-e-restore": {
+    condicao: "github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main'",
+    efeito: "Confere artefatos e restore em runner efêmero pós-release; pular o gate não comprova homologação.",
+  },
   "build-elus360.yml::verify-distribution": {
     condicao: "github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'",
     efeito: "Valida procedência, rollback e AMD64 antes dos builds; um skipped anula a prova.",
