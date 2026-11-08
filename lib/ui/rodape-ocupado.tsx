@@ -98,9 +98,11 @@ export function reservaDoRodape(ocupacoes: readonly number[]): number {
 }
 
 /**
- * O `padding-bottom` que a casca aplica. `undefined` — nenhum estilo, a classe
- * `pb-area-segura` de sempre — quando não há peça: sem peça não há faixa a
- * reservar, e o rodapé de todas as telas continua exatamente o que era.
+ * O `padding-bottom` que a casca aplica. A ausência de peças precisa
+ * publicar explicitamente o piso seguro: devolver `undefined` após a barra
+ * desaparecer deixava o valor inline anterior (54px) no `<main>` durante a
+ * transição responsiva observada no E2E. Com zero, o estilo é um `max()`
+ * sem a variável dinâmica, preservando a área segura do dispositivo.
  *
  * ─── Por que `env(safe-area-inset-bottom)` entra no `max()` ─────────────────
  *
@@ -117,8 +119,12 @@ export function reservaDoRodape(ocupacoes: readonly number[]): number {
  *
  * Fora do iOS em tela cheia o termo vale `0px` e nada muda.
  */
-export function estiloDaReserva(reserva: number): { paddingBottom: string } | undefined {
-  if (reserva <= 0) return undefined;
+export function estiloDaReserva(reserva: number): { paddingBottom: string } {
+  // Não depender de retirar o estilo inline anterior após uma mudança de
+  // viewport. O piso segue explícito, inclusive durante a saída da barra.
+  if (reserva <= 0) {
+    return { paddingBottom: `max(${PISO_DO_RODAPE}px, env(safe-area-inset-bottom, 0px))` };
+  }
   return {
     paddingBottom: `max(${PISO_DO_RODAPE}px, env(safe-area-inset-bottom, 0px), var(${VARIAVEL_DA_OCUPACAO}, 0px))`,
   };
