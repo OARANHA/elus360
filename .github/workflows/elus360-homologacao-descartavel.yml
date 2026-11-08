@@ -27,7 +27,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Verificar release oficial e tag ancestral de main
         env:
           GH_TOKEN: ${{ github.token }}
