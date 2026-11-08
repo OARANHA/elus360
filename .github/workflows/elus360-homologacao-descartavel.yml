@@ -1,0 +1,108 @@
+# Pos-publicacao, sem VPS: runner GitHub efemero, sem tokens de escrita.
+# Gate separado: NAO aciona release, nao promove stable e nao faz deploy.
+name: ELUS360 — homologacao descartavel da release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versao publicada (ex.: 1.102.0)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: elus360-homologacao-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  integridade-e-restore:
+    if: github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Verificar release oficial e tag ancestral de main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+          tag="v$VERSION"
+          git fetch origin main "refs/tags/$tag:refs/tags/$tag"
+          git merge-base --is-ancestor "refs/tags/$tag^{commit}" origin/main || {
+            echo "::error::Tag fora de main"; exit 1;
+          }
+          gh release view "$tag" --json isDraft,isPrerelease,tagName --jq 'select(.isDraft == false and .isPrerelease == false and .tagName == "'$tag'") | .tagName' | grep -Fx "$tag"
+          gh release view "$tag" --json body --jq .body > /tmp/release-notes.txt
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "TAG_SHA=$(git rev-parse "refs/tags/$tag^{commit}")" >> "$GITHUB_ENV"
+      - name: Verificar quatro digests publicados e executaveis AMD64
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/refs.txt
+          for name in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
+            ref="ghcr.io/oaranha/$name:$VERSION"
+            raw="$(docker buildx imagetools inspect --raw "$ref")"
+            digest="sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)"
+            grep -Fx "$ref@$digest" /tmp/release-notes.txt >/dev/null || {
+              echo "::error::Digest nao coincide com a release: $name"; exit 1;
+            }
+            arch="$(docker buildx imagetools inspect --format '{{.Image.OS}}/{{.Image.Architecture}}' "$ref")"
+            test "$arch" = linux/amd64 || { echo "::error::Plataforma proibida: $ref"; exit 1; }
+            docker pull --platform linux/amd64 "$ref"
+            test "$(docker image inspect --format '{{.Architecture}}' "$ref")" = amd64
+            source="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$ref")"
+            revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ref")"
+            test "$source" = "https://github.com/OARANHA/elus360"
+            test "$revision" = "$TAG_SHA"
+            # Smoke de executavel em contêiner efemero: nao fornece chaves reais
+            # nem promete health do app sem uma fixture de Supabase/WAHA.
+            docker run --rm --network none --entrypoint /bin/sh "$ref" -c 'test -d /app || test -f /usr/local/bin/entrypoint.sh'
+            echo "$ref@$digest" >> /tmp/refs.txt
+          done
+          test "$(wc -l < /tmp/refs.txt)" -eq 4
+      - name: Backup e restore de dados sinteticos em PostgreSQL efemero
+        shell: bash
+        run: |
+          set -euo pipefail
+          db="elus360-hml-$GITHUB_RUN_ID"
+          trap 'docker rm -f "$db" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$db" -e POSTGRES_PASSWORD=fixture-only postgres:17-alpine >/dev/null
+          for _ in $(seq 1 40); do
+            if docker exec "$db" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec "$db" pg_isready -U postgres
+          docker exec "$db" psql -v ON_ERROR_STOP=1 -U postgres -c "CREATE TABLE elus_homologacao (id integer primary key, marcador text not null); INSERT INTO elus_homologacao VALUES (1,'dado-preservado');"
+          docker exec "$db" pg_dump -U postgres -t public.elus_homologacao postgres > /tmp/elus360-backup.sql
+          test -s /tmp/elus360-backup.sql
+          docker exec "$db" psql -v ON_ERROR_STOP=1 -U postgres -c 'DROP TABLE elus_homologacao;'
+          docker exec -i "$db" psql -v ON_ERROR_STOP=1 -U postgres postgres < /tmp/elus360-backup.sql
+          value="$(docker exec "$db" psql -At -U postgres -c 'SELECT marcador FROM elus_homologacao WHERE id=1')"
+          test "$value" = dado-preservado
+          echo "Backup/restore efemero: PASS. Nao equivale a migration real do Supabase."
+      - name: Declarar limite do escopo da homologacao
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### ELUS360 — evidencias de runner descartavel
+          - Release e tag ancestral de main: verificadas.
+          - Quatro imagens GHCR AMD64, SHA/source e digests da release: verificadas.
+          - Quatro containers descartaveis: inicializacao de shell de imagem comprovada, sem dependencia de segredos.
+          - PostgreSQL 17 descartavel: insercao, dump, exclusao e restore com dado recuperado.
+          - **Nao comprovado neste job:** instalacao completa do kit, saude real dos servicos integrados,
+            upgrade real entre versoes ou migration/rollback de schema Supabase.
+          - Nenhum ambiente externo ou producao afetados. Sem promocao stable.
+          EOF
