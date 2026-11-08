@@ -88,11 +88,23 @@ jobs:
           db="elus360-hml-$GITHUB_RUN_ID"
           trap 'docker rm -f "$db" >/dev/null 2>&1 || true' EXIT
           docker run -d --name "$db" -e POSTGRES_PASSWORD=fixture-only postgres:17-alpine >/dev/null
+          # A imagem oficial inicia um servidor temporario durante initdb,
+          # que responde a pg_isready antes de ser desligado. So prosseguir
+          # apos o fim do initdb E uma consulta SQL ao servidor definitivo.
+          ready=0
           for _ in $(seq 1 40); do
-            if docker exec "$db" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+            if docker logs "$db" 2>&1 | grep -Fq 'PostgreSQL init process complete; ready for start up.' &&
+               test "$(docker exec "$db" psql -X -At -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'SELECT 1' 2>/dev/null)" = 1; then
+              ready=1
+              break
+            fi
             sleep 1
           done
-          docker exec "$db" pg_isready -U postgres
+          if test "$ready" -ne 1; then
+            docker logs "$db" >&2
+            echo "::error::PostgreSQL nao concluiu initdb e nao aceitou SELECT 1 em 40s"
+            exit 1
+          fi
           docker exec "$db" psql -v ON_ERROR_STOP=1 -U postgres -c "CREATE TABLE elus_homologacao (id integer primary key, marcador text not null); INSERT INTO elus_homologacao VALUES (1,'dado-preservado');"
           docker exec "$db" pg_dump -U postgres -t public.elus_homologacao postgres > /tmp/elus360-backup.sql
           test -s /tmp/elus360-backup.sql
