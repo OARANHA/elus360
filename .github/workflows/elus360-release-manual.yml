@@ -45,6 +45,12 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "::error::Versao invalida"; exit 1; }
+          img_ns="$(sed -n 's/^IMG_NS="\([^"]*\)".*/\1/p' hostgator-setup-kit/_common.sh)"
+          [[ "$img_ns" =~ ^ghcr\.io/[a-z0-9_-]+$ ]] || { echo "::error::IMG_NS invalido no kit"; exit 1; }
+          test "$img_ns" = "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" || {
+            echo "::error::IMG_NS deve corresponder ao proprietario do fork"; exit 1;
+          }
+          echo "IMG_NS=$img_ns" >> "$GITHUB_ENV"
           tag="v$VERSION"
           test "$(git rev-parse HEAD)" = "$EXPECTED"
           git fetch origin main --tags
@@ -76,7 +82,7 @@ jobs:
               --label "org.opencontainers.image.revision=$REVISION" \
               --label "org.opencontainers.image.version=$VERSION" \
               --provenance=false --sbom=false \
-              --tag "ghcr.io/oaranha/$name:$VERSION" --push .
+              --tag "$IMG_NS/$name:$VERSION" --push .
           done
       - name: Atestar quatro manifestos AMD64 e gravar digests
         env:
@@ -87,7 +93,7 @@ jobs:
           set -euo pipefail
           : > /tmp/elus360-images-digests.txt
           for name in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
-            ref="ghcr.io/oaranha/$name:$VERSION"
+            ref="$IMG_NS/$name:$VERSION"
             raw="$(docker buildx imagetools inspect --raw "$ref")"
             test -n "$raw"
             arch="$(docker buildx imagetools inspect --format '{{.Image.OS}}/{{.Image.Architecture}}' "$ref")"
@@ -102,11 +108,11 @@ jobs:
           # as imagens, nenhuma release sera criada: ajustar visibilidade dos
           # quatro packages para Public e reexecutar este despacho.
           for name in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
-            token="$(curl -fsSLG 'https://ghcr.io/token' --data-urlencode "scope=repository:oaranha/$name:pull" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')"
+            token="$(curl -fsSLG 'https://ghcr.io/token' --data-urlencode "scope=repository:${IMG_NS#ghcr.io/}/$name:pull" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')"
             test -n "$token" || { echo "::error::GHCR anonimo sem token: $name"; exit 1; }
             code="$(curl -sSL -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
               -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
-              "https://ghcr.io/v2/oaranha/$name/manifests/$VERSION")"
+              "https://ghcr.io/v2/${IMG_NS#ghcr.io/}/$name/manifests/$VERSION")"
             test "$code" = 200 || { echo "::error::Imagem nao publica no GHCR: $name HTTP $code"; exit 1; }
           done
       - name: Criar tag oficial contida na main e GitHub Release (sem stable)
