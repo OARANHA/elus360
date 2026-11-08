@@ -36,6 +36,12 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+          img_ns="$(sed -n 's/^IMG_NS="\([^"]*\)".*/\1/p' hostgator-setup-kit/_common.sh)"
+          [[ "$img_ns" =~ ^ghcr\.io/[a-z0-9_-]+$ ]] || { echo "::error::IMG_NS invalido no kit"; exit 1; }
+          test "$img_ns" = "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" || {
+            echo "::error::IMG_NS deve corresponder ao proprietario do fork"; exit 1;
+          }
+          echo "IMG_NS=$img_ns" >> "$GITHUB_ENV"
           tag="v$VERSION"
           git fetch origin main "refs/tags/$tag:refs/tags/$tag"
           git merge-base --is-ancestor "refs/tags/$tag^{commit}" origin/main || {
@@ -53,7 +59,7 @@ jobs:
           set -euo pipefail
           : > /tmp/refs.txt
           for name in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
-            ref="ghcr.io/oaranha/$name:$VERSION"
+            ref="$IMG_NS/$name:$VERSION"
             raw="$(docker buildx imagetools inspect --raw "$ref")"
             # Digest do registry, nao hash do stdout do CLI (que pode alterar newline).
             digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref")"
