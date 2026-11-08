@@ -86,10 +86,12 @@ describe("o contrato tem as três partes", () => {
     expect(contrato).toMatch(
       /`max\(\$\{PISO_DO_RODAPE\}px, env\(safe-area-inset-bottom, 0px\), var\(\$\{VARIAVEL_DA_OCUPACAO\}, 0px\)\)`/,
     );
-    // Sem peça registrada não há faixa: o rodapé de quem não está em chamada é
-    // exatamente o de antes (é a razão pela qual a exceção do gate do Inbox não
-    // vira uma faixa permanente em todas as telas).
-    expect(contrato).toMatch(/if \(reserva <= 0\) return undefined/);
+    // Sem peça registrada, o piso seguro é explícito. A transição
+    // celular -> desktop não pode conservar os 54px da barra invisível.
+    expect(contrato).toMatch(/if \(reserva <= 0\) \{/);
+    expect(contrato).toMatch(
+      /paddingBottom: `max\(\$\{PISO_DO_RODAPE\}px, env\(safe-area-inset-bottom, 0px\)\)`/,
+    );
   });
 
   it("o provedor envolve a casca E o painel de chamada", () => {
