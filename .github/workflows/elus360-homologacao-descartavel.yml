@@ -55,7 +55,9 @@ jobs:
           for name in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
             ref="ghcr.io/oaranha/$name:$VERSION"
             raw="$(docker buildx imagetools inspect --raw "$ref")"
-            digest="sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)"
+            # Digest do registry, nao hash do stdout do CLI (que pode alterar newline).
+            digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::Digest invalido: $ref"; exit 1; }
             grep -Fx "$ref@$digest" /tmp/release-notes.txt >/dev/null || {
               echo "::error::Digest nao coincide com a release: $name"; exit 1;
             }
