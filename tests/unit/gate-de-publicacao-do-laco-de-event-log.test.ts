@@ -172,6 +172,6 @@ describe("o gate de publicação das imagens de fundo (#604)", () => {
   it("o canal `stable` não anda sobre um worker/scheduler que não sobe", () => {
     const promover = blocoDoJob("promover-stable");
     expect(promover).toMatch(new RegExp(`needs: \\[[^\\]]*${JOB_DE_FUNDO}`));
-    expect(promover).toContain("if: github.event_name == 'push'");
+    expect(promover).toContain("if: github.repository == 'melgarafael/DeskcommCRM' && github.event_name == 'push'");
   });
 });

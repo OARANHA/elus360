@@ -92,10 +92,11 @@ export function AppShell({ sidebarCollapsed, podeAtender, children }: AppShellPr
         {/*
           O RODAPÉ DESCONTA O QUE AS PEÇAS FIXAS OCUPAM (issue #1305).
 
-          `estiloDaReserva` devolve `undefined` quando não há peça registrada —
-          nenhum estilo, e aí quem responde pela faixa de baixo é a classe
-          `pb-area-segura` —, e um `padding-bottom` que consome
-          `--rodape-ocupado` quando há. O que ele descontou está também no
+          `estiloDaReserva` aplica explicitamente o piso da área segura
+          quando não há peça registrada, impedindo que a reserva anterior
+          continue no `padding-bottom` após o breakpoint responsivo.
+          Quando há peça, o estilo consome `--rodape-ocupado`.
+          O que ele descontou está também no
           atributo `data-rodape-ocupado`: é por ali que o gate mede esta faixa
           sem depender de o jsdom computar `var()` (ele não computa), e é o que
           aparece no inspetor quando alguém pergunta quanto o rodapé perdeu.

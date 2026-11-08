@@ -22,6 +22,7 @@ const ASSINATURA = "openai-assinatura";
 
 const banco = vi.hoisted(() => ({
   modulo: "desligado" as "ligado" | "desligado" | "erro",
+  grantModelo: false,
   updates: [] as Array<{ tabela: string; payload: unknown }>,
 }));
 
@@ -42,12 +43,23 @@ function cadeia(tabela: string, dados: unknown, unico: unknown) {
 
 function clienteDeServico() {
   return {
+    rpc: async (fn: string, args: { p_patch: Record<string, unknown>; p_platform_bypass?: boolean }) => {
+      if (fn !== "fn_elus_ai_version_patch_guarded" || args.p_platform_bypass) {
+        return { data: null, error: { message: "unexpected_rpc" } };
+      }
+      if (!banco.grantModelo) return { data: { error: "forbidden_platform_ai" }, error: null };
+      banco.updates.push({ tabela: fn, payload: args.p_patch });
+      return { data: { id: VERSAO, ...args.p_patch }, error: null };
+    },
     from: (tabela: string) => {
       if (tabela === "platform_config") {
         if (banco.modulo === "erro") throw new Error("banco fora do ar");
         return cadeia(tabela, [{ chave: "MODULO_LOGIN_CODEX", valor: banco.modulo }], null);
       }
       if (tabela === "modulos_instalados") return cadeia(tabela, [], null);
+      if (tabela === "organizations") return cadeia(tabela, [], {
+        ai_autonomy: { model: banco.grantModelo },
+      });
       if (tabela === "ai_agent_versions") {
         return cadeia(tabela, [], {
           id: VERSAO,
@@ -65,10 +77,15 @@ function clienteDeServico() {
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => clienteDeServico() }));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
+vi.mock("@/lib/auth/server", () => ({ loadAuthUser: vi.fn(async () => ({
+  id: "11111111-1111-4111-8111-111111111111",
+  is_platform_admin: false, platform_admin_scope: null, support: null,
+})) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 vi.mock("@/lib/api/auth-dual", () => ({
   resolveAuthDual: vi.fn(async () => ({
     ok: true,
+    via: "session",
     organizationId: ORG,
     actor: { type: "user", id: "11111111-1111-4111-8111-111111111111" },
     idioma: "pt-BR",
@@ -117,6 +134,7 @@ function formularioDaChave(provider: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   banco.updates = [];
+  banco.grantModelo = false;
   onboarding.guardar.mockResolvedValue({ ok: true, last4: "c0de" });
   onboarding.padrao.mockResolvedValue({ ok: true, provider: ASSINATURA, modelo: "gpt-5.5" });
 });
@@ -166,12 +184,22 @@ describe("módulo login_codex ligado — igual a antes", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("PATCH do rascunho com a assinatura grava", async () => {
+  it("PATCH do rascunho com a assinatura grava após grant técnico válido", async () => {
+    banco.grantModelo = true;
     const res = await patchDaVersao({ provider: ASSINATURA, model: "gpt-5.5" });
     expect(res.status).toBe(200);
     expect(banco.updates).toEqual([
-      { tabela: "ai_agent_versions", payload: { provider: ASSINATURA, model: "gpt-5.5" } },
+      { tabela: "fn_elus_ai_version_patch_guarded", payload: { provider: ASSINATURA, model: "gpt-5.5" } },
     ]);
+  });
+
+  it("módulo ligado sem grant técnico não autoriza modificar o modelo", async () => {
+    banco.grantModelo = false;
+    const res = await patchDaVersao({ provider: ASSINATURA, model: "gpt-5.5" });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("forbidden_platform_ai");
+    expect(banco.updates).toEqual([]);
   });
 
   // Ligado, a recusa vem do miolo (`guardarCredencial`): a assinatura não se

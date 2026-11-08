@@ -14,6 +14,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # escrita cai no repositório de quem roda. Zerar o ambiente local do git é o
 # idioma canônico do próprio git para isso.
 unset $(git rev-parse --local-env-vars)
+REAL_GIT="$(command -v git)"
+export REAL_GIT
 
 # O _common.sh vem antes porque é dele que saem `nome_do_projeto_compose`,
 # `veredito_rede_do_proxy` e `garantir_rede_do_proxy` — o install.sh e o update.sh
@@ -586,13 +588,32 @@ STUBDOCKER
   cat > "$TMP3/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
-  *releases/latest*) printf '%s' '{"tag_name":"v1.66.1"}' ;;
-  *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
+  *releases/latest*) printf '{\n "tag_name": "v1.102.0"\n}\n' ;;
+  *releases/tags/v1.102.0*) printf '{\n "tag_name": "v1.102.0",\n "draft": false,\n "prerelease": false,\n "published_at": "2026-11-07T00:00:00Z"\n}\n' ;;
+  *compare/main...v1.102.0*) printf '{\n "status": "behind"\n}\n' ;;
+  *ghcr.io/token*) printf '{"token":"teste"}' ;;
   *ghcr.io/v2/*) printf 200 ;;
   *) printf 200 ;;
 esac
 STUBCURL
   chmod +x "$TMP3/bin/curl"
+  # O remoto sintético representa SOMENTE esta instalação descartável.
+  "$REAL_GIT" -C "$TMP3/proj" init -q
+  "$REAL_GIT" -C "$TMP3/proj" add -A
+  "$REAL_GIT" -C "$TMP3/proj" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm fixture
+  "$REAL_GIT" -C "$TMP3/proj" tag v1.102.0
+  "$REAL_GIT" -C "$TMP3/proj" remote add origin https://github.com/OARANHA/elus360.git
+  cat > "$TMP3/bin/git" <<'STUBGIT'
+#!/usr/bin/env bash
+case "${1:-}" in
+  ls-remote) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1.102.0\n'; exit 0;;
+  rev-parse) case " $* " in *" refs/tags/v1.102.0"*) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'; exit 0;; esac;;
+  fetch) exit 0;;
+  checkout) [ "${2:-}" = --quiet ] && exit 0;;
+esac
+exec "$REAL_GIT" "$@"
+STUBGIT
+  chmod +x "$TMP3/bin/git"
   dublar_uname_amd64 "$TMP3/bin"
   cat > "$TMP3/supabase-provision.sh" <<'PROV'
 #!/usr/bin/env bash
@@ -607,7 +628,6 @@ PROV
 
   saida="$(cd "$TMP3/proj" && env PATH="$TMP3/bin:$PATH" MARCA="$MARCA" \
     SUPABASE_ACCESS_TOKEN=fake NEXT_PUBLIC_SUPABASE_URL= \
-    DESKCOMM_RELEASES_LATEST_URL=https://example.invalid/releases/latest \
     bash "$TMP3/install.sh" --yes 2>&1 || true)"
 
   # Sem esta checagem o teste passaria por VACUIDADE: se o install.sh morresse
@@ -1942,6 +1962,12 @@ montar_vps() {
   cp install.sh update.sh backup.sh _common.sh _manifestos.sh _i18n.sh marca-emails.sh manutencao.sh "$raiz/"
   cp -R manutencao "$raiz/"
   : > "$VPS_PROJ/docker-compose.prod.yml"
+  if [ ! -d "$VPS_PROJ/.git" ]; then
+    "$REAL_GIT" -C "$VPS_PROJ" init -q
+    "$REAL_GIT" -C "$VPS_PROJ" add -A
+    "$REAL_GIT" -C "$VPS_PROJ" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm "fixture ELUS360"
+    "$REAL_GIT" -C "$VPS_PROJ" remote add origin https://github.com/OARANHA/elus360.git
+  fi
   cat > "$raiz/bin/docker"
   # O corpo fornecido por cada cenário continua cuidando de compose/exec.
   # O wrapper só dublê o registry OCI que o preflight novo consulta.
@@ -1952,9 +1978,9 @@ if [ "${1:-}" = buildx ] && [ "${2:-}" = imagetools ] && [ "${3:-}" = inspect ];
   case " $* " in
     *' --raw '*)
       if [ -n "${DUBLE_MANIFEST:-}" ]; then printf '%s' "$DUBLE_MANIFEST"
-      else printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}},{"platform":{"os":"linux","architecture":"arm64"}}]}'
+      else printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}}]}'
       fi ;;
-    *) printf 'linux/amd64\nlinux/arm64\n' ;;
+    *) printf 'linux/amd64\n' ;;
   esac
   exit 0
 fi
@@ -1976,12 +2002,17 @@ STUBOCI
   cat > "$raiz/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
-  *releases/latest*) printf '{"tag_name":"%s"}' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
+  *api.github.com/repos/OARANHA/elus360/releases/latest*)
+    printf '{\n "tag_name": "%s"\n}\n' "${DUBLE_RELEASE_TAG:-v1.102.0}" ;;
+  *api.github.com/repos/OARANHA/elus360/releases/tags/*)
+    tag="${@: -1}"; tag="${tag##*/}"
+    printf '{\n "tag_name": "%s",\n "draft": false,\n "prerelease": false,\n "published_at": "2026-11-07T00:00:00Z"\n}\n' "$tag" ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...*)
+    printf '{\n "status": "behind"\n}\n' ;;
   *ghcr.io/token*) printf '{"token":"dublê"}' ;;
   *ghcr.io/v2/*)   printf '%s' "${DUBLE_GHCR:-200}" ;;
-  # O v_supabase_url exige o GoTrue: o JSON de /auth/v1/verify sem parâmetros.
   *auth/v1/verify*) printf '{"msg":"Verify requires a verification type"}\n400' ;;
-  *)               printf 200 ;;
+  *) printf 200 ;;
 esac
 STUBCURL
   # O install.sh e o update.sh vão até o fim, e no fim eles AGENDAM CRON. Sem
@@ -2019,7 +2050,25 @@ case "${1:-}" in
 esac
 exit 0
 STUB
-  chmod +x "$raiz/bin/docker" "$raiz/bin/curl" "$raiz/bin/crontab"
+  cat > "$raiz/bin/git" <<'STUBGIT'
+#!/usr/bin/env bash
+SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+case "${1:-}" in
+  ls-remote)
+    last="${@: -1}"
+    case "$last" in refs/tags/v*) printf '%s\t%s\n' "$SHA" "$last"; exit 0;; esac
+    ;;
+  rev-parse)
+    case " $* " in *" refs/tags/v"*|*" v"*"^{commit}"*) printf '%s\n' "$SHA"; exit 0;; esac
+    ;;
+  fetch) exit 0 ;;
+  checkout)
+    if [ "${2:-}" = "--quiet" ] && [[ "${3:-}" == v* ]]; then exit 0; fi
+    ;;
+esac
+exec "$REAL_GIT" "$@"
+STUBGIT
+  chmod +x "$raiz/bin/docker" "$raiz/bin/curl" "$raiz/bin/crontab" "$raiz/bin/git"
   dublar_uname_amd64 "$raiz/bin"
 }
 
@@ -2036,18 +2085,16 @@ STUB
 # partir de um .env de mentira. O cenário declara o próprio ambiente.
 rodar() {
   local script="$1" flags="$2"
-  local -a release_env=()
-  [ "$script" = install.sh ] && release_env=(DESKCOMM_RELEASES_LATEST_URL=https://api.github.com/repos/exemplo/releases/latest)
   printf '%s\n%s\n' "$BASE_ENV" "${3-}" > "$VPS_PROJ/.env"
   : > "$VPS_LOG"
   if [ $# -ge 4 ]; then
     printf '%s' "$4" > "$VPS_RAIZ/respostas.txt"
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
+      SUPABASE_ACCESS_TOKEN= \
       bash "$VPS_RAIZ/$script" $flags <"$VPS_RAIZ/respostas.txt" 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   else
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
+      SUPABASE_ACCESS_TOKEN= \
       bash "$VPS_RAIZ/$script" $flags 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   fi
 }
@@ -2191,7 +2238,8 @@ STUB
   # sobrevive aos dois caminhos, com rede e sem.
   img_app="$(valor_no_env "$VPS_PROJ/.env" APP_IMAGE)"
   tag_app="${img_app##*:}"
-  for par in "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
+  for par in "APP_IMAGE:elus360" "WORKER_IMAGE:elus360-worker" \
+             "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
     chave="${par%%:*}"; repo="${par##*:}"
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:${tag_app}" ]; then
       printf '  ✗ %s não acompanha a versão do app (%s): %s\n' "$chave" "$tag_app" \
@@ -2199,17 +2247,15 @@ STUB
       printf '     app numa versão e worker em outra é a matriz que ninguém testou.\n'; exit 1
     fi
   done
-  case "$tag_app" in
-    latest|main|stable) esperado="always" ;;
-    *)                  esperado="missing" ;;
-  esac
-  for chave in APP_PULL_POLICY WORKER_PULL_POLICY SCHEDULER_PULL_POLICY; do
+  [[ "$tag_app" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { printf '  ✗ APP_IMAGE fora de release numérica ELUS360: %s\n' "$img_app"; exit 1; }
+  esperado="missing"
+  for chave in APP_PULL_POLICY WORKER_PULL_POLICY SCHEDULER_PULL_POLICY VOICE_AGENT_PULL_POLICY; do
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "$esperado" ]; then
       printf '  ✗ %s devia ser %s para a tag %s: %s\n' "$chave" "$esperado" "$tag_app" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"; exit 1
     fi
   done
-  printf '  ✓ as três imagens saem na MESMA referência (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
+  printf '  ✓ as quatro imagens ELUS360 usam a MESMA release (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
 
   # O .env VENCE o compose — e é por isso que este bloco existe. O compose já
   # pinava o WAHA, e o install gravava `WAHA_IMAGE=devlikeapro/waha` (sem tag,
@@ -2369,12 +2415,11 @@ case "$1" in
 esac
 exit 0
 STUB
-  export REPO_URL="$origem"
   export DUBLE_RELEASE_TAG=v1.10.0
   rodar install.sh --yes >/dev/null
-  unset REPO_URL DUBLE_RELEASE_TAG
+  unset DUBLE_RELEASE_TAG
 
-  for par in "APP_IMAGE:deskcommcrm" "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
+  for par in "APP_IMAGE:elus360" "WORKER_IMAGE:elus360-worker" "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
     chave="${par%%:*}"; repo="${par##*:}"
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:1.10.0" ]; then
       printf '  ✗ %s não foi pinado na versão resolvida (1.10.0): %s\n' "$chave" \
@@ -2386,7 +2431,7 @@ STUB
   if [ "$(valor_no_env "$VPS_PROJ/.env" APP_PULL_POLICY)" = "always" ]; then
     printf '  ✗ tag imutável com pull_policy=always: o CRM só sobe se o GHCR estiver de pé\n'; exit 1
   fi
-  printf '  ✓ com v1.0.0/v1.9.0/v1.10.0 no remoto, o .env nasce pinado em 1.10.0 (as três imagens)\n'
+  printf '  ✓ com release ELUS360 v1.10.0 publicada no dublê, as quatro imagens são pinadas\n'
 ) || fail=1
 rm -rf "$TMP_PIN"
 
@@ -2426,23 +2471,21 @@ case "$1" in
 esac
 exit 0
 STUB
-  export REPO_URL="$origem"
   export DUBLE_GHCR=403          # pacote existe mas está PRIVADO
   saida="$(rodar install.sh --yes)"
-  unset DUBLE_GHCR REPO_URL
+  unset DUBLE_GHCR
 
-  if ! grep -q "construídas neste servidor" <<<"$saida"; then
-    printf '  ✗ com as imagens inalcançáveis, o instalador não avisou que ia construir aqui\n'
-    printf '     silêncio aqui é o defeito: o dono não descobre que duas peças saíram do fonte local.\n'
-    exit 1
+  # Política ELUS360: privado/403 recusa SEM gerar .env nem compilar na VPS.
+  if ! grep -q "ELUS_DISTRIBUTION_NO_GO" <<<"$saida"; then
+    printf '  ✗ pacote privado não foi recusado pelo instalador ELUS360\n'; exit 1
   fi
-  printf '  ✓ imagens inalcançáveis (403): avisa que vai construir no servidor, em vez de calar\n'
-
-  # E ainda assim a instalação COMPLETA — construir é lento, não é impedimento.
-  if ! grep -qE "^APP_IMAGE=" "$VPS_PROJ/.env"; then
-    printf '  ✗ a instalação não chegou a escrever o .env\n'; exit 1
+  if grep -qE "^APP_IMAGE=" "$VPS_PROJ/.env"; then
+    printf '  ✗ pacote privado alterou o pin do app apesar da recusa\n'; exit 1
   fi
-  printf '  ✓ e mesmo assim conclui a instalação (constrói é lento, não é impedimento)\n'
+  if grep -qE "(^| )build( |$)" "$VPS_LOG"; then
+    printf '  ✗ houve build local após 403 (proibido no ELUS360)\n'; exit 1
+  fi
+  printf '  ✓ imagens privadas 403 bloqueiam instalação antes de alterar pins ou construir\n'
 ) || fail=1
 rm -rf "$TMP_PRIV"
 
@@ -3587,7 +3630,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'")"
 
   # Vacuidade: se o update.sh parou antes (git, tag, dublê incompleto), a
   # ausência do erro do compose não prova nada.
-  n_up="$(grep -n -E '^compose .* up -d$' "$VPS_LOG" | head -1 | cut -d: -f1)"
+  n_up="$(grep -n -E '^compose .* up -d --no-build$' "$VPS_LOG" | head -1 | cut -d: -f1)"
   if [ -z "$n_up" ]; then
     printf '  ✗ o update.sh não chegou ao "up -d" — teste inconclusivo, não verde\n'
     printf '     última linha da saída: %s\n' "$(printf '%s' "$saida" | tail -1)"; exit 1
@@ -3630,7 +3673,7 @@ PROXY_NETWORK_NAME='proxy_network'
 INTERNAL_SECRET='segredo-de-teste'
 NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'")"
 
-  if grep -q -E '^compose .* up -d$' "$VPS_LOG"; then
+  if grep -q -E '^compose .* up -d --no-build$' "$VPS_LOG"; then
     printf '  ✗ o update.sh subiu a stack mesmo com a rede do NPM ausente\n'; exit 1
   fi
   if ! grep -q 'PROXY_NETWORK_NAME' <<<"$saida"; then
@@ -3727,7 +3770,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
     n_val="$(grep -n 'caddy validate' "$VPS_LOG" | head -1 | cut -d: -f1)"
     # `up -d --no-deps app worker` é a subida do par VAPID recém-criado, antes da
     # decisão de versão: nomeia os dois serviços e não alcança o Caddy.
-    n_up="$(grep -nE '^compose .* up -d( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | grep -v -- '--no-deps app worker$' | head -1 | cut -d: -f1)"
+    n_up="$(grep -nE '^compose .* up -d --no-build( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | grep -v -- '--no-deps app worker$' | head -1 | cut -d: -f1)"
     falhou=""
     [ -n "$n_val" ] && [ -n "$n_up" ] && [ "$n_val" -lt "$n_up" ] \
       || { printf '    a conferência não veio antes do primeiro up -d (validate=%s up=%s)\n' "$n_val" "$n_up"; falhou=1; }
@@ -3736,7 +3779,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
     if [ "$esperado" = bom ]; then
       grep -qF -- '--force-recreate --no-deps caddy' "$VPS_LOG" \
         || { printf '    com a configuração aceita o Caddy não foi recriado\n'; falhou=1; }
-      grep -qE '^compose .* up -d$' "$VPS_LOG" \
+      grep -qE '^compose .* up -d --no-build$' "$VPS_LOG" \
         || { printf '    o up -d do parque não foi o de sempre (sem lista de serviços)\n'; falhou=1; }
       grep -q '✓ proxy recarregado' <<<"$saida" \
         || { printf '    a saída não confirma o proxy recarregado\n'; falhou=1; }
@@ -3745,7 +3788,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
         || { printf '    o Caddy foi recriado com a configuração recusada\n'; falhou=1; }
       ! grep -E '^compose .* up -d' "$VPS_LOG" | grep -qw caddy \
         || { printf '    um up -d do parque alcançou o caddy\n'; falhou=1; }
-      grep -qE '^compose .* up -d app worker scheduler waha$' "$VPS_LOG" \
+      grep -qE '^compose .* up -d --no-build app worker scheduler waha$' "$VPS_LOG" \
         || { printf '    o up -d do parque não subiu os outros serviços\n'; falhou=1; }
       grep -q 'caddy-sites/' <<<"$saida" && grep -q 'unrecognized directive' <<<"$saida" \
         && grep -q 'proxy anterior segue no ar' <<<"$saida" \

@@ -70,7 +70,10 @@ RUN pnpm build
 # nenhum. Sem ele: "Setting up fake worker failed: Cannot find module
 # '/app/.next/server/chunks/pdf.worker.mjs'" — um SEGUNDO arquivo ausente,
 # de causa diferente dos dois symlinks, e só aparece testando o bundle real.
+# Preserve também os alvos dos links: o binding opcional instalado pertence
+# ao estágio de dependências da imagem, sem buscar binários da máquina do autor.
 RUN PDFJS_DIR=$(basename node_modules/.pnpm/pdfjs-dist@*) && \
+    cp -a node_modules/.pnpm/@napi-rs+canvas* .next/standalone/node_modules/.pnpm/ && \
     cp -a "node_modules/pdfjs-dist" ".next/standalone/node_modules/pdfjs-dist" && \
     mkdir -p ".next/standalone/node_modules/.pnpm/$PDFJS_DIR/node_modules/@napi-rs" && \
     cp -a "node_modules/.pnpm/$PDFJS_DIR/node_modules/@napi-rs/canvas" \
@@ -86,9 +89,9 @@ WORKDIR /app
 # OCI via docker/metadata-action; estes aqui são defesa em profundidade — valem
 # para qualquer build, inclusive o local de docker-compose.build.yml, que não
 # passa pelo metadata-action e sem isto sairia sem origem nenhuma.
-LABEL org.opencontainers.image.source="https://github.com/melgarafael/DeskcommCRM" \
+LABEL org.opencontainers.image.source="https://github.com/OARANHA/elus360" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.title="DeskcommCRM"
+      org.opencontainers.image.title="ELUS360"
 
 # ⚠️ NADA de ARG de versão acima das camadas caras deste estágio. No BuildKit a
 # própria INSTRUÇÃO `ARG` entra na chave de cache das instruções seguintes —

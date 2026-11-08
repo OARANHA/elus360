@@ -160,15 +160,24 @@ describe("somente leitura e travas, contra um MySQL de verdade", () => {
     const pool = obterPoolMysql(conexaoDe(banco));
     const inicio = Date.now();
     let desfecho = "terminou sem erro";
+    let sleepCompletou = false;
     try {
       const r = await consultarMysql<Record<string, unknown>>(pool, "select sleep(25) as dormiu");
       desfecho = `terminou sem erro, sleep devolveu ${JSON.stringify(r.rows[0])}`;
+      sleepCompletou = Number(r.rows[0]?.dormiu) === 0;
     } catch (err) {
       desfecho = `erro ${erroCurto(err)}`;
     }
     const duracao = Date.now() - inicio;
     registrar("C-tempo", `select sleep(25) com max_execution_time=10000 → ${desfecho} em ${duracao} ms`);
+    // Além de responder dentro do teto, não pode retornar SLEEP(25)=0:
+    // isso significaria que o servidor completou a consulta de 25 segundos.
     expect(duracao).toBeLessThan(20_000);
+    expect(sleepCompletou, "SLEEP(25) não pode terminar sem interrupção").toBe(false);
+    // Se o timeout invalidou a conexão, o pool precisa fornecer uma nova;
+    // não reutilizar socket morto nem comprometer consultas seguintes.
+    const retomada = await consultarMysql<{ ok: number }>(pool, "select 1 as ok");
+    expect(Number(retomada.rows[0]?.ok)).toBe(1);
   }, 40_000);
 });
 

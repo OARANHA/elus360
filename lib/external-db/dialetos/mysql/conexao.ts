@@ -36,7 +36,7 @@ const LOCK_WAIT_TIMEOUT_S = 5;
 /** O mínimo que o código usa de uma conexão emprestada — e que os testes simulam. */
 export interface ConexaoEmprestada {
   query(sql: string): Promise<unknown>;
-  execute(sql: string, values: unknown[]): Promise<[unknown, Array<{ name: string }>]>;
+  execute(options: string | { sql: string; timeout: number }, values: unknown[]): Promise<[unknown, Array<{ name: string }>]>;
   release(): void;
 }
 
@@ -151,7 +151,14 @@ export async function consultarMysql<T = Record<string, unknown>>(
     await conexao.query(`SET SESSION lock_wait_timeout = ${LOCK_WAIT_TIMEOUT_S}`);
     await conexao.query("START TRANSACTION READ ONLY");
     // `execute` não aceita `undefined`.
-    const [rows, fields] = await conexao.execute(sql, values.map((v) => (v === undefined ? null : v)));
+    // O limite SQL sozinho não interrompe todas as consultas do servidor
+    // (ex.: SELECT SLEEP(25) passou 25 s no MySQL de CI com sessão=10 s).
+    // Timeout do mysql2 é limite independente no CLIENTE; ele invalida a
+    // conexão quando estoura, impedindo devolução de um socket em uso ao pool.
+    const [rows, fields] = await conexao.execute(
+      { sql, timeout: MAX_EXECUTION_TIME_MS },
+      values.map((v) => (v === undefined ? null : v)),
+    );
     await conexao.query("COMMIT");
     return { rows: rows as T[], fields };
   } catch (err) {

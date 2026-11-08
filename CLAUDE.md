@@ -6,6 +6,7 @@
 
 - [`AGENTS.md`](AGENTS.md) — mesmo contrato em forma portável (para Codex/Cursor/Copilot e afins). É derivado deste arquivo, não o substitui. **Ao mudar doutrina aqui, verifique se `AGENTS.md` desatualizou.**
 - [`docs/index.md`](docs/index.md) — índice dos 149 docs, com regra de precedência quando dois docs discordam. Use antes de sair varrendo `docs/`.
+- **Fork ELUS360 (PR #22, 07/11/2026):** [ADR-0007](docs/adr/0007-elus360-linux-amd64.md) aprovada pelo proprietário. Distribuição de quatro imagens Docker **somente Linux AMD64**; ARM64 definitivamente excluído (sem exceção por instalação antiga ou build na VPS). A ADR restringe a distribuição ELUS360, não reescreve decisões históricas do upstream DeskcommCRM.
 - [`docs/current-state.md`](docs/current-state.md) — o que está pronto, incompleto e quebrado. **Leia antes de estimar ou prometer qualquer coisa.**
 - [`docs/harness-audit.md`](docs/harness-audit.md) — onde a verificação tem buraco. Importante: `pnpm gov:verify` **não** cobre `test:db` nem `test:e2e` — verde ali não é prova para mudança de schema ou de UI.
 - [`docs/threat-model.md`](docs/threat-model.md) — superfície de ataque real do self-host.

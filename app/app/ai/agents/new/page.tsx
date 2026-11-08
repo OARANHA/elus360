@@ -10,6 +10,7 @@ import type { CredentialRow } from "@/hooks/ai/useCredentials";
 
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
+import { skillsDisponiveis } from "@/lib/ai/skills/skills-do-agente";
 import { lerAutonomiaIa, podeGerenciarIaDaPlataforma } from "@/lib/elus360/ai-managed/server";
 import { AUTONOMIA_IA_PADRAO } from "@/lib/elus360/ai-managed/policy";
 
@@ -74,9 +75,10 @@ export default async function NewAgentPage() {
         provedoresDaInstalacao={provedoresDaInstalacao()}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
         provedorPadrao={llmDaOrg?.provider}
+        channelSessions={channelSessions}
         modeloPadrao={llmDaOrg?.default_model ?? undefined}
         credencialPadrao={llmDaOrg?.credential_id ?? null}
-        channelSessions={channelSessions}
+        skills={await skillsDisponiveis(createAdminClient(), activeOrg.orgId)}
         organizationTimezone={fusoUtilizavel(activeOrg.timezone)}
       />
     </div>

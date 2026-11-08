@@ -50,8 +50,9 @@ function conexaoEmprestada(falhaEm?: string) {
       if (falhaEm && sql.startsWith(falhaEm)) throw new Error("falhou");
       return [[], []];
     }),
-    execute: vi.fn(async (sql: string, valores: unknown[]) => {
-      chamadas.push(`EXECUTE ${sql} ${JSON.stringify(valores)}`);
+    execute: vi.fn(async (options: string | { sql: string; timeout: number }, valores: unknown[]) => {
+      const { sql, timeout } = typeof options === "string" ? { sql: options, timeout: undefined } : options;
+      chamadas.push(`EXECUTE ${sql} timeout=${timeout ?? "ausente"} ${JSON.stringify(valores)}`);
       if (falhaEm === "EXECUTE") throw new Error("falhou");
       return [[{ id: 1 }], [{ name: "id" }]];
     }),
@@ -118,9 +119,13 @@ describe("consultarMysql — somente leitura, a cada empréstimo", () => {
       "SET SESSION max_execution_time = 10000",
       "SET SESSION lock_wait_timeout = 5",
       "START TRANSACTION READ ONLY",
-      'EXECUTE select 1 where x = ? ["a",null]',
+      'EXECUTE select 1 where x = ? timeout=10000 ["a",null]',
       "COMMIT",
     ]);
+    expect(emprestada.execute).toHaveBeenCalledWith(
+      { sql: "select 1 where x = ?", timeout: 10_000 },
+      ["a", null],
+    );
     expect(r.rows).toEqual([{ id: 1 }]);
     expect(r.fields.map((f) => f.name)).toEqual(["id"]);
     expect(emprestada.release).toHaveBeenCalledTimes(1);

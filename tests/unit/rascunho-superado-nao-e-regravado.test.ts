@@ -69,6 +69,11 @@ vi.mock("@/lib/auth/server", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
+// Os testes de destino do rascunho simulam uma organização com autonomia
+// concedida; os guards ELUS e sua revogação são testados separadamente.
+vi.mock("@/lib/elus360/ai-managed/authorize-version-write", () => ({
+  podeAlterarTecnicaDeVersao: vi.fn(async () => true),
+}));
 vi.mock("@/lib/ai/agents/escopo", () => ({
   validarEscopoDaVersao: vi.fn(async () => ({ ok: true })),
   mensagemDoEscopo: () => "Escopo inválido.",
@@ -76,6 +81,7 @@ vi.mock("@/lib/ai/agents/escopo", () => ({
 
 import { saveAgentDraftAction } from "@/app/app/ai/agents/[id]/_actions";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { podeAlterarTecnicaDeVersao } from "@/lib/elus360/ai-managed/authorize-version-write";
 
 // ---------------------------------------------------------------------------
 // Dublê: uma tabela de versões DE VERDADE (linhas em memória), porque o defeito
@@ -110,6 +116,39 @@ function aplicar(linhas: VersaoRow[], filtros: Array<[string, unknown]>) {
 
 function adminDuble(agente: Record<string, unknown>, versoes: VersaoRow[]) {
   return {
+    async rpc(name: string, args: {
+      p_org: string;
+      p_agent: string;
+      p_mode: string;
+      p_version: string | null;
+      p_version_payload: Record<string, unknown>;
+      p_agent_patch: Record<string, unknown>;
+      p_expected: Record<string, unknown>;
+    }) {
+      if (name !== "fn_elus_ai_draft_save_guarded" ||
+          args.p_org !== ORG || args.p_agent !== AGENTE) {
+        return { data: { error: "version_conflict" }, error: null };
+      }
+      if (args.p_mode === "patch") {
+        const row = versoes.find(v => v.id === args.p_version);
+        if (!row || row.status !== "draft") return { data: { error: "version_conflict" }, error: null };
+        for (const [field, value] of Object.entries(args.p_expected)) {
+          if (row[field] !== value) return { data: { error: "version_conflict" }, error: null };
+        }
+        Object.assign(row, args.p_version_payload);
+        Object.assign(agente, args.p_agent_patch);
+        return { data: { id: row.id, version_number: row.version_number }, error: null };
+      }
+      if (args.p_mode === "create") {
+        const number = Math.max(0, ...versoes.map(v => v.version_number)) + 1;
+        const novo = { ...args.p_version_payload, id: `v${number}`,
+          organization_id: ORG, agent_id: AGENTE, version_number: number, status: "draft" } as VersaoRow;
+        versoes.push(novo);
+        Object.assign(agente, args.p_agent_patch);
+        return { data: { id: novo.id, version_number: number }, error: null };
+      }
+      return { data: { error: "version_conflict" }, error: null };
+    },
     from(tabela: string) {
       if (tabela === "ai_agents") {
         const sel: Record<string, unknown> = {
@@ -247,7 +286,18 @@ async function salvar(versoes: VersaoRow[], publishedVersionId: string | null) {
 }
 
 describe("saveAgentDraftAction — em qual versão a escrita cai", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValue(true);
+  });
+
+  it("sem autonomia técnica não regrava rascunho de outra época", async () => {
+    const versoes = [versao(6, "published", "publicada"), versao(7, "draft", "rascunho")];
+    vi.mocked(podeAlterarTecnicaDeVersao).mockResolvedValueOnce(false);
+    const res = await salvar(versoes, "v6");
+    expect(res).toMatchObject({ ok: false, error: "forbidden_platform_ai" });
+    expect(versoes.find(v => v.id === "v7")?.system_prompt).toBe("rascunho");
+  });
 
   it("não regrava o rascunho SUPERADO: ele é histórico e a tela promete que continua lá", async () => {
     const versoes = [

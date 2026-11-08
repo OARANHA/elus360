@@ -336,10 +336,11 @@ describe("sem chamada nenhuma", () => {
     expect(painel()).toBeNull();
     expect(reserva()).toBe(0);
     expect(variavel()).toBe("0px");
-    // `undefined` em `estiloDaReserva`: nenhum estilo inline, então o `p-6` da
-    // casca continua sendo o rodapé inteiro (é o que o mantenedor pediu: faixa
-    // permanente em todas as telas seria cobrar por um painel que aparece em
-    // algumas).
-    expect(rodape.getAttribute("style")).toBeNull();
+    // Sem painel, o piso seguro continua explícito, mas a reserva dinâmica
+    // deixa de participar: não há 54px fantasma da barra móvel.
+    expect(rodape.style.paddingBottom).toBe(
+      "max(24px, env(safe-area-inset-bottom, 0px))",
+    );
+    expect(rodape.style.paddingBottom).not.toContain("--rodape-ocupado");
   });
 });

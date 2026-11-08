@@ -1,0 +1,135 @@
+# Exclusivo do fork ELUS360. Não modifica release.yml/publish-image.yml upstream.
+# Acionamento manual APÓS merge em main. Nenhum gatilho push/PR/tag.
+name: ELUS360 — publicar release numerica (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versao numerica, ex.: 1.102.0"
+        type: string
+        required: true
+      authorization:
+        description: "Digite PUBLICAR-ELUS360 para autorizar este workflow"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elus360-release-manual
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    if: github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main' && inputs.authorization == 'PUBLICAR-ELUS360'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      # Release/tag oficial criada pela API em uma unica operacao.
+      contents: write
+      # Exclusivo das quatro imagens ELUS360 apos dispatch manual.
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verificar versao, SHA na main e inexistencia de release/tag
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          EXPECTED: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "::error::Versao invalida"; exit 1; }
+          img_ns="$(sed -n 's/^IMG_NS="\([^"]*\)".*/\1/p' hostgator-setup-kit/_common.sh)"
+          [[ "$img_ns" =~ ^ghcr\.io/[a-z0-9_-]+$ ]] || { echo "::error::IMG_NS invalido no kit"; exit 1; }
+          test "$img_ns" = "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" || {
+            echo "::error::IMG_NS deve corresponder ao proprietario do fork"; exit 1;
+          }
+          echo "IMG_NS=$img_ns" >> "$GITHUB_ENV"
+          tag="v$VERSION"
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          git fetch origin main --tags
+          test "$(git rev-parse origin/main)" = "$EXPECTED" || { echo "::error::main avancou; refaca o dispatch"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::Tag ja existe: $tag"; exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then echo "::error::Release ja existe: $tag"; exit 1; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - name: Autenticar GHCR somente para publicar as quatro imagens
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build e push das quatro imagens, exclusivamente linux/amd64
+        env:
+          VERSION: ${{ inputs.version }}
+          REVISION: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in 'elus360 Dockerfile' 'elus360-worker Dockerfile.worker' 'elus360-scheduler Dockerfile.scheduler' 'elus360-voice-agent Dockerfile.voice-agent'; do
+            read -r name file <<< "$spec"
+            docker buildx build --file "$file" --platform linux/amd64 \
+              --build-arg "APP_VERSION=$REVISION" \
+              --label "org.opencontainers.image.source=https://github.com/OARANHA/elus360" \
+              --label "org.opencontainers.image.revision=$REVISION" \
+              --label "org.opencontainers.image.version=$VERSION" \
+              --provenance=false --sbom=false \
+              --tag "$IMG_NS/$name:$VERSION" --push .
+          done
+      - name: Atestar quatro manifestos AMD64 e gravar digests
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/elus360-images-digests.txt
+          for name in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
+            ref="$IMG_NS/$name:$VERSION"
+            raw="$(docker buildx imagetools inspect --raw "$ref")"
+            test -n "$raw"
+            arch="$(docker buildx imagetools inspect --format '{{.Image.OS}}/{{.Image.Architecture}}' "$ref")"
+            test "$arch" = linux/amd64 || { echo "::error::$ref plataforma $arch"; exit 1; }
+            # Digest do registry, nao hash do stdout do CLI (que pode alterar newline).
+            digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::Digest invalido: $ref"; exit 1; }
+            printf '%s@%s\n' "$ref" "$digest" >> /tmp/elus360-images-digests.txt
+          done
+          test "$(wc -l < /tmp/elus360-images-digests.txt)" -eq 4
+          # O self-hoster nao autentica no GHCR. Sem leitura anonima de TODAS
+          # as imagens, nenhuma release sera criada: ajustar visibilidade dos
+          # quatro packages para Public e reexecutar este despacho.
+          for name in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
+            token="$(curl -fsSLG 'https://ghcr.io/token' --data-urlencode "scope=repository:${IMG_NS#ghcr.io/}/$name:pull" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')"
+            test -n "$token" || { echo "::error::GHCR anonimo sem token: $name"; exit 1; }
+            code="$(curl -sSL -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/${IMG_NS#ghcr.io/}/$name/manifests/$VERSION")"
+            test "$code" = 200 || { echo "::error::Imagem nao publica no GHCR: $name HTTP $code"; exit 1; }
+          done
+      - name: Criar tag oficial contida na main e GitHub Release (sem stable)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          TAG: ${{ steps.preflight.outputs.tag }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$SHA" || {
+            echo "::error::main avancou durante o build; imagens existem, mas nao havera release"; exit 1;
+          }
+          # gh release create --target cria a tag diretamente no SHA comprovado
+          # de main. Nao depende de outro workflow disparado por GITHUB_TOKEN.
+          printf 'ELUS360 %s\n\nCommit: %s\n\nQuatro imagens linux/amd64 (digests atestados):\n' "$TAG" "$SHA" > /tmp/release-notes.txt
+          cat /tmp/elus360-images-digests.txt >> /tmp/release-notes.txt
+          printf '\nSem promocao automatica de stable. Homologacao descartavel e gate separado.\n' >> /tmp/release-notes.txt
+          gh release create "$TAG" --target "$SHA" --title "ELUS360 $TAG" --notes-file /tmp/release-notes.txt --latest=false

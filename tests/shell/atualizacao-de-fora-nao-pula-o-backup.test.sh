@@ -51,6 +51,8 @@ fi
 trap 'rm -rf "$WORK"' EXIT
 
 REAL_UNAME="$(command -v uname)"
+REAL_GIT="$(command -v git)"; export REAL_GIT
+# Git real em diretórios temporários; rede Git e checkout são dublados.
 
 FAILS=0
 check() {  # check <descrição> <comando de verificação...>
@@ -91,10 +93,19 @@ STUB
 # que não está sob prova aqui).
 cat > "$WORK/bin/curl" <<'STUB'
 #!/usr/bin/env bash
+# JSONs sintéticos da API oficial. Nenhuma chamada sai para a rede.
 case "$*" in
+  *api.github.com/repos/OARANHA/elus360/releases/tags/v1.102.0*)
+    if [ "${MOCK_DRAFT:-0}" = 1 ]; then
+      printf '{\n "tag_name":"v1.102.0",\n "draft":true,\n "prerelease":false,\n "published_at":"2026-11-07T00:00:00Z"\n}\n'
+    else
+      printf '{\n "tag_name":"v1.102.0",\n "draft":false,\n "prerelease":false,\n "published_at":"2026-11-07T00:00:00Z"\n}\n'
+    fi ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...v1.102.0*)
+    printf '{\n "status":"behind"\n}\n' ;;
   *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
   *ghcr.io/v2/*) printf 200 ;;
-  *) printf '{"data":{}}\n200' ;;
+  *) printf 'mock curl: URL não prevista\n' >&2; exit 90 ;;
 esac
 STUB
 # `uname -m` responde x86_64: o _common.sh recusa, antes de qualquer trabalho,
@@ -106,8 +117,31 @@ cat > "$WORK/bin/uname" <<STUB
 [ "\$*" = "-m" ] && { printf 'x86_64\n'; exit 0; }
 exec "$REAL_UNAME" "\$@"
 STUB
-chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname"
-export DOCKER_LOG="$WORK/docker.log" FAKE_CRONTAB="$WORK/crontab.txt"
+# Apenas operações remotas são simuladas. Demais consultas seguem para o
+# Git verdadeiro (restrito às árvores descartáveis); checkout é abortado
+# DEPOIS do backup, antes de qualquer mudança de schema/serviços.
+cat > "$WORK/bin/git" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  ls-remote)
+    case " $* " in
+      *" refs/tags/v1.102.0 "*)
+        sha="$("$REAL_GIT" rev-parse --verify refs/tags/v1.102.0)" || exit 91
+        printf '%s\trefs/tags/v1.102.0\n' "$sha" ;;
+      *) printf 'mock git: ls-remote inesperado\n' >&2; exit 92 ;;
+    esac ;;
+  fetch)
+    [ "${2:-}" = "--tags" ] && [ "${3:-}" = "--quiet" ] && [ "${4:-}" = origin ] || exit 93
+    "$REAL_GIT" rev-parse --verify refs/tags/v1.102.0 >/dev/null || exit 94 ;;
+  checkout)
+    printf '%s\n' "$*" >> "$GIT_CHECKOUT_LOG"
+    printf 'mock git: interrompido após backup; não alterar código/banco\n' >&2
+    exit 98 ;;
+  *) exec "$REAL_GIT" "$@" ;;
+esac
+STUB
+chmod +x "$WORK/bin/docker" "$WORK/bin/crontab" "$WORK/bin/flock" "$WORK/bin/curl" "$WORK/bin/uname" "$WORK/bin/git"
+export DOCKER_LOG="$WORK/docker.log" FAKE_CRONTAB="$WORK/crontab.txt" GIT_CHECKOUT_LOG="$WORK/git-checkout.log"
 export PATH="$WORK/bin:$PATH"
 
 # ── Fixture ──────────────────────────────────────────────────────────────────
@@ -124,8 +158,9 @@ montar_projeto() {
   printf 'select 1;\n' > "$proj/supabase/baseline.sql"
   printf 'services:\n  app:\n    image: \${APP_IMAGE:-x}\n' > "$proj/docker-compose.prod.yml"
   cat > "$proj/.env" <<ENV
-APP_IMAGE=${NS}/deskcommcrm:latest
-APP_PULL_POLICY=always
+APP_IMAGE=${NS}/elus360:1.101.0
+APP_PULL_POLICY=missing
+WAHA_IMAGE=devlikeapro/waha:latest-2026.7.2
 SUPABASE_DB_URL=postgresql://x/y
 NEXT_PUBLIC_APP_URL=https://crm.exemplo.com.br
 INTERNAL_SECRET=segredo
@@ -136,11 +171,12 @@ ENV
     cd "$proj" || exit 1
     git init --quiet
     git add -A
-    git commit --quiet -m "v0.9.0"
-    git tag v0.9.0
+    git commit --quiet -m "release base sintética"
+    git tag v1.102.0
     echo topo > topo.txt
     git add -A
     git commit --quiet -m "topo da main"
+    git remote add origin https://github.com/OARANHA/elus360.git
   ) >/dev/null 2>&1
 }
 
@@ -194,7 +230,7 @@ montar_kit_na_raiz() {
 rodar_de() {
   local cwd="$1" caminho="$2" saida="$3"
   RC=0
-  ( cd "$cwd" && bash "$caminho" --to v0.9.0 --force ) > "$saida" 2>&1 < /dev/null || RC=$?
+  ( cd "$cwd" && bash "$caminho" --to v1.102.0 --force ) > "$saida" 2>&1 < /dev/null || RC=$?
 }
 
 echo '── 1. Kit na raiz, `bash update.sh` dali: o layout e a invocação do relato'
@@ -242,6 +278,36 @@ check "e procurado NO KIT" \
   grep -q "^zero=$R3/deskcommcrm/hostgator-setup-kit/backup\.sh$" "$R3/marca-backup"
 check "o kit anunciou o backup feito" grep -q "✓ backup feito" "$OUT3"
 
+# O checkout falso termina DEPOIS do backup, antes de alterar código ou banco.
+# RC=1 é esperado desse corte controlado; RC=3 indica preflight incompleto.
+for c in "$RC1" "$RC2" "$RC3"; do
+  check "simulação chegou ao checkout após backup (RC=1, não RC=3)" test "$c" -eq 1
+done
+check "checkout apenas depois do backup nos três layouts" \
+  bash -c '[ "$(grep -c "^checkout " "$1")" -eq 3 ]' _ "$GIT_CHECKOUT_LOG"
+check "nenhum serviço foi parado" \
+  bash -c '! grep -E "^(stop |compose .* stop )" "$1"' _ "$DOCKER_LOG"
+
+# Duas regressões negativas: não burlar os gates oficiais para alcançar o backup.
+rm -f "$R3/marca-backup"
+MOCK_DRAFT=1 rodar_de "$R3/deskcommcrm" hostgator-setup-kit/update.sh "$WORK/draft.out"
+check "release DRAFT recusada com RC=3" test "$RC" -eq 3
+check "release DRAFT sem backup" test ! -e "$R3/marca-backup"
+check "release DRAFT com recusa de procedência" grep -q ELUS_DISTRIBUTION_NO_GO "$WORK/draft.out"
+
+"$REAL_GIT" -C "$R3/deskcommcrm" remote set-url origin https://github.com/nao/confiavel.git
+rodar_de "$R3/deskcommcrm" hostgator-setup-kit/update.sh "$WORK/origem.out"
+check "remote não oficial recusado com RC=3" test "$RC" -eq 3
+check "remote não oficial sem backup" test ! -e "$R3/marca-backup"
+check "remote não oficial com recusa de procedência" grep -q ELUS_DISTRIBUTION_NO_GO "$WORK/origem.out"
+
 printf '\nstatus: caso1=%s caso2=%s caso3=%s\n' "$RC1" "$RC2" "$RC3"
-if [ "$FAILS" -eq 0 ]; then echo "OK — todas as provas passaram."; else echo "FALHOU — $FAILS prova(s)."; fi
+if [ "$FAILS" -eq 0 ]; then echo "OK — todas as provas passaram."; else
+  echo "FALHOU — $FAILS prova(s)."
+  # Exibir somente mensagens da atualização, nunca o conteúdo do .env.
+  for arq in "$OUT1" "$OUT2" "$OUT3"; do
+    echo "--- cenário: $arq ---"
+    grep -E 'ELUS_DISTRIBUTION_NO_GO|preflight|backup|release|mock git|trocar para|Atualização' "$arq" | tail -n 18 || true
+  done
+fi
 exit $((FAILS > 0))

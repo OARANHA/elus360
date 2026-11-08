@@ -14,6 +14,15 @@ import { guardarCredencial } from "@/lib/ai/credenciais/guardar";
 import { requireRole } from "@/lib/auth/require-role";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
+vi.mock("@/lib/elus360/ai-managed/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/elus360/ai-managed/server")>()),
+  // Cenários funcionais com grants disponíveis na organização fictícia.
+  // A negativa de autorização é testada pelas suítes específicas de governança.
+  lerAutonomiaIa: vi.fn(async () => ({
+    provider: true, model: true, credentials: true, operator_model: true,
+  })),
+  recusaConfiguracaoDeIa: vi.fn(async () => null),
+}));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: vi.fn(async () => null) }));
 vi.mock("@/lib/ai/credenciais/guardar", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),

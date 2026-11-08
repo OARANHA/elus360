@@ -73,6 +73,14 @@ describe("montarRequisicaoDeProva", () => {
     expect(openai!.body).not.toHaveProperty("max_tokens");
   });
 
+  it("Chutes usa uma geração no endpoint do registry, nunca catálogo", () => {
+    const req = montarRequisicaoDeProva("chutes", "cpk-test", "fabricante/modelo");
+    expect(req).not.toBeNull();
+    expect(req!.url).toBe("https://llm.chutes.ai/v1/chat/completions");
+    expect(req!.headers.authorization).toBe("Bearer cpk-test");
+    expect(req!.body).toMatchObject({ model: "fabricante/modelo", max_tokens: 16 });
+  });
+
   it("provedor desconhecido não recebe 'ok' por omissão", () => {
     expect(montarRequisicaoDeProva("inventado", "k", "m")).toBeNull();
   });

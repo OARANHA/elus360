@@ -60,7 +60,12 @@ STUB
 # de quem roda a suíte); a VPS de verdade é x86_64.
 cat > "$WORK/bin/uname" <<'STUB'
 #!/usr/bin/env bash
-echo x86_64
+# O gate do fork exige Linux E AMD64. Não simular Linux como x86_64.
+case "${1:-}" in
+  -s) printf 'Linux\n' ;;
+  -m|'') printf 'x86_64\n' ;;
+  *) exit 64 ;;
+esac
 STUB
 chmod +x "$WORK/bin/"*
 

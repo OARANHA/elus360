@@ -21,6 +21,7 @@
 import { normalizarErro } from "@/lib/agent-engine/edge/llm/run-model-call";
 import {
   cabecalhosDeAtribuicaoOpenRouter,
+  CHUTES_ENDPOINT,
   DEEPSEEK_ENDPOINT,
   OPENROUTER_ENDPOINT,
   REQUESTY_ENDPOINT,
@@ -100,6 +101,14 @@ export function montarRequisicaoDeProva(
         url: `${baseUrl ?? DEEPSEEK_ENDPOINT}/chat/completions`,
         headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
         body: { model: modelo, max_tokens: 1, messages: msg },
+      };
+    case "chutes":
+      // Mesma rota Chat Completions usada pelo registry Chutes, não GET /models.
+      // Prova explícita, limitada a 16 tokens (compatibilidade OpenAI).
+      return {
+        url: `${CHUTES_ENDPOINT}/chat/completions`,
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        body: { model: modelo, max_tokens: 16, messages: msg },
       };
     case "requesty":
       // OpenAI-compatível. `max_tokens: 16` e não 1: os modelos da OpenAI

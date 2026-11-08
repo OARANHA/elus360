@@ -1,123 +1,106 @@
 #!/usr/bin/env bash
+# ELUS360 ADR-0007: só Linux AMD64; preflight antes de mutações.
+# Registry, Docker e Git são simulados; não há rede, banco, containers ou VPS real.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source "$ROOT/hostgator-setup-kit/_common.sh"
-IMG_NS=ghcr.io/exemplo
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+source "$ROOT/hostgator-setup-kit/_common.sh"
+IMG_NS=ghcr.io/exemplo
+: > "$TMP/probes"
 
 ghcr_status() {
-  [ "${TEST_OFFLINE:-0}" = 1 ] && { printf 000; return; }
-  [ "${TEST_MISSING:-}" = "$1" ] && { printf 404; return; }
+  printf 'REGISTRY %s %s\n' "$1" "$2" >> "$TMP/probes"
+  if [ "$TEST_OFFLINE" = 1 ]; then printf 000; return; fi
+  if [ "$TEST_MISSING" = "$1" ]; then printf 404; return; fi
   printf 200
 }
 manifesto_tem_plataforma() {
-  printf '%s %s\n' "$1" "$2" >> "$TMP/probes"
-  [ "${TEST_BAD_IMAGE:-}" != "$1" ]
+  printf 'OCI %s %s\n' "$1" "$2" >> "$TMP/probes"
+  [ "$TEST_BAD_IMAGE" != "$1" ]
 }
-ok() { local name="$1"; shift; "$@" >"$TMP/out" 2>&1 || { echo "✗ $name: $(<"$TMP/out")"; exit 1; }; echo "✓ $name"; }
-reject() { local name="$1"; shift; if "$@" >"$TMP/out" 2>&1; then echo "✗ $name aceito"; exit 1; fi; echo "✓ $name"; }
+TEST_OFFLINE=0 TEST_MISSING=__none__ TEST_BAD_IMAGE=__none__
+ok() { local name="$1"; shift; "$@" > "$TMP/out" 2>&1 || { echo "✗ $name: $(cat "$TMP/out")"; exit 1; }; echo "✓ $name"; }
+reject() { local name="$1"; shift; if "$@" > "$TMP/out" 2>&1; then echo "✗ $name foi aceito"; exit 1; fi; echo "✓ $name"; }
 
 WAHA_IMAGE=devlikeapro/waha:latest-2026.7.2
-ok 'release completa em AMD64' preflight_plataforma_atualizacao v1.66.1 linux/amd64
-grep -q 'deskcomm-voice-agent:1.66.1 linux/amd64' "$TMP/probes"
-TEST_MISSING=deskcomm-voice-agent
-reject 'a quarta imagem ausente recusa update' preflight_plataforma_atualizacao v1.66.2 linux/arm64
-unset TEST_MISSING
+ok 'quatro imagens próprias e WAHA completas em AMD64' preflight_plataforma_atualizacao v1.102.0 linux/amd64
+for img in elus360 elus360-worker elus360-scheduler elus360-voice-agent; do
+  grep -Fq "REGISTRY $img 1.102.0" "$TMP/probes" || { echo "✗ GHCR não sondou $img"; exit 1; }
+  grep -Fq "OCI $IMG_NS/$img:1.102.0 linux/amd64" "$TMP/probes" || { echo "✗ OCI não sondou $img"; exit 1; }
+done
+grep -Fq "OCI $WAHA_IMAGE linux/amd64" "$TMP/probes" || { echo '✗ WAHA não sondada'; exit 1; }
+
+: > "$TMP/probes"
+reject 'ARM64 recusada mesmo com release íntegra' preflight_plataforma_atualizacao v1.102.0 linux/arm64
+grep -Fq ELUS_DISTRIBUTION_NO_GO "$TMP/out" || { echo '✗ recusa ARM64 sem causa'; exit 1; }
+test ! -s "$TMP/probes" || { echo '✗ registro consultado antes de negar ARM64'; exit 1; }
+reject 'riscv64 é recusada' preflight_plataforma_atualizacao v1.102.0 linux/riscv64
+test ! -s "$TMP/probes" || { echo '✗ registro consultado antes de negar riscv64'; exit 1; }
+
+TEST_MISSING=elus360-voice-agent
+reject 'quarta imagem ausente bloqueia update' preflight_plataforma_atualizacao v1.102.0 linux/amd64
+grep -Fq 'elus360-voice-agent' "$TMP/out" || { echo '✗ pacote ausente não identificado'; exit 1; }
+TEST_MISSING=__none__
 TEST_OFFLINE=1
-reject 'registry indisponível recusa update' preflight_plataforma_atualizacao v1.66.1 linux/arm64
-unset TEST_OFFLINE
+reject 'registry fora do ar bloqueia update' preflight_plataforma_atualizacao v1.102.0 linux/amd64
+TEST_OFFLINE=0
 TEST_BAD_IMAGE=registry.exemplo/waha-plus:custom
 WAHA_IMAGE="$TEST_BAD_IMAGE"
-reject 'WAHA customizada incompatível é preservada e recusada' preflight_plataforma_atualizacao v1.66.1 linux/arm64
-test "$WAHA_IMAGE" = "$TEST_BAD_IMAGE"
-unset TEST_BAD_IMAGE
-ok 'WAHA Plus customizada compatível passa' preflight_plataforma_atualizacao v1.66.1 linux/arm64
-grep -q 'registry.exemplo/waha-plus:custom linux/arm64' "$TMP/probes"
+reject 'WAHA customizada incompatível é recusada' preflight_plataforma_atualizacao v1.102.0 linux/amd64
+test "$WAHA_IMAGE" = "$TEST_BAD_IMAGE" || { echo '✗ WAHA do operador foi alterada'; exit 1; }
+TEST_BAD_IMAGE=__none__
+ok 'WAHA customizada compatível em AMD64 é preservada' preflight_plataforma_atualizacao v1.102.0 linux/amd64
+grep -Fq 'registry.exemplo/waha-plus:custom linux/amd64' "$TMP/probes"
 WAHA_IMAGE=devlikeapro/waha:latest-2026.7.2
-ok 'WAHA padrão antiga migra só na sonda ARM64' preflight_plataforma_atualizacao v1.66.1 linux/arm64
-grep -q 'devlikeapro/waha:noweb-arm-2026.7.2 linux/arm64' "$TMP/probes"
-test "$WAHA_IMAGE" = devlikeapro/waha:latest-2026.7.2
-reject 'canal móvel não é update versionado' preflight_plataforma_atualizacao stable linux/arm64
+ok 'WAHA padrão é preservada' preflight_plataforma_atualizacao v1.102.0 linux/amd64
+reject 'tag móvel não é versão oficial' preflight_plataforma_atualizacao stable linux/amd64
+reject 'tag malformada não é versão oficial' preflight_plataforma_atualizacao v1.102 linux/amd64
 
-# O updater decide no-op/downgrade antes do preflight. Uma atualização real
-# recusada em ARM64 não pode ter feito backup, checkout ou tocado no banco. O
-# cron do agente e o GoTrue (signup/SMTP) ficam no passo 0, antes da decisão de
-# versão, de propósito: o "só convite" tem de chegar mesmo quando o update recusa.
-updater="$(<"$ROOT/hostgator-setup-kit/update.sh")"
-before="${updater%%if \[ \"\$PLATAFORMA_HOST\" = linux/arm64 \] && *! preflight_plataforma_atualizacao *}"
-test "$before" != "$updater" || { echo '✗ update.sh não chama preflight_plataforma_atualizacao só no ARM64'; exit 1; }
-after="${updater#*! preflight_plataforma_atualizacao *}"
-case "$before" in
-  *'bash "$KIT_DIR/backup.sh"'*|*'git checkout --quiet'*|*'atualizar_supabase_single_server ||'*)
-    echo '✗ atualização altera estado antes do preflight'; exit 1 ;;
-esac
-case "$before" in
-  *'sincronizar_signup_mode_do_gotrue'*'setup_update_agent_cron'*'Procurando atualizações'*) : ;;
-  *) echo '✗ GoTrue/cron saíram do passo 0'; exit 1 ;;
-esac
-case "$after" in
-  *'bash "$KIT_DIR/backup.sh"'*'git checkout --quiet'*) : ;;
-  *) echo '✗ ordem de backup/checkout incorreta'; exit 1 ;;
-esac
-echo '✓ update real em ARM64 consulta plataformas antes de efeitos'
+# Confere a sequência no updater real, não só funções isoladas.
+updater="$ROOT/hostgator-setup-kit/update.sh"
+linha() { grep -nF "$1" "$updater" | head -1 | cut -d: -f1; }
+origem="$(linha 'elus360_origem_confiavel')"
+release="$(linha 'elus360_release_publicada_no_main "$TARGET_TAG"')"
+dono="$(linha 'recusar_projeto_de_outra_arvore || refuse')"
+fetch="$(linha 'git fetch --tags --quiet origin')"
+manifestos="$(linha 'ELUS_VEREDITO_IMAGENS=')"
+preflight="$(linha 'if ! preflight_plataforma_atualizacao "$TARGET_TAG"')"
+backup="$(linha 'if bash "$KIT_DIR/backup.sh"')"
+test -n "$origem" && test -n "$release" && test -n "$dono" && test -n "$fetch" && test -n "$manifestos" && test -n "$preflight" && test -n "$backup" || { echo '✗ alguma etapa obrigatória desapareceu'; exit 1; }
+test "$origem" -lt "$release" && test "$release" -lt "$dono" && test "$dono" -lt "$fetch" &&
+  test "$fetch" -lt "$manifestos" && test "$manifestos" -lt "$preflight" && test "$preflight" -lt "$backup" || { echo '✗ proteção de procedência/arquitetura ocorre após mutações'; exit 1; }
+! grep -qE '^if \[ "\$PLATAFORMA_HOST" = linux/arm64 \]' "$updater" || { echo '✗ fallback ARM64 reintroduzido'; exit 1; }
+echo '✓ origem, release, propriedade, tag, GHCR e OCI são verificados antes de backup'
 
-# O escape da #1955 (DESKCOMM_BUILD_LOCAL) não pode sumir no ARM64: com o
-# registro fora, é justamente ele que deixa atualizar. Roda o `if` REAL do
-# update.sh, com `refuse` trocado por uma saída que o teste enxerga.
-guarda="$(sed -n '/^if \[ "\$PLATAFORMA_HOST" = linux\/arm64 \]/,/^fi$/p' "$ROOT/hostgator-setup-kit/update.sh")"
-[ -n "$guarda" ] || { echo '✗ não achei a guarda de plataforma no update.sh'; exit 1; }
-roda_guarda() ( refuse() { exit 3; }; PLATAFORMA_HOST=linux/arm64 TARGET_TAG=v1.66.1; eval "$guarda" )
-TEST_OFFLINE=1
-reject 'ARM64 com registro fora e sem construção local recusa' roda_guarda
-DESKCOMM_BUILD_LOCAL=1 ok 'ARM64 com registro fora e DESKCOMM_BUILD_LOCAL=1 não recusa' roda_guarda
-unset TEST_OFFLINE
-
-test -f "$ROOT/hostgator-setup-kit/preflight-upgrade.sh" || { echo '✗ falta bootstrap legado'; exit 1; }
-echo '✓ bootstrap legado presente'
-
+# Bootstrap pré-upgrade também deve recusar arquitetura errada SEM alterar a .env.
+bootstrap="$ROOT/hostgator-setup-kit/preflight-upgrade.sh"
+test -f "$bootstrap"
 mkdir -p "$TMP/instalacao" "$TMP/bin"
 printf 'services: {}\n' > "$TMP/instalacao/docker-compose.prod.yml"
-printf 'WAHA_IMAGE=registry.exemplo/plus:arm\nTEST_SECRET=segredo-que-nao-pode-sair\n' > "$TMP/instalacao/.env"
+printf 'WAHA_IMAGE=registry.exemplo/plus:custom\nTEST_SECRET=nao_vazar\n' > "$TMP/instalacao/.env"
 cp "$TMP/instalacao/.env" "$TMP/env-antes"
 cat > "$TMP/bin/uname" <<'STUB'
 #!/usr/bin/env bash
-[ "$*" = -m ] && { printf 'aarch64\n'; exit 0; }
-exec /usr/bin/uname "$@"
-STUB
-cat > "$TMP/bin/curl" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
-  *ghcr.io/v2/*) printf 200 ;;
-esac
+case "$1" in -s) printf 'Linux\n';; -m) printf 'aarch64\n';; *) exit 99;; esac
 STUB
 cat > "$TMP/bin/docker" <<'STUB'
 #!/usr/bin/env bash
-if [ "$1 $2 $3" = 'buildx imagetools inspect' ]; then
-  case " $* " in
-    *' --raw '*) printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"arm64"}}]';;
-    *) printf 'linux/arm64\n';;
-  esac
-  exit 0
-fi
-printf 'docker mutante chamado: %s\n' "$*" >&2
-exit 91
+printf '%s\n' "$*" >> "$REGISTRO_DOCKER"
+exit 99
 STUB
-chmod +x "$TMP/bin/uname" "$TMP/bin/curl" "$TMP/bin/docker"
-PATH="$TMP/bin:$PATH" bash "$ROOT/hostgator-setup-kit/preflight-upgrade.sh" \
-  --installation "$TMP/instalacao" --to v1.66.1 >"$TMP/cli-out" 2>&1 || {
-    echo "✗ bootstrap legado falhou: $(<"$TMP/cli-out")"; exit 1;
-  }
-cmp -s "$TMP/instalacao/.env" "$TMP/env-antes" || { echo '✗ bootstrap escreveu no .env'; exit 1; }
-! grep -q segredo-que-nao-pode-sair "$TMP/cli-out" || { echo '✗ segredo apareceu na saída'; exit 1; }
-echo '✓ bootstrap legado só lê e não divulga segredo'
+chmod +x "$TMP/bin/"*
+: > "$TMP/docker-acoes"
+if (cd "$TMP" && REGISTRO_DOCKER="$TMP/docker-acoes" PATH="$TMP/bin:$PATH" bash "$bootstrap" --installation "$TMP/instalacao" --to v1.102.0 > "$TMP/out-bootstrap" 2>&1); then
+  echo '✗ bootstrap aceitou ARM64'; exit 1
+fi
+grep -Fq ELUS_DISTRIBUTION_NO_GO "$TMP/out-bootstrap" || { echo '✗ bootstrap recusou sem explicar arquitetura'; exit 1; }
+cmp -s "$TMP/instalacao/.env" "$TMP/env-antes" || { echo '✗ bootstrap alterou .env'; exit 1; }
+test ! -s "$TMP/docker-acoes" || { echo '✗ bootstrap consultou/alterou Docker em ARM64'; exit 1; }
+! grep -Fq nao_vazar "$TMP/out-bootstrap" || { echo '✗ bootstrap vazou segredo'; exit 1; }
+echo '✓ bootstrap legado recusa ARM64 sem ler Docker, editar .env ou vazar segredo'
 
-# O update.sh carrega estes arquivos juntos, e em bash a ÚLTIMA definição de um
-# nome vence sem aviso. O merge com a #1955 produziu exatamente isso: dois
-# `preflight_atualizacao` no _common.sh, e o do ARM64 (2 argumentos, motivo no
-# stderr) calou o preflight geral que o update.sh chama com 1 argumento.
-dup="$(cat "$ROOT"/hostgator-setup-kit/{_i18n,_manifestos,_common,_supabase-images,manutencao}.sh \
-  | grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(\)' | sort | uniq -d)"
-[ -z "$dup" ] || { echo "✗ função definida duas vezes no kit: $dup"; exit 1; }
-echo '✓ nenhuma função do kit é definida duas vezes'
+# O carregamento sequencial não pode sombrear funções críticas.
+dup="$(cat "$ROOT"/hostgator-setup-kit/{_i18n,_manifestos,_common,_supabase-images,manutencao}.sh | grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(\)' | sort | uniq -d)"
+test -z "$dup" || { echo "✗ função duplicada no kit: $dup"; exit 1; }
+echo '✓ sem helpers com nomes duplicados'

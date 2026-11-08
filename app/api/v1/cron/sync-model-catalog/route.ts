@@ -1,3 +1,4 @@
+import { CHUTES_CATALOG_URL, FONTE_CHUTES, traduzirCatalogoChutes, type ModeloChutes } from "@/lib/ai/catalogo/chutes";
 /**
  * GET/POST /api/v1/cron/sync-model-catalog — o catálogo que se atualiza sozinho.
  *
@@ -8,9 +9,10 @@
  * cosmético: é o número que faz o teto de orçamento da organização disparar na
  * hora certa, ou não disparar.
  *
- * Este cron busca o catálogo público (sem chave — o endpoint de modelos da
- * OpenRouter é aberto), traduz e concilia. A regra da conciliação vive em
- * `lib/ai/catalogo/sincronizar.ts`; aqui é só borda e I/O.
+ * Este cron concilia a OpenRouter e descobre modelos nativos da OpenAI e
+ * Anthropic pelo catálogo público Models.dev. Não exige chave de IA e não
+ * muda modelos escolhidos pela organização. Fontes falham independentemente;
+ * falha de qualquer uma é reportada ao scheduler, sem desfazer a outra.
  *
  * O que ele deliberadamente NÃO faz:
  *
@@ -38,6 +40,8 @@ import type { NextRequest } from "next/server";
 
 import { autorizaCron } from "@/lib/auth/cron-auth";
 import { fail, ok } from "@/lib/api/wrappers";
+import { audit } from "@/lib/audit";
+import { FONTE_MODELS_DEV, sincronizarModelosNativos } from "@/lib/ai/catalogo/models-dev";
 import {
   FONTE_OPENROUTER,
   traduzirCatalogo,
@@ -49,8 +53,6 @@ import {
   type ModeloExistente,
 } from "@/lib/ai/catalogo/sincronizar";
 import { logger } from "@/lib/logger";
-import { executarSincronizacoesIndependentes } from "@/lib/ai/catalogo/fontes-independentes";
-import { CHUTES_CATALOG_URL, FONTE_CHUTES, traduzirCatalogoChutes, type ModeloChutes } from "@/lib/ai/catalogo/chutes";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -179,41 +181,66 @@ async function handler(req: NextRequest): Promise<Response> {
   if (!autorizaCron(req)) {
     return fail("unauthorized", "cron secret ausente ou inválido", 401, { requestId });
   }
-  // Cada fonte precisa rodar mesmo se a outra estiver indisponível.
-  // A falha de uma não pode impedir o catálogo da outra de atualizar.
-  const fontes = await executarSincronizacoesIndependentes(
-    () => sincronizarCatalogo(createAdminClient(), buscarDaOpenRouter),
-    () => sincronizarChutes(createAdminClient()),
-  );
-  const [openrouter, chutes] = fontes;
-  const erros: Record<string, string> = {};
-  if (openrouter.status === "rejected") {
-    erros[FONTE_OPENROUTER] = openrouter.reason instanceof CatalogoSuspeitoError
-      ? "catalogo_suspeito"
-      : "sincronizacao_falhou";
-    logger.warn("[sync-model-catalog] OpenRouter não sincronizado", {
-      motivo: erros[FONTE_OPENROUTER], request_id: requestId,
-    });
+  try {
+    const admin = createAdminClient();
+    const [openrouter, nativos, chutes] = await Promise.allSettled([
+      sincronizarCatalogo(admin, buscarDaOpenRouter),
+      sincronizarModelosNativos(admin),
+      sincronizarChutes(admin),
+    ]);
+    if (nativos.status === "fulfilled") {
+      logger.info("[sync-model-catalog] modelos nativos", {
+        ...nativos.value,
+        request_id: requestId,
+      });
+      if (nativos.value.gravados > 0) {
+        void audit({
+          action: "ai_models.synced",
+          resourceType: "ai_models",
+          requestId,
+          bypassedRls: true,
+          metadata: nativos.value,
+        });
+      }
+    }
+    if (nativos.status === "rejected") {
+      void audit({
+        action: "ai_models.sync_failed",
+        resourceType: "ai_models",
+        requestId,
+        metadata: { fonte: FONTE_MODELS_DEV, erro: String(nativos.reason).slice(0, 500) },
+      });
+      throw nativos.reason;
+    }
+    if (chutes.status === "rejected") {
+      logger.warn("[sync-model-catalog] Chutes não sincronizado", {
+        fonte: FONTE_CHUTES, request_id: requestId,
+      });
+    }
+    if (openrouter.status === "rejected") throw openrouter.reason;
+    const resultado = {
+      ...openrouter.value,
+      nativos: nativos.value,
+      chutes: chutes.status === "fulfilled" ? chutes.value : null,
+    };
+    logger.info("[sync-model-catalog] concluído", { ...resultado, request_id: requestId });
+    return ok(resultado, { requestId });
+  } catch (err) {
+    if (err instanceof CatalogoSuspeitoError) {
+      // Não é erro do servidor: a origem respondeu, e nós recusamos. 200 com o
+      // motivo, para o agendador não tratar como incidente e ficar retentando
+      // contra uma origem que está tendo problema.
+      logger.warn("[sync-model-catalog] rodada recusada pelo piso de sanidade", {
+        recebidos: err.recebidos,
+        conhecidos: err.conhecidos,
+        request_id: requestId,
+      });
+      return ok({ fonte: FONTE_OPENROUTER, recusado: true, motivo: err.message }, { requestId });
+    }
+    const detalhe = err instanceof Error ? err.message : String(err);
+    logger.error("[sync-model-catalog] falhou", { error: detalhe, request_id: requestId });
+    return fail("cron_failed", detalhe, 500, { requestId });
   }
-  if (chutes.status === "rejected") {
-    erros[FONTE_CHUTES] = "sincronizacao_falhou";
-    logger.warn("[sync-model-catalog] Chutes não sincronizado", {
-      motivo: erros[FONTE_CHUTES], request_id: requestId,
-    });
-  }
-  const sucessoOpenRouter = openrouter.status === "fulfilled" ? openrouter.value : null;
-  const sucessoChutes = chutes.status === "fulfilled" ? chutes.value : null;
-  if (!sucessoOpenRouter && !sucessoChutes) {
-    logger.error("[sync-model-catalog] nenhuma fonte sincronizada", {
-      fontes: Object.keys(erros), request_id: requestId,
-    });
-    return fail("cron_failed", "Nenhuma fonte de catálogo foi sincronizada", 503, { requestId });
-  }
-  logger.info("[sync-model-catalog] concluído", {
-    openrouter: sucessoOpenRouter, chutes: sucessoChutes,
-    fontes_com_erro: Object.keys(erros), request_id: requestId,
-  });
-  return ok({ openrouter: sucessoOpenRouter, chutes: sucessoChutes, erros }, { requestId });
 }
 
 export const GET = handler;
