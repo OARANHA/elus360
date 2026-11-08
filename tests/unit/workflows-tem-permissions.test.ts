@@ -52,6 +52,10 @@ const DIR = join(process.cwd(), ".github/workflows");
  * acrescente, e acrescentar sem razão é visível em code review.
  */
 const ESCRITA_JUSTIFICADA: Record<string, string> = {
+  "elus360-release-manual.yml::contents: write":
+    "cria tag oficial contida na main e release numerica do fork apenas em dispatch manual autorizado",
+  "elus360-release-manual.yml::packages: write":
+    "publica quatro imagens GHCR linux/amd64 exclusivamente no job de release manual apos merge",
   "publish-image.yml::packages: write":
     "publica a imagem do app no GHCR — é o artefato que o self-hoster instala",
   "vigia-de-colisao.yml::pull-requests: write":
