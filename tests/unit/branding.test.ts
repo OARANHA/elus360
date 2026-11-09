@@ -8,11 +8,19 @@ import { DEFAULT_APP_NAME, resolveBranding } from "@/lib/branding";
 const RAIZ = process.cwd();
 
 describe("resolveBranding", () => {
+  it("o padrão oficial do fork é ELUS360 em todas as instalações novas", () => {
+    expect(DEFAULT_APP_NAME).toBe("ELUS360");
+    const compose = fs.readFileSync(path.join(RAIZ, "compose.portainer.yml"), "utf8");
+    expect(compose).toContain("APP_NAME: ${APP_NAME:-ELUS360}");
+    const installer = fs.readFileSync(path.join(RAIZ, "hostgator-setup-kit/install.sh"), "utf8");
+    expect(installer).toContain("APP_NAME|Nome que aparece na interface (Enter para o padrão)|ELUS360");
+  });
+
   it("cai no padrão quando não há marca configurada", () => {
     expect(resolveBranding(undefined, undefined)).toEqual({
       name: DEFAULT_APP_NAME,
       logoUrl: null,
-      initial: "D",
+      initial: "E",
     });
   });
 
@@ -23,6 +31,11 @@ describe("resolveBranding", () => {
     expect(resolveBranding("", "").name).toBe(DEFAULT_APP_NAME);
     expect(resolveBranding("   ", "   ").name).toBe(DEFAULT_APP_NAME);
     expect(resolveBranding("   ", "   ").logoUrl).toBeNull();
+  });
+
+  it("converte somente o nome legado da instalação, sem alterar o white-label", () => {
+    expect(resolveBranding("DeskcommCRM", null).name).toBe("ELUS360");
+    expect(resolveBranding("Minha Empresa", null).name).toBe("Minha Empresa");
   });
 
   it("usa a marca configurada e deriva a inicial", () => {
@@ -131,7 +144,7 @@ describe("nome do arquivo de códigos de recuperação", () => {
   it("deriva o prefixo da marca, sem acento e sem espaço", () => {
     expect(prefixoDoArquivo("Vendas Turbo")).toBe("vendas-turbo");
     expect(prefixoDoArquivo("Ótima Gestão")).toBe("otima-gestao");
-    expect(prefixoDoArquivo(DEFAULT_APP_NAME)).toBe("deskcommcrm");
+    expect(prefixoDoArquivo(DEFAULT_APP_NAME)).toBe("elus360");
   });
 
   it("não devolve hífen pendurado nem repetido", () => {
@@ -829,6 +842,8 @@ describe("catraca de marca no que o GoTrue renderiza", () => {
 type CategoriaDeHost =
   /** Endpoint do fornecedor: PARA ONDE o código fala. Pode crescer. */
   | "FORNECEDOR"
+  /** Página institucional do fork, link externo de navegação, nunca endpoint com credenciais. */
+  | "PRODUTO"
   /** Painel/documentação do fornecedor: onde o usuário busca a credencial DELE. */
   | "CONSOLE"
   /** Amostra de formato em campo de formulário. Chega à tela — por isso se declara. */
@@ -856,6 +871,13 @@ type CategoriaDeHost =
 type EntradaDeHost = { categoria: CategoriaDeHost; motivo: string };
 
 const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
+  // Decisão do proprietário, 09/11/2026: link público do curso ELUS360.
+  // O browser abre uma aba nova; não há envio de tokens ou chamada de servidor.
+  "elus360.com.br": {
+    categoria: "PRODUTO",
+    motivo:
+      "Domínio público oficial do fork ELUS360, solicitado expressamente pelo proprietário para o CTA do curso em app/page.tsx. Link de navegação aberto pelo visitante (target _blank com noopener noreferrer), nunca endpoint de API nem envio de credenciais. Não permite outros subdomínios ou URLs de terceiros.",
+  },
   "chatgpt.com": {
     categoria: "CONSOLE",
     motivo:
@@ -1327,6 +1349,7 @@ describe("catraca de host de terceiro no código que embarca", () => {
   it("toda entrada declara categoria válida e explica o porquê", () => {
     const categorias: CategoriaDeHost[] = [
       "FORNECEDOR",
+      "PRODUTO",
       "CONSOLE",
       "AMOSTRA",
       "PLATAFORMA",
@@ -1395,6 +1418,9 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // Decisão escrita: painel de chaves do ElevenLabs, o mesmo caso dos outros
       // CONSOLE — o link "Onde pegar a chave" da tela de Credenciais.
       "elevenlabs.io",
+      // Decisão escrita ELUS360 09/11/2026: domínio do curso oficial,
+      // usado só como link de navegação, sem chamada do servidor.
+      "elus360.com.br",
       // Decisão escrita (spec 24, auditoria de site): marca agregador e conta
       // como link social no raio-X — nunca chamada, nunca exibida (a tela mostra
       // o rótulo traduzido).
