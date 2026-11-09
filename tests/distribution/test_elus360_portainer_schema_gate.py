@@ -35,7 +35,7 @@ class GateTests(unittest.TestCase):
             urls.append(req.full_url)
             self.assertIn("Bearer secret", req.headers.values())
             return FakeResponse()
-        failures = gate.check_schema("https://example.supabase.co", "secret", {"contacts": ["id","zip_code"]}, opener)
+        failures = gate.check_schema("https://abcdefghijklmnopqrst.supabase.co", "secret", {"contacts": ["id","zip_code"]}, opener)
         self.assertEqual(failures, [])
         self.assertEqual(parse_qs(urlsplit(urls[0]).query), {"select": ["id,zip_code"], "limit": ["0"]})
         self.assertNotIn("secret", urls[0])
@@ -43,7 +43,7 @@ class GateTests(unittest.TestCase):
     def test_missing_column_fails_closed_without_leaking_body(self):
         def opener(req, timeout):
             raise HTTPError(req.full_url, 400, "column absent and secret", {}, None)
-        self.assertEqual(gate.check_schema("https://example.supabase.co", "secret", {"contacts": ["zip_code"]}, opener), ["contacts: HTTP 400"])
+        self.assertEqual(gate.check_schema("https://abcdefghijklmnopqrst.supabase.co", "secret", {"contacts": ["zip_code"]}, opener), ["contacts: HTTP 400"])
 
     def test_invalid_contract_or_missing_credentials(self):
         with self.assertRaises(ValueError):
