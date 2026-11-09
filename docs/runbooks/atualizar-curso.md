@@ -1,5 +1,12 @@
 # Atualizar o curso com IA
 
+> **Fork ELUS360:** para o curso em https://elus360.com.br/curso, leia primeiro
+> [a adaptação específica ELUS360](atualizar-curso-elus360.md). O destino
+> `melgarafael/deskcomm-site` descrito abaixo pertence exclusivamente ao
+> projeto upstream; o recibo `curso/publicacao.json` também não prova a
+> publicação da Academia ELUS360. O planejador agora aceita `--edicao elus360`,
+> que consulta apenas o recibo próprio do fork, quando houver.
+
 `/deskcomm-curso` conduz a manutenção na sessão do Claude ou do Codex: lê mudanças, revisa
 material, corrige seletores, captura o app real e prepara a publicação. O programa
 `curso/planejar-atualizacao.ts` faz a triagem determinística; ele não chama modelos, não abre o
