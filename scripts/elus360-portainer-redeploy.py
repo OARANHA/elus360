@@ -22,7 +22,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 REPO = "OARANHA/elus360"
 def image_namespace() -> str:
     source = (Path(__file__).resolve().parents[1] / "hostgator-setup-kit" / "_common.sh").read_text(encoding="utf-8")
-    match = re.search(r'^IMG_NS="(ghcr\\.io/[a-z0-9_-]+)"$', source, re.MULTILINE)
+    match = re.search(r'^IMG_NS="(ghcr\.io/[a-z0-9_-]+)"$', source, re.MULTILINE)
     if match is None:
         raise ValueError("IMG_NS nao encontrado no kit canonico")
     return match.group(1)
