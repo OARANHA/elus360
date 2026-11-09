@@ -106,7 +106,7 @@ function semImpactoVisualDireto(arquivo: string): boolean {
     || /\.(test|spec)\.[cm]?[jt]sx?$/.test(arquivo)
     || /^(docs|evidence|\.changes|\.github|\.agents|\.claude)\//.test(arquivo)
     || /^(README|CHANGELOG|CLAUDE|AGENTS)\.md$/.test(arquivo)
-    || /^curso\/(saida\/|publicacao\.json$|atualizacao\.ts$|planejar-atualizacao\.ts$)/.test(arquivo);
+    || /^curso\/(saida\/|publicacao(?:-elus360)?\.json$|atualizacao\.ts$|planejar-atualizacao\.ts$)/.test(arquivo);
 }
 
 export function planejarAtualizacao(opcoes: {
@@ -114,9 +114,12 @@ export function planejarAtualizacao(opcoes: {
   head?: string;
   base?: string;
   idiomas?: IdiomaDoPlano[];
+  /** Separa rigorosamente o recibo da nossa Academia do recibo herdado do upstream. */
+  edicao?: "upstream" | "elus360";
 }): PlanoDeAtualizacao {
   const { repositorio } = opcoes;
   const head = commit(repositorio, opcoes.head ?? "HEAD", "head");
+  const recibo = opcoes.edicao === "elus360" ? "curso/publicacao-elus360.json" : "curso/publicacao.json";
   const idiomas = [...new Set(z.array(Idioma).min(1).parse(opcoes.idiomas ?? ["pt-BR", "es"]))].sort();
   const { modulos, nichos } = catalogo(repositorio, head);
   let base: string | null = null;
@@ -125,11 +128,11 @@ export function planejarAtualizacao(opcoes: {
   const rodadaCompleta: string[] = [];
   let reciboIncompleto = false;
   // O registro precisa estar no commit comparado. Arquivo solto no disco não comprova publicação.
-  const arquivosDoCurso = git(repositorio, ["ls-tree", "-z", "--name-only", head, "--", "curso/publicacao.json"]);
+  const arquivosDoCurso = git(repositorio, ["ls-tree", "-z", "--name-only", head, "--", recibo]);
   if (arquivosDoCurso) {
     let publicacao: z.infer<typeof Publicacao> | undefined;
     try {
-      const resultado = Publicacao.safeParse(lerJsonDoCommit(repositorio, head, "curso/publicacao.json"));
+      const resultado = Publicacao.safeParse(lerJsonDoCommit(repositorio, head, recibo));
       if (resultado.success) publicacao = resultado.data;
       else reciboIncompleto = true;
     } catch { reciboIncompleto = true; }
