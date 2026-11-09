@@ -842,6 +842,8 @@ describe("catraca de marca no que o GoTrue renderiza", () => {
 type CategoriaDeHost =
   /** Endpoint do fornecedor: PARA ONDE o código fala. Pode crescer. */
   | "FORNECEDOR"
+  /** Página institucional do fork, link externo de navegação, nunca endpoint com credenciais. */
+  | "PRODUTO"
   /** Painel/documentação do fornecedor: onde o usuário busca a credencial DELE. */
   | "CONSOLE"
   /** Amostra de formato em campo de formulário. Chega à tela — por isso se declara. */
@@ -869,6 +871,13 @@ type CategoriaDeHost =
 type EntradaDeHost = { categoria: CategoriaDeHost; motivo: string };
 
 const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
+  // Decisão do proprietário, 09/11/2026: link público do curso ELUS360.
+  // O browser abre uma aba nova; não há envio de tokens ou chamada de servidor.
+  "elus360.com.br": {
+    categoria: "PRODUTO",
+    motivo:
+      "Domínio público oficial do fork ELUS360, solicitado expressamente pelo proprietário para o CTA do curso em app/page.tsx. Link de navegação aberto pelo visitante (target _blank com noopener noreferrer), nunca endpoint de API nem envio de credenciais. Não permite outros subdomínios ou URLs de terceiros.",
+  },
   "chatgpt.com": {
     categoria: "CONSOLE",
     motivo:
@@ -1340,6 +1349,7 @@ describe("catraca de host de terceiro no código que embarca", () => {
   it("toda entrada declara categoria válida e explica o porquê", () => {
     const categorias: CategoriaDeHost[] = [
       "FORNECEDOR",
+      "PRODUTO",
       "CONSOLE",
       "AMOSTRA",
       "PLATAFORMA",
@@ -1408,6 +1418,9 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // Decisão escrita: painel de chaves do ElevenLabs, o mesmo caso dos outros
       // CONSOLE — o link "Onde pegar a chave" da tela de Credenciais.
       "elevenlabs.io",
+      // Decisão escrita ELUS360 09/11/2026: domínio do curso oficial,
+      // usado só como link de navegação, sem chamada do servidor.
+      "elus360.com.br",
       // Decisão escrita (spec 24, auditoria de site): marca agregador e conta
       // como link social no raio-X — nunca chamada, nunca exibida (a tela mostra
       // o rótulo traduzido).
