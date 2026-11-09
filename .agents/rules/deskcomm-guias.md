@@ -1,25 +1,25 @@
 ---
 trigger: always_on
-description: Guias do assistente do DeskcommCRM — quando usar cada um
+description: Guias do assistente do ELUS360 — quando usar cada um
 ---
 
 Este repositório embute guias (skills em `.agents/skills/`) para situações recorrentes. Quando o pedido
 casar, carregue o guia antes de agir — a pessoa pode não saber que ele existe:
 
 - instalar, subir, atualizar, consertar a instalação numa VPS, domínio, Supabase, WhatsApp
-  que não conecta → `deskcomm-instalar`
-- usar o CRM no dia a dia, encontrar uma tela, entender um fluxo ou configurar algo pela interface → `deskcomm-operacao`
+  que não conecta → `elus360-instalar`
+- usar o CRM no dia a dia, encontrar uma tela, entender um fluxo ou configurar algo pela interface → `elus360-operacao`
 - configurar o CRM para um cliente ou nicho (clínica, imobiliária, serviços, curso, loja,
-  escritório de advocacia): agentes, roteadores, follow-ups, base de conhecimento → `deskcomm-cliente-novo`
+  escritório de advocacia): agentes, roteadores, follow-ups, base de conhecimento → `elus360-cliente-novo`
 - revender o CRM como SaaS: painel do dono, planos, teste grátis, cobrar os clientes pela Stripe ou pelo
-  Asaas, régua de atraso, nota fiscal, contrato com o cliente final → `deskcomm-saas`
-- desempenho, conversão, custo de IA, funil, relatório, "o agente está vendendo?" → `deskcomm-metricas`
-- o agente responde errado, passa tudo para humano, não usa a agenda, melhorar o prompt → `deskcomm-prompt`
-- contribuir, corrigir um bug, abrir ou atualizar um PR, migration, conflito com a main → `deskcomm-contribuir`
-  (rode `bash .agents/skills/deskcomm-contribuir/scripts/quem-sou.sh` primeiro: se disser
+  Asaas, régua de atraso, nota fiscal, contrato com o cliente final → `elus360-saas`
+- desempenho, conversão, custo de IA, funil, relatório, "o agente está vendendo?" → `elus360-metricas`
+- o agente responde errado, passa tudo para humano, não usa a agenda, melhorar o prompt → `elus360-prompt`
+- contribuir, corrigir um bug, abrir ou atualizar um PR, migration, conflito com a main → `elus360-contribuir`
+  (rode `bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh` primeiro: se disser
   `mantenedor`, este guia fica quieto)
-- criar extensão, plugin, módulo ou tema de nicho; "isto é núcleo ou extensão?" → `deskcomm-extensao`
-- atualizar aulas, traduções e capturas do curso visual após mudanças do CRM → `deskcomm-curso`
+- criar extensão, plugin, módulo ou tema de nicho; "isto é núcleo ou extensão?" → `elus360-extensao`
+- atualizar aulas, traduções e capturas do curso visual após mudanças do CRM → `elus360-curso`
 
-Escrevendo código aqui: `deskcomm-doutrina` (as regras que mais custam) e `sistema-vivo` (o gate
+Escrevendo código aqui: `elus360-doutrina` (as regras que mais custam) e `sistema-vivo` (o gate
 de arquitetura). A doutrina completa é o `CLAUDE.md` da raiz; o contrato portável é o `AGENTS.md`.

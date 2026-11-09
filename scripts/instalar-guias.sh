@@ -4,8 +4,8 @@
 # `$0` vale `bash` e não há arquivo de onde reler um comentário — o --help saía vazio, com exit 0.
 ajuda() {
   cat <<'AJUDA'
-instalar-guias.sh — deixa os guias do assistente (deskcomm-instalar, deskcomm-cliente-novo,
-deskcomm-metricas, deskcomm-prompt, deskcomm-contribuir, deskcomm-doutrina e deskcomm-curso) disponíveis
+instalar-guias.sh — deixa os guias do assistente (elus360-instalar, elus360-cliente-novo,
+elus360-metricas, elus360-prompt, elus360-contribuir, elus360-doutrina e elus360-curso) disponíveis
 em QUALQUER pasta, não só dentro de um clone do DeskcommCRM.
 
 ── Por que existe ────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ echo "ok: ${#guias[@]} guias em ${#DESTINOS[@]} pastas — $ligados ligados, $co
 printf '  %s\n' "${guias[@]}"
 [ "$obsoletos" = 0 ] || echo "  (removi $obsoletos instalação(ões) de guia que saiu da fonte)"
 echo "Abra uma sessão NOVA do seu assistente e peça o assunto em português (ex.: \"quero instalar o CRM na minha VPS\") — o guia certo carrega sozinho em qualquer um deles."
-echo "Para chamar pelo nome: /deskcomm-instalar no Claude Code, no Cursor e no Antigravity; \$deskcomm-instalar no Codex; no OpenCode, peça pelo nome (\"use o guia deskcomm-instalar\")."
+echo "Para chamar pelo nome: /elus360-instalar no Claude Code, no Cursor e no Antigravity; \$elus360-instalar no Codex; no OpenCode, peça pelo nome (\"use o guia elus360-instalar\")."
 if [ -z "$fonte" ] || [ "$copiados" -gt 0 ]; then
   echo "Os guias NÃO se atualizam sozinhos: rode este comando de novo para trazer a versão nova."
 fi

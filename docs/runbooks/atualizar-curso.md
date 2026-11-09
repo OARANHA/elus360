@@ -7,7 +7,7 @@
 > publicação da Academia ELUS360. O planejador agora aceita `--edicao elus360`,
 > que consulta apenas o recibo próprio do fork, quando houver.
 
-`/deskcomm-curso` conduz a manutenção na sessão do Claude ou do Codex: lê mudanças, revisa
+`/elus360-curso` conduz a manutenção na sessão do Claude ou do Codex: lê mudanças, revisa
 material, corrige seletores, captura o app real e prepara a publicação. O programa
 `curso/planejar-atualizacao.ts` faz a triagem determinística; ele não chama modelos, não abre o
 app e não publica. Não existe um daemon ou uma cobrança de IA adicional implícita.
@@ -15,10 +15,10 @@ app e não publica. Não existe um daemon ou uma cobrança de IA adicional impl�
 **CONFIRMADO:** lições em `curso/licoes/*.json`, roteiros em `curso/demonstracoes/*.json`,
 capturadores em `curso/capturar.ts` e `curso/capturar-jornadas.ts`, montagem em `curso/montar.ts`.
 O site público pertence a **melgarafael/deskcomm-site**, em outro clone/PR. A fonte canônica da
-skill fica em `.agents/skills/deskcomm-curso/`; `pnpm skills:sync` gera o espelho Claude.
+skill fica em `.agents/skills/elus360-curso/`; `pnpm skills:sync` gera o espelho Claude.
 `scripts/instalar-guias.sh` instala os guias `deskcomm-*` para Claude e Codex.
 
-Chame **`/deskcomm-curso` no Claude Code** ou **`$deskcomm-curso` no Codex**, seguido do pedido
+Chame **`/elus360-curso` no Claude Code** ou **`$elus360-curso` no Codex**, seguido do pedido
 de atualização. Para disponibilizar o guia fora do clone, rode
 `bash scripts/instalar-guias.sh --fonte .` na raiz e abra uma sessão nova do CLI. Ao desenvolver
 o guia, esse `--fonte` evita que uma cópia global antiga prevaleça sobre a versão do projeto.

@@ -154,8 +154,8 @@ curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/script
 
 Depois abra uma sessão nova do seu assistente e diga *"quero instalar o CRM na minha VPS"*: pedir o
 assunto em português aciona o guia certo em qualquer um dos cinco. Para chamar um guia pelo nome,
-cada um tem o seu jeito — `/deskcomm-instalar` no Claude Code, no Cursor e no Antigravity;
-`$deskcomm-instalar` no Codex; no OpenCode, peça pelo nome, em linguagem natural.
+cada um tem o seu jeito — `/elus360-instalar` no Claude Code, no Cursor e no Antigravity;
+`$elus360-instalar` no Codex; no OpenCode, peça pelo nome, em linguagem natural.
 
 Os guias **não** se atualizam sozinhos: rodar o mesmo comando de novo traz a versão nova. Para
 desfazer:

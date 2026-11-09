@@ -526,7 +526,7 @@ g="$TMP/mig-grande"; mkdir -p "$g/supabase/migrations" "$g/scripts" "$g/loop/hoo
 git -C "$g" init -q -b main
 cp "$RAIZ/scripts/migration-populacao.sh" "$g/scripts/"
 cp "$HOOKS_ORIGEM/check-migration-triple.sh" "$g/loop/hooks/"
-cp "$RAIZ/.agents/skills/deskcomm-contribuir/scripts/hooks/check-migration-triple.sh" "$g/contrib/"
+cp "$RAIZ/.agents/skills/elus360-contribuir/scripts/hooks/check-migration-triple.sh" "$g/contrib/"
 printf -- '-- baseline\n' > "$g/supabase/baseline.sql"
 printf '| base |\n' > "$g/supabase/migrations/MANIFEST.md"
 commitar "$g" "base"

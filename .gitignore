@@ -90,7 +90,7 @@ lib/agent-engine/golden-candidates/stage-divergence_*.json
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/sistema-vivo/
-!.claude/skills/deskcomm-*/
+!.claude/skills/elus360-*/
 
 # Local docker volumes (WAHA)
 .waha-data/

@@ -165,7 +165,7 @@ git config --global user.email "o-email-da-sua-conta@github.com"
 
 ```bash
 pnpm install
-bash .agents/skills/deskcomm-contribuir/scripts/armar-hooks.sh
+bash .agents/skills/elus360-contribuir/scripts/armar-hooks.sh
 ```
 
 O segundo comando instala três guardas do git que evitam os erros mais caros: commit de
@@ -193,7 +193,7 @@ documentação, `chore/...` para manutenção.
 ## 3. Subir o banco de dados local
 
 Fonte: o mesmo roteiro que o CI usa, em
-[`receita-e2e-local.md`](../.agents/skills/deskcomm-contribuir/references/receita-e2e-local.md).
+[`receita-e2e-local.md`](../.agents/skills/elus360-contribuir/references/receita-e2e-local.md).
 
 ### 3.1 Por que não "rodar as migrations"
 
@@ -558,7 +558,7 @@ trabalho não salvo já apagou consertos neste projeto mais de uma vez.
 O Playwright é um robô que abre um navegador de verdade, clica e lê a tela como uma pessoa faria.
 Neste projeto, ele é a **prova de que a experiência funciona** — chamada de API (`curl`) prova o
 servidor, não o que o usuário vê. Fonte da receita:
-[`receita-e2e-local.md`](../.agents/skills/deskcomm-contribuir/references/receita-e2e-local.md) e,
+[`receita-e2e-local.md`](../.agents/skills/elus360-contribuir/references/receita-e2e-local.md) e,
 acima dela, o próprio [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml).
 
 ### 10.1 Preparar (uma vez)
@@ -673,7 +673,7 @@ A prova de tela fica com quem mantém o projeto — é o combinado público, nã
 Antes de abrir, rode o script que mede o mesmo que a revisão vai medir:
 
 ```bash
-bash .agents/skills/deskcomm-contribuir/scripts/pre-voo.sh
+bash .agents/skills/elus360-contribuir/scripts/pre-voo.sh
 ```
 
 Ele aponta: ramo atrasado em relação à `main`, arquivos que não são do produto (sua marca, seu
@@ -731,13 +731,13 @@ A pasta `.agents/skills/` traz **guias** que os assistentes carregam sozinhos ao
 
 | Guia | Quando entra em ação |
 |---|---|
-| `deskcomm-contribuir` | Contribuir: régua do PR, pré-voo, sabotagem, prova de tela |
-| `deskcomm-doutrina` | Escrever ou revisar código: as regras do `CLAUDE.md` |
+| `elus360-contribuir` | Contribuir: régua do PR, pré-voo, sabotagem, prova de tela |
+| `elus360-doutrina` | Escrever ou revisar código: as regras do `CLAUDE.md` |
 | `sistema-vivo` | Criar uma peça nova do sistema (tela, worker, métrica…) |
-| `deskcomm-instalar` | Instalar numa VPS |
-| `deskcomm-prompt`, `deskcomm-metricas`, `deskcomm-cliente-novo`… | Operar e afinar uma instalação |
+| `elus360-instalar` | Instalar numa VPS |
+| `elus360-prompt`, `elus360-metricas`, `elus360-cliente-novo`… | Operar e afinar uma instalação |
 
-No Claude Code, chame pelo nome com `/deskcomm-contribuir`; no Codex, `$deskcomm-contribuir`; nos
+No Claude Code, chame pelo nome com `/elus360-contribuir`; no Codex, `$elus360-contribuir`; nos
 demais, peça em português ("quero contribuir com o DeskcommCRM").
 
 Os assistentes também leem sozinhos o [`CLAUDE.md`](../CLAUDE.md) (Claude Code) ou o
@@ -753,7 +753,7 @@ Os assistentes também leem sozinhos o [`CLAUDE.md`](../CLAUDE.md) (Claude Code)
 
 **Implementar uma issue:**
 
-> Quero resolver a issue #<N> do DeskcommCRM. Carregue o guia `deskcomm-contribuir`. Antes de
+> Quero resolver a issue #<N> do DeskcommCRM. Carregue o guia `elus360-contribuir`. Antes de
 > codar: leia a issue, o `CLAUDE.md` e o código que ela toca, e me mostre um plano curto com os
 > arquivos que vão mudar e o teste que vai ficar vermelho sem o conserto. Só codifique depois que
 > eu aprovar o plano.
@@ -767,7 +767,7 @@ Os assistentes também leem sozinhos o [`CLAUDE.md`](../CLAUDE.md) (Claude Code)
 
 **Revisar antes do PR:**
 
-> Rode o pré-voo (`.agents/skills/deskcomm-contribuir/scripts/pre-voo.sh`) e a escada do
+> Rode o pré-voo (`.agents/skills/elus360-contribuir/scripts/pre-voo.sh`) e a escada do
 > capítulo 9 da apostila. Para cada item, mostre o comando e o rodapé da saída. Depois escreva o
 > corpo do PR com as seções "o que muda", "o que medi" e "o que NÃO medi".
 

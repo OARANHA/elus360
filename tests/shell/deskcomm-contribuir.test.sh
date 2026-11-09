@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Prova dos scripts da skill deskcomm-contribuir num repositório git DESCARTÁVEL.
+# Prova dos scripts da skill elus360-contribuir num repositório git DESCARTÁVEL.
 # Nada aqui toca o clone de quem roda: cada caso cria um repo em diretório
 # temporário, com um "origin" local fazendo o papel do repositório principal.
 #
-#   bash tests/shell/deskcomm-contribuir.test.sh
+#   bash tests/shell/elus360-contribuir.test.sh
 #
 # O que está sob prova:
 #   1. quem-sou.sh diz "contribuidor" para e-mail desconhecido e "mantenedor"
@@ -37,7 +37,7 @@
 set -uo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SKILL="$RAIZ/.agents/skills/deskcomm-contribuir"
+SKILL="$RAIZ/.agents/skills/elus360-contribuir"
 SCRIPTS="$SKILL/scripts"
 falhas=0; casos=0
 ok()   { casos=$((casos+1)); printf '  ✓ %s\n' "$1"; }
@@ -73,8 +73,8 @@ cfg() { local alvo="$1"; shift; git config --file "$alvo/.git/config" "$@"; }
 principal="$TMP/principal"; mkdir -p "$principal"
 git -C "$principal" init -q -b main
 cfg "$principal" user.email "mantenedor@exemplo.com"; cfg "$principal" user.name "Mantenedor"
-mkdir -p "$principal/supabase/migrations" "$principal/.agents/skills/deskcomm-contribuir/scripts/hooks"
-cp -R "$SCRIPTS"/. "$principal/.agents/skills/deskcomm-contribuir/scripts/"
+mkdir -p "$principal/supabase/migrations" "$principal/.agents/skills/elus360-contribuir/scripts/hooks"
+cp -R "$SCRIPTS"/. "$principal/.agents/skills/elus360-contribuir/scripts/"
 # A biblioteca da POPULAÇÃO (#1273) mora em scripts/, fora da skill — e sem ela
 # os hooks caem no caminho degradado e medem menos. O caso 2 mede o caminho
 # COM a biblioteca; o 2-bis apaga o arquivo de propósito e mede o sem.
@@ -91,20 +91,20 @@ git -C "$principal" add -A && git -C "$principal" commit -q -m "base"
 clonar() { # $1 = destino, $2 = e-mail do contribuidor
   rm -rf "$1"; git clone -q "$principal" "$1"
   cfg "$1" user.email "$2"; cfg "$1" user.name "Pessoa"
-  cfg "$1" core.hooksPath ".agents/skills/deskcomm-contribuir/scripts/hooks"
-  chmod +x "$1"/.agents/skills/deskcomm-contribuir/scripts/*.sh "$1"/.agents/skills/deskcomm-contribuir/scripts/hooks/*
+  cfg "$1" core.hooksPath ".agents/skills/elus360-contribuir/scripts/hooks"
+  chmod +x "$1"/.agents/skills/elus360-contribuir/scripts/*.sh "$1"/.agents/skills/elus360-contribuir/scripts/hooks/*
 }
 
 echo "1. quem-sou.sh"
 clone="$TMP/c1"; clonar "$clone" "alguem@fork.dev"
-saida="$(cd "$clone" && bash .agents/skills/deskcomm-contribuir/scripts/quem-sou.sh)"
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh)"
 assert_contains "$saida" "^contribuidor" "e-mail desconhecido → contribuidor"
 assert_contains "$saida" "alguem@fork.dev" "a saída explica o motivo (o e-mail)"
 cfg "$clone" user.email "rafael@maudibrasil.com.br"
-saida="$(cd "$clone" && bash .agents/skills/deskcomm-contribuir/scripts/quem-sou.sh --curto)"
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh --curto)"
 assert_contains "$saida" "^mantenedor$" "e-mail do .mailmap → mantenedor (--curto)"
 cfg "$clone" user.email "119944436+melgarafael@users.noreply.github.com"
-saida="$(cd "$clone" && bash .agents/skills/deskcomm-contribuir/scripts/quem-sou.sh)"
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh)"
 assert_contains "$saida" "^mantenedor" "segundo e-mail do .mailmap → mantenedor"
 
 echo "2. check-migration-triple.sh (pre-commit)"
@@ -151,9 +151,9 @@ echo "2-bis. check-migration-triple.sh sem a biblioteca (a guarda NÃO afrouxa)"
 sem_lib="$TMP/c2-sem-lib"
 rm -rf "$sem_lib"; git clone -q "$principal" "$sem_lib"
 cfg "$sem_lib" user.email "alguem@fork.dev"; cfg "$sem_lib" user.name "Pessoa"
-cfg "$sem_lib" core.hooksPath ".agents/skills/deskcomm-contribuir/scripts/hooks"
-chmod +x "$sem_lib"/.agents/skills/deskcomm-contribuir/scripts/*.sh \
-          "$sem_lib"/.agents/skills/deskcomm-contribuir/scripts/hooks/*
+cfg "$sem_lib" core.hooksPath ".agents/skills/elus360-contribuir/scripts/hooks"
+chmod +x "$sem_lib"/.agents/skills/elus360-contribuir/scripts/*.sh \
+          "$sem_lib"/.agents/skills/elus360-contribuir/scripts/hooks/*
 cd "$sem_lib" || exit 1; git switch -q -c fix/sem-lib
 rm -f scripts/migration-populacao.sh   # a queda real da biblioteca
 [ -r scripts/migration-populacao.sh ] && falha "2-bis" "a biblioteca não saiu do clone: o caso não mede a queda"
@@ -203,7 +203,7 @@ saida="$(git commit -q -m "migration num fork" 2>&1)"; code=$?
 assert_exit "$code" 0 "número livre no fork não bloqueia (não há colisão medida)"
 assert_contains "$saida" "NÃO MEDIDOS contra a main do PRODUTO" "o hook declara que não mediu a main do produto"
 assert_contains "$saida" "git remote add upstream" "e diz como corrigir"
-saida="$(bash .agents/skills/deskcomm-contribuir/scripts/pre-voo.sh 2>&1)"
+saida="$(bash .agents/skills/elus360-contribuir/scripts/pre-voo.sh 2>&1)"
 assert_not_contains "$saida" "✓ NNNN" "o pré-voo não dá ✓ de NNNN livre sobre a main do fork"
 assert_not_contains "$saida" "✓ próximo NNNN" "nem ✓ de próximo NNNN"
 assert_contains "$saida" "NÃO MEDIDO contra a main do PRODUTO" "o pré-voo declara a régua"
@@ -281,24 +281,24 @@ assert_exit "$code" 0 "e um número de fato livre passa (o HEAD não acusa o pr�
 cd "$merge" || exit 1
 
 echo "3. pre-push"
-saida="$(printf 'refs/heads/fix/algo %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" | bash .agents/skills/deskcomm-contribuir/scripts/hooks/pre-push origin x 2>&1)"; code=$?
+saida="$(printf 'refs/heads/fix/algo %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" | bash .agents/skills/elus360-contribuir/scripts/hooks/pre-push origin x 2>&1)"; code=$?
 assert_exit "$code" 1 "push para refs/heads/main é bloqueado"
 assert_contains "$saida" "a main é produção" "a mensagem explica"
-saida="$(printf 'refs/heads/fix/algo %s refs/heads/fix/algo %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000000000" | bash .agents/skills/deskcomm-contribuir/scripts/hooks/pre-push origin x 2>&1)"; code=$?
+saida="$(printf 'refs/heads/fix/algo %s refs/heads/fix/algo %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000000000" | bash .agents/skills/elus360-contribuir/scripts/hooks/pre-push origin x 2>&1)"; code=$?
 assert_exit "$code" 0 "push de feature branch passa"
 
 echo "4. armar-hooks.sh"
 clone="$TMP/c4"; clonar "$clone" "alguem@fork.dev"; cfg "$clone" --unset core.hooksPath
 cd "$clone" || exit 1
-saida="$(bash .agents/skills/deskcomm-contribuir/scripts/armar-hooks.sh 2>&1)"; code=$?
+saida="$(bash .agents/skills/elus360-contribuir/scripts/armar-hooks.sh 2>&1)"; code=$?
 assert_exit "$code" 0 "arma sem erro"
-assert_contains "$(git config --get core.hooksPath)" "deskcomm-contribuir/scripts/hooks" "core.hooksPath aponta para os hooks do contribuidor"
+assert_contains "$(git config --get core.hooksPath)" "elus360-contribuir/scripts/hooks" "core.hooksPath aponta para os hooks do contribuidor"
 cfg "$clone" core.hooksPath loop/hooks
-saida="$(bash .agents/skills/deskcomm-contribuir/scripts/armar-hooks.sh 2>&1)"; code=$?
+saida="$(bash .agents/skills/elus360-contribuir/scripts/armar-hooks.sh 2>&1)"; code=$?
 assert_exit "$code" 2 "recusa sobrescrever hooks alheios (loop/hooks do mantenedor)"
 assert_contains "$(git config --get core.hooksPath)" "^loop/hooks$" "core.hooksPath intacto"
-cfg "$clone" core.hooksPath ".agents/skills/deskcomm-contribuir/scripts/hooks"
-saida="$(bash .agents/skills/deskcomm-contribuir/scripts/armar-hooks.sh --desarmar 2>&1)"
+cfg "$clone" core.hooksPath ".agents/skills/elus360-contribuir/scripts/hooks"
+saida="$(bash .agents/skills/elus360-contribuir/scripts/armar-hooks.sh --desarmar 2>&1)"
 assert_exit "$?" 0 "--desarmar sai com 0"
 if git config --get core.hooksPath >/dev/null; then falha "--desarmar limpa core.hooksPath"; else ok "--desarmar limpa core.hooksPath"; fi
 
@@ -310,7 +310,7 @@ printf 'select 9;\n' > "$principal/outro.txt"; git -C "$principal" add -A; git -
 printf '## [9.9.9] - à mão\n' >> CHANGELOG.md
 printf 'select 4;\n' > supabase/migrations/20260909110000_0202_sem_tripla.sql
 git add -A; DESKCOMM_MIGRATION_EDIT=1 git commit -q -m "pr com problemas"
-saida="$(bash .agents/skills/deskcomm-contribuir/scripts/pre-voo.sh 2>&1)"; code=$?
+saida="$(bash .agents/skills/elus360-contribuir/scripts/pre-voo.sh 2>&1)"; code=$?
 assert_exit "$code" 0 "pre-voo sai com 0 mesmo com problemas (é medição)"
 assert_contains "$saida" "commit(s) atrás de origin/main" "acusa branch atrasada"
 assert_contains "$saida" "seção de versão à mão no CHANGELOG.md" "acusa CHANGELOG à mão"
@@ -318,7 +318,7 @@ assert_contains "$saida" "SEM apêndice em supabase/baseline.sql" "acusa migrati
 assert_contains "$saida" "assinados como máquina" "acusa autoria root@vps"
 assert_contains "$saida" "checks obrigatórios NÃO MEDIDOS" "sem gh, declara o não medido em vez de copiar a lista"
 git switch -q main 2>/dev/null
-saida="$(bash .agents/skills/deskcomm-contribuir/scripts/pre-voo.sh 2>&1)"
+saida="$(bash .agents/skills/elus360-contribuir/scripts/pre-voo.sh 2>&1)"
 assert_contains "$saida" "você está na 'main'" "na main, manda abrir branch"
 
 # ── 5-bis. A migration que a PRÓPRIA branch já commitou entra na população ────
@@ -337,7 +337,7 @@ printf 'select 2;\n' > "$clone/supabase/migrations/20260920120000_0201_minha.sql
 printf -- '-- apêndice 0201\n' >> "$clone/supabase/baseline.sql"
 printf '| `20260920120000` | `0201_minha` |\n' >> "$clone/supabase/migrations/MANIFEST.md"
 git -C "$clone" add -A; git -C "$clone" commit -q -m "migration 0201 da própria branch"
-saida="$(cd "$clone" && bash .agents/skills/deskcomm-contribuir/scripts/pre-voo.sh 2>&1)"; code=$?
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/pre-voo.sh 2>&1)"; code=$?
 assert_exit "$code" 0 "o pré-voo mede e sai com 0"
 assert_contains "$saida" "próximo NNNN medido em produto/main ∪ outras refs do clone: 0202 (teto 0201)" "o próximo livre passa por cima do 0201 que a branch commitou"
 assert_not_contains "$saida" "próximo NNNN medido em produto/main ∪ outras refs do clone: 0201 (teto 0200)" "e não devolve o número que a própria branch usa"
@@ -523,15 +523,15 @@ unset -f gh
 
 echo "6. sessao.sh (hook de início de sessão)"
 clone="$TMP/c6"; clonar "$clone" "alguem@fork.dev"; cfg "$clone" --unset core.hooksPath
-saida="$(cd "$clone" && bash .agents/skills/deskcomm-contribuir/scripts/hooks/sessao.sh)"; code=$?
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/hooks/sessao.sh)"; code=$?
 assert_exit "$code" 0 "sai com 0"
 assert_contains "$saida" "clone é de um contribuidor" "contribuidor recebe o lembrete"
 assert_contains "$saida" "NÃO armados" "diz que os hooks não estão armados"
-cfg "$clone" core.hooksPath ".agents/skills/deskcomm-contribuir/scripts/hooks"
-saida="$(cd "$clone" && bash .agents/skills/deskcomm-contribuir/scripts/hooks/sessao.sh)"
+cfg "$clone" core.hooksPath ".agents/skills/elus360-contribuir/scripts/hooks"
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/hooks/sessao.sh)"
 assert_contains "$saida" "contribuidor armados" "com hooks armados, diz que estão"
 cfg "$clone" user.email "rafael@maudibrasil.com.br"
-saida="$(cd "$clone" && bash .agents/skills/deskcomm-contribuir/scripts/hooks/sessao.sh)"; code=$?
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/hooks/sessao.sh)"; code=$?
 assert_exit "$code" 0 "mantenedor: sai com 0"
 if [ -z "$saida" ]; then ok "mantenedor: silêncio total"; else falha "mantenedor: silêncio total" "saída: $saida"; fi
 
@@ -578,5 +578,5 @@ for sh in bash zsh; do
 done
 
 echo
-if [ "$falhas" = 0 ]; then echo "deskcomm-contribuir: $casos casos, todos verdes"; exit 0
-else echo "deskcomm-contribuir: $falhas de $casos casos vermelhos"; exit 1; fi
+if [ "$falhas" = 0 ]; then echo "elus360-contribuir: $casos casos, todos verdes"; exit 0
+else echo "elus360-contribuir: $falhas de $casos casos vermelhos"; exit 1; fi

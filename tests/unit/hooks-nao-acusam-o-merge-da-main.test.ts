@@ -48,7 +48,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const INVARIANTES = "loop/hooks/guard-invariants.sh";
 const MIG_MANTENEDOR = "loop/hooks/check-migration-triple.sh";
-const MIG_CONTRIBUIDOR = ".agents/skills/deskcomm-contribuir/scripts/hooks/check-migration-triple.sh";
+const MIG_CONTRIBUIDOR = ".agents/skills/elus360-contribuir/scripts/hooks/check-migration-triple.sh";
 const PLANO_GUARD = "loop/hooks/validate-features.sh";
 const POPULACAO = "scripts/migration-populacao.sh";
 
