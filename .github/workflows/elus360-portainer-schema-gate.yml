@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Recusar release não publicada ou fora da main
         env:
@@ -39,8 +39,9 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 3
           test "$(gh release view "$TAG" --repo OARANHA/elus360 --json isDraft,isPrerelease --jq '.isDraft == false and .isPrerelease == false')" = true || { echo 'ELUS_DISTRIBUTION_NO_GO: release não publicada'; exit 3; }
           gh release view "$TAG" --repo OARANHA/elus360 >/dev/null
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor HEAD origin/main || { echo 'ELUS_DISTRIBUTION_NO_GO: tag fora de main'; exit 3; }
+          git fetch --tags origin main
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || { echo 'ELUS_DISTRIBUTION_NO_GO: tag ausente'; exit 3; }
+          git merge-base --is-ancestor "refs/tags/$TAG" HEAD || { echo 'ELUS_DISTRIBUTION_NO_GO: tag fora de main'; exit 3; }
       - name: Conferir somente esquema, sem ler dados de clientes
         env:
           ELUS360_SUPABASE_URL: ${{ secrets.ELUS360_SUPABASE_URL }}
