@@ -150,10 +150,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release", required=True)
     parser.add_argument("--execute", action="store_true", help="Mutacao protegida; exige aprovacao exata")
+    parser.add_argument("--pre-migration", action="store_true", help="Somente release+Portainer; sem schema, sem mutacao")
     args = parser.parse_args(argv)
     try:
+        if args.execute and args.pre_migration:
+            raise ValueError("nao e permitido pular schema gate durante redeploy")
         refs, sha = official_release(args.release)
-        schema_gate(args.release)
+        if not args.pre_migration:
+            schema_gate(args.release)
         key = os.environ.get("ELUS360_PORTAINER_API_KEY", "")
         if not key:
             raise ValueError("ELUS360_PORTAINER_API_KEY ausente")
@@ -164,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("gate de schema aponta a banco diferente da stack")
         if stack.get("GitConfig", {}).get("ConfigHash") != sha:
             raise ValueError("Portainer ainda nao aponta para commit exato da release")
-        print(f"ELUS360_SCHEMA_GREEN: {args.release} SHA {sha[:12]}")
+        print(f"ELUS360_PREFLIGHT: {args.release} SHA {sha[:12]}" if args.pre_migration else f"ELUS360_SCHEMA_GREEN: {args.release} SHA {sha[:12]}")
         for name, old in previous.items():
             # Image digests are public; never print any other Portainer variable.
             print(f"rollback {name}={old}")
