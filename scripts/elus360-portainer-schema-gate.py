@@ -19,7 +19,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 CONTRACT = Path(__file__).resolve().parents[1] / "deploy" / "elus360-schema-contract.json"
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
-HOSTED_SUPABASE = re.compile(r"^[a-z0-9]{20}\\.supabase\\.co$")
+HOSTED_SUPABASE = re.compile(r"^[a-z0-9]{20}\.supabase\.co$")
 RELEASE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 
 
