@@ -55,8 +55,8 @@ const REPO_PRODUTO = "melgarafael/DeskcommCRM";
  * encontrado pelo teste de "todo consumidor declara a população", abaixo.
  */
 const CONSUMIDORES = [
-  ".agents/skills/deskcomm-contribuir/scripts/pre-voo.sh",
-  ".agents/skills/deskcomm-contribuir/scripts/hooks/check-migration-triple.sh",
+  ".agents/skills/elus360-contribuir/scripts/pre-voo.sh",
+  ".agents/skills/elus360-contribuir/scripts/hooks/check-migration-triple.sh",
   "loop/hooks/check-migration-triple.sh",
   "triagem/scripts/complemento.sh",
 ] as const;
@@ -209,10 +209,10 @@ describe("a biblioteca da população existe e é consumida por todos os oito lu
       "scripts/hooks/check-migration-triple.sh",
     ]) {
       const fonte = fs.readFileSync(
-        path.join(RAIZ, ".agents/skills/deskcomm-contribuir", rel),
+        path.join(RAIZ, ".agents/skills/elus360-contribuir", rel),
         "utf8",
       );
-      const espelho = path.join(RAIZ, ".claude/skills/deskcomm-contribuir", rel);
+      const espelho = path.join(RAIZ, ".claude/skills/elus360-contribuir", rel);
       if (!fs.existsSync(espelho)) continue;
       expect(fs.readFileSync(espelho, "utf8"), `espelho divergente: ${rel}`).toBe(fonte);
     }

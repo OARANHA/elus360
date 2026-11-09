@@ -5,8 +5,8 @@
 #   bash tests/shell/instalar-guias.test.sh
 #
 # O que está sob prova:
-#   1. Instala: cada guia deskcomm-* vira link nas três pastas globais que os CLIs leem
-#      (~/.claude/skills, ~/.agents/skills, ~/.gemini/config/skills), e só os deskcomm-*.
+#   1. Instala: cada guia elus360-* vira link nas três pastas globais que os CLIs leem
+#      (~/.claude/skills, ~/.agents/skills, ~/.gemini/config/skills), e só os elus360-*.
 #      A cópia é esparsa (só .agents/skills), e a saída diz que nada se atualiza sozinho
 #      e como chamar o guia em cada CLI.
 #   2. Não sobrescreve skill da pessoa com o mesmo nome — avisa e pula.
@@ -323,15 +323,15 @@ checa "grep -q 'se atualizam sozinhos' \"\$RAIZ/README.md\" && grep -q 'vale mai
 guias_que_sobraram() {
   local d a
   for d in .claude/skills .agents/skills .gemini/config/skills; do
-    for a in "$HOME/$d"/deskcomm-*; do
+    for a in "$HOME/$d"/elus360-* "$HOME/$d"/deskcomm-*; do
       { [ -e "$a" ] || [ -L "$a" ]; } || continue
       [ "$(basename "$a")" = deskcomm-meu-fork ] || echo "$d/$(basename "$a")"
     done
   done
 }
 guia_extra() {  # guia_extra <clone> — um guia que só esse clone tem
-  mkdir -p "$1/.agents/skills/deskcomm-extra"
-  printf -- "---\nname: deskcomm-extra\ndescription: 'guia extra'\n---\n" > "$1/.agents/skills/deskcomm-extra/SKILL.md"
+  mkdir -p "$1/.agents/skills/elus360-extra"
+  printf -- "---\nname: elus360-extra\ndescription: 'guia extra'\n---\n" > "$1/.agents/skills/elus360-extra/SKILL.md"
 }
 
 echo "20. trocar de fonte não deixa guia da fonte anterior ligado"
@@ -350,9 +350,9 @@ bash "$SCRIPT" --remover >/dev/null 2>&1; code=$?
 checa "[ $code = 0 ] && [ -z \"\$(guias_que_sobraram)\" ]" "e o --remover seguinte não deixa guia nenhum nas três pastas"
 maior="$TMP/troca-de-fonte/clone-maior"; git clone -q "$repo" "$maior"; guia_extra "$maior"
 bash "$SCRIPT" --fonte "$maior" >/dev/null 2>&1
-bash "$SCRIPT" >/dev/null 2>&1   # de volta à cópia, que não tem o deskcomm-extra
+bash "$SCRIPT" >/dev/null 2>&1   # de volta à cópia, que não tem o elus360-extra
 for dest in .claude/skills .agents/skills .gemini/config/skills; do
-  checa "[ ! -e \"\$HOME/$dest/deskcomm-extra\" ] && [ ! -L \"\$HOME/$dest/deskcomm-extra\" ]" "--fonte com o deskcomm-extra → cópia: ele sai de ~/$dest na hora da troca"
+  checa "[ ! -e \"\$HOME/$dest/elus360-extra\" ] && [ ! -L \"\$HOME/$dest/elus360-extra\" ]" "--fonte com o elus360-extra → cópia: ele sai de ~/$dest na hora da troca"
 done
 bash "$SCRIPT" --remover >/dev/null 2>&1; code=$?
 checa "[ $code = 0 ] && [ -z \"\$(guias_que_sobraram)\" ]" "e o --remover seguinte não deixa guia nenhum nas três pastas"

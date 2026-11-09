@@ -16,7 +16,7 @@ app e não publica. Não existe um daemon ou uma cobrança de IA adicional impl�
 capturadores em `curso/capturar.ts` e `curso/capturar-jornadas.ts`, montagem em `curso/montar.ts`.
 O site público pertence a **melgarafael/deskcomm-site**, em outro clone/PR. A fonte canônica da
 skill fica em `.agents/skills/elus360-curso/`; `pnpm skills:sync` gera o espelho Claude.
-`scripts/instalar-guias.sh` instala os guias `deskcomm-*` para Claude e Codex.
+`scripts/instalar-guias.sh` instala os guias `elus360-*` para Claude e Codex.
 
 Chame **`/elus360-curso` no Claude Code** ou **`$elus360-curso` no Codex**, seguido do pedido
 de atualização. Para disponibilizar o guia fora do clone, rode

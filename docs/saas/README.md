@@ -19,7 +19,7 @@ Siga na ordem. Cada etapa aponta para o guia que a cobre.
 Roteiros de aula para quem ensina este caminho estão em [`aulas/`](aulas/README.md).
 
 Quem usa um assistente de IA (Claude Code, Codex, Cursor, OpenCode ou Antigravity) dentro de
-um clone deste repositório tem o guia `deskcomm-saas`, que conduz estas etapas pela conversa.
+um clone deste repositório tem o guia `elus360-saas`, que conduz estas etapas pela conversa.
 
 ## 1. O modelo
 
@@ -78,7 +78,7 @@ Tudo no painel do dono, em `https://SEU_DOMINIO/admin`:
 4. O convite vale 24 horas. Sem e-mail configurado, use **Copiar convite** e mande o link.
 5. Enquanto o cliente não aceita, você é administrador provisório e pode deixar a empresa pronta.
    Para montar os agentes, roteadores e follow-ups por nicho, use o guia
-   [`deskcomm-cliente-novo`](../../.agents/skills/deskcomm-cliente-novo/SKILL.md).
+   [`elus360-cliente-novo`](../../.agents/skills/elus360-cliente-novo/SKILL.md).
 
 **Excluir uma empresa** só é possível depois de suspendê-la à mão (Tenants › empresa ›
 Suspender tenant, depois Excluir tenant). O e-mail de acesso de quem está numa empresa se troca

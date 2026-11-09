@@ -9,17 +9,17 @@ resolvendo os problemas você mesmo.
 Este arquivo é o roteiro curto. O guia inteiro — cada campo que o instalador pede, o que acontece
 se pular cada opcional, domínio e DNS por registrador, Supabase (token, plano grátis, próprio),
 proxy da hospedagem, agência instalando para cliente, e o catálogo de problemas com o comando de
-cada um — vive em `.agents/skills/deskcomm-instalar/SKILL.md` na raiz do repositório.
+cada um — vive em `.agents/skills/elus360-instalar/SKILL.md` na raiz do repositório.
 
 Se você está vendo só esta pasta, clone o repositório (o instalador precisa dele de qualquer forma):
 
 ```bash
-git clone --depth 1 https://github.com/melgarafael/DeskcommCRM.git deskcommcrm
-cd deskcommcrm
-cat .agents/skills/deskcomm-instalar/SKILL.md
+git clone --depth 1 https://github.com/OARANHA/elus360.git elus360
+cd elus360
+cat .agents/skills/elus360-instalar/SKILL.md
 ```
 
-No Claude Code aberto dentro do clone, o guia carrega sozinho (`.claude/skills/deskcomm-instalar`);
+No Claude Code aberto dentro do clone, o guia carrega sozinho (`.claude/skills/elus360-instalar`);
 no Codex, Cursor, OpenCode e Antigravity também (`.agents/skills`). Quando este roteiro e o guia
 discordarem, vale o guia; quando o guia e `install.sh` discordarem, vale o instalador.
 
@@ -90,7 +90,7 @@ discordarem, vale o guia; quando o guia e `install.sh` discordarem, vale o insta
 | está tudo no ar? | `bash hostgator-setup-kit/healthcheck.sh` |
 
 O catálogo inteiro (proxy da hospedagem, Cloudflare, WAHA 401, QR, "usuário já existe", `update.sh`
-recusando, Windows) está no guia: `.agents/skills/deskcomm-instalar/references/problemas-e-armadilhas.md`.
+recusando, Windows) está no guia: `.agents/skills/elus360-instalar/references/problemas-e-armadilhas.md`.
 
 ## O que você NÃO faz
 

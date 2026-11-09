@@ -2,7 +2,7 @@
  * O ROTEIRO DO KIT E O GUIA DE INSTALAÇÃO CONTAM A MESMA HISTÓRIA.
  *
  * `hostgator-setup-kit/CLAUDE.md` é o que o Claude Code lê quando a pessoa
- * "joga a pasta no chat" numa VPS sem clone; `.agents/skills/deskcomm-instalar/`
+ * "joga a pasta no chat" numa VPS sem clone; `.agents/skills/elus360-instalar/`
  * é o guia completo, embutido no repositório para os cinco CLIs. Dois textos
  * sobre a mesma instalação envelhecem em ritmos diferentes — e foi medido: em
  * 2026-09-08 o roteiro do kit estava errado em quatro pontos (MFA obrigatório,
@@ -22,7 +22,7 @@ const RAIZ = process.cwd();
 const ler = (p: string) => readFileSync(join(RAIZ, p), "utf8");
 
 const ROTEIRO = ler("hostgator-setup-kit/CLAUDE.md");
-const GUIA = ler(".agents/skills/deskcomm-instalar/SKILL.md");
+const GUIA = ler(".agents/skills/elus360-instalar/SKILL.md");
 const REFERENCIAS = [
   "o-que-a-instalacao-pede",
   "problemas-e-armadilhas",
@@ -30,7 +30,7 @@ const REFERENCIAS = [
   "dominio-e-dns",
   "supabase",
   "agencia",
-].map((n) => ler(`.agents/skills/deskcomm-instalar/references/${n}.md`));
+].map((n) => ler(`.agents/skills/elus360-instalar/references/${n}.md`));
 const GUIA_INTEIRO = [GUIA, ...REFERENCIAS].join("\n");
 const INSTALL = ler("hostgator-setup-kit/install.sh");
 
@@ -58,7 +58,7 @@ const FRASES_VENCIDAS = [
 
 describe("roteiro do kit × guia de instalação", () => {
   it("o roteiro aponta para o guia embutido", () => {
-    expect(ROTEIRO).toContain(".agents/skills/deskcomm-instalar/SKILL.md");
+    expect(ROTEIRO).toContain(".agents/skills/elus360-instalar/SKILL.md");
   });
 
   it.each(FRASES_QUE_SALVAM)("a frase %j está no roteiro E no guia", (frase) => {
@@ -74,7 +74,7 @@ describe("roteiro do kit × guia de instalação", () => {
   it.each(FRASES_VENCIDAS)("a afirmação vencida %j não sobreviveu em lugar nenhum", (frase) => {
     for (const [nome, texto] of [
       ["hostgator-setup-kit/CLAUDE.md", ROTEIRO],
-      ["deskcomm-instalar", GUIA_INTEIRO],
+      ["elus360-instalar", GUIA_INTEIRO],
       ["hostgator-setup-kit/install.sh", INSTALL],
     ] as const) {
       const linhasQueAfirmam = texto
