@@ -145,15 +145,17 @@ function workflows(): string[] {
 }
 
 /**
- * A propriedade timeout-minutes é irmã de uses: no YAML, no MESMO recuo.
- * A leitura anterior encerrava o passo em r <= recuo e perdia essa linha.
- * Limitar ao mesmo item '- name:' impede aceitar timeout de outro passo
- * ou campos aninhados dentro de 'with:'.
+ * Há dois formatos válidos de passo: '- uses: action' (CI histórico) e
+ * '- name: ...' seguido de 'uses: action' (Academia). Em ambos, timeout-minutes
+ * é irmão de uses como propriedade do PASSO, mas o recuo de uses difere.
+ * Limitar ao mesmo item de lista impede aceitar timeout do passo vizinho
+ * ou um valor aninhado em with:. O passo sem limite continua reprovado.
  */
 function temTimeoutDoMesmoPasso(linhas: string[], linhaUses: number): boolean {
   const usa = linhas[linhaUses]!;
   const recuoUsa = usa.length - usa.trimStart().length;
-  const recuoItem = recuoUsa - 2;
+  const inline = /^\s*- uses:\s*\.\/\.github\/actions\/preparar-node\s*$/.test(usa);
+  const recuoItem = recuoUsa - (inline ? 0 : 2);
   if (recuoItem < 0) return false;
   const marcador = " ".repeat(recuoItem) + "- ";
   let inicio = linhaUses;
@@ -171,7 +173,9 @@ function temTimeoutDoMesmoPasso(linhas: string[], linhaUses: number): boolean {
     }
   }
 
-  const timeoutNoRecuoDaAction = new RegExp("^ {" + recuoUsa + "}timeout-minutes:\\s*([1-9]\\d*)\\s*$");
+  // '- uses:' está no recuo do item; 'uses:' após '- name:' já tem +2.
+  // O timeout é sempre propriedade direta do item (+2), nunca de 'with:' (+4).
+  const timeoutNoRecuoDaAction = new RegExp("^ {" + (recuoItem + 2) + "}timeout-minutes:\\s*([1-9]\\d*)\\s*$");
   const corpo = linhas.slice(inicio, fim).filter((linha) => !linha.trimStart().startsWith("#"));
   return corpo.some((linha) => timeoutNoRecuoDaAction.test(linha));
 }
@@ -228,6 +232,36 @@ describe("o preâmbulo do CI não come o orçamento dos testes", () => {
     expect(temTimeoutDoMesmoPasso(aninhado, 1)).toBe(false);
     expect(temTimeoutDoMesmoPasso(valido.filter((linha) => !linha.includes("timeout-minutes:")), 1)).toBe(false);
     expect(temTimeoutDoMesmoPasso(valido.map((linha) => linha.replace("timeout-minutes: 5", "timeout-minutes: 0")), 1)).toBe(false);
+  });
+
+  it("aceita o CI histórico com - uses e rejeita timeout de outro item, aninhado ou zero", () => {
+    const inline = [
+      "      - uses: ./.github/actions/preparar-node",
+      "        # comentário de histórico, não quebra a propriedade irmã",
+      "        timeout-minutes: 5",
+      "      - uses: actions/checkout@v4",
+    ];
+    expect(temTimeoutDoMesmoPasso(inline, 0)).toBe(true);
+
+    const semTimeout = inline.filter((linha) => !linha.includes("timeout-minutes:"));
+    expect(temTimeoutDoMesmoPasso(semTimeout, 0)).toBe(false);
+
+    const noProximo = [
+      "      - uses: ./.github/actions/preparar-node",
+      "      - name: Próximo passo",
+      "        timeout-minutes: 5",
+    ];
+    expect(temTimeoutDoMesmoPasso(noProximo, 0)).toBe(false);
+
+    const emWith = [
+      "      - uses: ./.github/actions/preparar-node",
+      "        with:",
+      "          timeout-minutes: 5",
+    ];
+    expect(temTimeoutDoMesmoPasso(emWith, 0)).toBe(false);
+
+    const zero = inline.map((linha) => linha.replace("timeout-minutes: 5", "timeout-minutes: 0"));
+    expect(temTimeoutDoMesmoPasso(zero, 0)).toBe(false);
   });
 
   it("todo uso da action carrega o seu teto de tempo", () => {
