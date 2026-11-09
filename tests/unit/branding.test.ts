@@ -8,6 +8,14 @@ import { DEFAULT_APP_NAME, resolveBranding } from "@/lib/branding";
 const RAIZ = process.cwd();
 
 describe("resolveBranding", () => {
+  it("o padrão oficial do fork é ELUS360 em todas as instalações novas", () => {
+    expect(DEFAULT_APP_NAME).toBe("ELUS360");
+    const compose = fs.readFileSync(path.join(RAIZ, "compose.portainer.yml"), "utf8");
+    expect(compose).toContain("APP_NAME: ${APP_NAME:-ELUS360}");
+    const installer = fs.readFileSync(path.join(RAIZ, "hostgator-setup-kit/install.sh"), "utf8");
+    expect(installer).toContain("APP_NAME|Nome que aparece na interface (Enter para o padrão)|ELUS360");
+  });
+
   it("cai no padrão quando não há marca configurada", () => {
     expect(resolveBranding(undefined, undefined)).toEqual({
       name: DEFAULT_APP_NAME,
