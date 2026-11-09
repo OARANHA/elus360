@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "release": "v1.102.0",
+  "description": "Contrato mínimo pós-migrations exigido pelo ELUS360 em Portainer. Toda nova release deve revisar este arquivo; uma release diferente é recusada.",
+  "tables": {
+    "contacts": [
+      "id",
+      "organization_id",
+      "name",
+      "last_activity_at",
+      "zip_code",
+      "street",
+      "number",
+      "complement",
+      "district",
+      "city",
+      "state"
+    ],
+    "conversations": [
+      "id",
+      "organization_id",
+      "contact_id",
+      "last_message_at",
+      "last_message_preview",
+      "unread_count_for_assignee"
+    ],
+    "importacoes_de_historico": [
+      "id",
+      "organization_id",
+      "channel_session_id",
+      "status",
+      "origem",
+      "escopo",
+      "desde",
+      "ate",
+      "evento_de_saida_id",
+      "numero_esperado"
+    ],
+    "system_version": [
+      "current_version",
+      "runtime_confirmation",
+      "agent_last_seen_at"
+    ],
+    "ai_agent_mcp_servers": [
+      "id",
+      "organization_id",
+      "agent_id"
+    ],
+    "mcp_oauth_pedidos": [
+      "id",
+      "organization_id",
+      "servidor_id"
+    ],
+    "contato_mcp_credenciais": [
+      "id",
+      "organization_id",
+      "servidor_id",
+      "contact_id"
+    ],
+    "calendar_event_types": [
+      "id",
+      "organization_id",
+      "reminder_meta_template_id"
+    ]
+  }
+}
