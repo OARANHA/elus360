@@ -262,6 +262,18 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   // Jobs próprios do fork. Cada um precisa continuar no inventário para
   // detectar remoção, desativação silenciosa ou mudança de gatilho.
   // Nenhum publica releases nem mexe no Supabase de produção.
+  "elus360-portainer-schema-gate.yml::offline-tests": {
+    condicao: null,
+    efeito: "Valida o gate de esquema em PR sem acessar os dados de clientes; nao pode ser ignorado.",
+  },
+  "elus360-portainer-schema-gate.yml::production-preflight": {
+    condicao: "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'OARANHA/elus360'",
+    efeito: "Somente dispatch manual em main pode verificar o esquema real; nao pode ser habilitado em PR.",
+  },
+  "elus360-portainer-upgrade.yml::upgrade": {
+    condicao: "github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main' && inputs.authorization == 'DEPLOY-ELUS360'",
+    efeito: "Banco e Portainer so podem receber alteracoes por disparo explicito na main autorizado pelo proprietario.",
+  },
   "elus360-release-manual.yml::publicar": {
     condicao: "github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main' && inputs.authorization == 'PUBLICAR-ELUS360'",
     efeito: "Publica apenas sob autorização manual no fork/main; alterar ou pular este gate impede a prova de release.",
