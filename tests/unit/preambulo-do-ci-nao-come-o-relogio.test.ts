@@ -144,6 +144,38 @@ function workflows(): string[] {
   return readdirSync(DIR_WORKFLOWS).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
 }
 
+/**
+ * A propriedade timeout-minutes é irmã de uses: no YAML, no MESMO recuo.
+ * A leitura anterior encerrava o passo em r <= recuo e perdia essa linha.
+ * Limitar ao mesmo item '- name:' impede aceitar timeout de outro passo
+ * ou campos aninhados dentro de 'with:'.
+ */
+function temTimeoutDoMesmoPasso(linhas: string[], linhaUses: number): boolean {
+  const usa = linhas[linhaUses]!;
+  const recuoUsa = usa.length - usa.trimStart().length;
+  const recuoItem = recuoUsa - 2;
+  if (recuoItem < 0) return false;
+  const marcador = " ".repeat(recuoItem) + "- ";
+  let inicio = linhaUses;
+  while (inicio >= 0 && !linhas[inicio]!.startsWith(marcador)) inicio--;
+  if (inicio < 0) return false;
+
+  let fim = linhas.length;
+  for (let j = inicio + 1; j < linhas.length; j++) {
+    const linha = linhas[j]!;
+    if (!linha.trim() || linha.trimStart().startsWith("#")) continue;
+    const recuo = linha.length - linha.trimStart().length;
+    if (recuo < recuoItem || (recuo === recuoItem && linha.startsWith(marcador))) {
+      fim = j;
+      break;
+    }
+  }
+
+  const timeoutNoRecuoDaAction = new RegExp("^ {" + recuoUsa + "}timeout-minutes:\\s*([1-9]\\d*)\\s*$");
+  const corpo = linhas.slice(inicio, fim).filter((linha) => !linha.trimStart().startsWith("#"));
+  return corpo.some((linha) => timeoutNoRecuoDaAction.test(linha));
+}
+
 describe("o preâmbulo do CI não come o orçamento dos testes", () => {
   it("o instrumento está vivo: acha os workflows e os usos da action", () => {
     // Controle positivo das três asserções seguintes.
@@ -167,35 +199,50 @@ describe("o preâmbulo do CI não come o orçamento dos testes", () => {
     ).toEqual([]);
   });
 
+  it("a guarda encontra timeout no mesmo passo e rejeita timeout vizinho ou aninhado", () => {
+    const valido = [
+      "      - name: Preparar Node",
+      "        uses: ./.github/actions/preparar-node",
+      "        timeout-minutes: 5",
+      "      - name: Próximo",
+      "        run: echo teste",
+    ];
+    expect(temTimeoutDoMesmoPasso(valido, 1)).toBe(true);
+    const antes = [valido[0]!, valido[2]!, valido[1]!, ...valido.slice(3)];
+    expect(temTimeoutDoMesmoPasso(antes, 2)).toBe(true);
+    const vizinho = [
+      "      - name: Preparar Node",
+      "        uses: ./.github/actions/preparar-node",
+      "      - name: Próximo",
+      "        timeout-minutes: 5",
+        "        run: echo teste",
+    ];
+    expect(temTimeoutDoMesmoPasso(vizinho, 1)).toBe(false);
+    const aninhado = [
+      "      - name: Preparar Node",
+      "        uses: ./.github/actions/preparar-node",
+      "        with:",
+      "          timeout-minutes: 5",
+      "      - name: Próximo",
+    ];
+    expect(temTimeoutDoMesmoPasso(aninhado, 1)).toBe(false);
+    expect(temTimeoutDoMesmoPasso(valido.filter((linha) => !linha.includes("timeout-minutes:")), 1)).toBe(false);
+    expect(temTimeoutDoMesmoPasso(valido.map((linha) => linha.replace("timeout-minutes: 5", "timeout-minutes: 0")), 1)).toBe(false);
+  });
+
   it("todo uso da action carrega o seu teto de tempo", () => {
     const semTeto: string[] = [];
     for (const arquivo of workflows()) {
       const linhas = readFileSync(join(DIR_WORKFLOWS, arquivo), "utf8").split("\n");
       linhas.forEach((texto, i) => {
         if (!/uses:\s*\.\/\.github\/actions\/preparar-node\s*$/.test(texto)) return;
-        // O passo vai até a próxima linha que abre outro item de lista (`- `)
-        // no mesmo recuo, ou até o fim do arquivo.
-        const recuo = texto.length - texto.trimStart().length;
-        let fim = linhas.length;
-        for (let j = i + 1; j < linhas.length; j++) {
-          const l = linhas[j]!;
-          if (l.trim() === "") continue;
-          const r = l.length - l.trimStart().length;
-          if (r <= recuo) {
-            fim = j;
-            break;
-          }
-        }
-        const corpo = linhas.slice(i + 1, fim).filter((l) => !l.trimStart().startsWith("#"));
-        if (!corpo.some((l) => /^\s+timeout-minutes:\s*\d+\s*$/.test(l))) {
-          semTeto.push(`${arquivo}:${i + 1}`);
-        }
+        if (!temTimeoutDoMesmoPasso(linhas, i)) semTeto.push(arquivo + ":" + (i + 1));
       });
     }
 
     expect(
       semTeto,
-      "uso sem timeout-minutes: sem o cinto, um dia de cache frio volta a consumir o orçamento dos testes",
+      "uso sem timeout-minutes no mesmo passo: cache frio pode consumir o orçamento dos testes",
     ).toEqual([]);
   });
 
