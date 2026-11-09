@@ -5,7 +5,7 @@
  *   pnpm exec tsx curso/montar.ts
  *
  * Por padrão sai o corpo da página (o Artifact do claude.ai põe o esqueleto).
- * Para servir de um site — deskcomm.com.br/curso —, CURSO_BASE="/curso/" prefixa
+ * Para servir de um site — elus360.com.br/curso —, CURSO_BASE="/curso/" prefixa
  * o caminho das fotos e o arquivo sai como documento HTML completo.
  *
  * O menu lateral do curso é projetado de lib/navigation/catalogo.ts — o mesmo
@@ -216,7 +216,7 @@ const DOCUMENTO = `<!doctype html>
 <html lang="pt-BR">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Curso em imagens do DeskComm: cada tela do sistema com fotos reais, setas e um simulador para treinar.">
+<meta name="description" content="Curso em imagens do ELUS360: cada tela do sistema com fotos reais, setas e um simulador para treinar.">
 `;
 writeFileSync(path.join(SAIDA, "index.html"), BASE ? DOCUMENTO + html : html);
 console.info(
