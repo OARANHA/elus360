@@ -15,7 +15,7 @@ TAG = "v1.102.0"
 
 
 def release_notes():
-    return "\n".join(f"ghcr.io/oaranha/{name}:1.102.0@{DIGEST}" for name in redeploy.PACKAGES)
+    return "\n".join(f"{redeploy.IMAGE_NS}/{name}:1.102.0@{DIGEST}" for name in redeploy.PACKAGES)
 
 
 def portainer_stack():
@@ -24,9 +24,9 @@ def portainer_stack():
         "GitConfig": {"URL": "https://github.com/OARANHA/elus360",
                       "ReferenceName": "refs/heads/main", "ConfigHash": SHA},
         "Env": [
-            {"name": "APP_IMAGE", "value": f"ghcr.io/oaranha/elus360-app@{DIGEST}"},
-            {"name": "WORKER_IMAGE", "value": f"ghcr.io/oaranha/elus360-worker@{DIGEST}"},
-            {"name": "SCHEDULER_IMAGE", "value": f"ghcr.io/oaranha/elus360-scheduler@{DIGEST}"},
+            {"name": "APP_IMAGE", "value": f"{redeploy.IMAGE_NS}/elus360-app@{DIGEST}"},
+            {"name": "WORKER_IMAGE", "value": f"{redeploy.IMAGE_NS}/elus360-worker@{DIGEST}"},
+            {"name": "SCHEDULER_IMAGE", "value": f"{redeploy.IMAGE_NS}/elus360-scheduler@{DIGEST}"},
             {"name": "NEXT_PUBLIC_SUPABASE_URL", "value": "https://abcdefghijklmnopqrst.supabase.co"},
             {"name": "SUPABASE_SERVICE_ROLE_KEY", "value": "sensitive-value"},
         ],
@@ -37,7 +37,7 @@ class RedeployTests(unittest.TestCase):
     def test_all_four_images_required_and_exact_digest(self):
         refs = redeploy.digest_refs(release_notes(), TAG)
         self.assertEqual(len(refs), 4)
-        self.assertIn("ghcr.io/oaranha/elus360:1.102.0@sha256:", refs["elus360"])
+        self.assertIn(f"{redeploy.IMAGE_NS}/elus360:1.102.0@sha256:", refs["elus360"])
         with self.assertRaises(ValueError):
             redeploy.digest_refs(release_notes().replace("elus360-voice-agent:", "other-voice:"), TAG)
         with self.assertRaises(ValueError):
