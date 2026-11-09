@@ -79,7 +79,6 @@ def official_release(tag: str) -> tuple[dict[str, str], str]:
     # Only current main can be deployed by an unpinned Portainer Git main stack.
     branch = http_json(f"https://api.github.com/repos/{REPO}/branches/main")
     actual_main = branch.get("commit", {}).get("sha", "")
-    release_commit = compare.get("commits", [])
     # Compare API base_commit identifies the common ancestor for a tag behind main.
     # For immutable exact-deploy, resolve the tag commit through the API.
     tag_ref = http_json(f"https://api.github.com/repos/{REPO}/git/ref/tags/{tag}")
@@ -118,6 +117,9 @@ def stack_environment(stack: dict, refs: dict[str, str]) -> tuple[list[dict], di
             changed.append(dict(e))
     if set(previous) != set(by_var):
         raise ValueError("Portainer Env nao possui todos os pins de imagem")
+    for image in previous.values():
+        if not re.fullmatch(r"ghcr\\.io/oaranha/[a-z0-9_-]+(?::[a-z0-9._-]+)?@sha256:[0-9a-f]{64}", image):
+            raise ValueError("imagem atual nao tem digest OCI confiavel; interromper")
     return changed, previous
 
 
@@ -157,6 +159,11 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("ELUS360_PORTAINER_API_KEY ausente")
         stack = http_json(f"{PORTAINER}/api/stacks/{STACK_ID}", key=key)
         env, previous = stack_environment(stack, refs)
+        actual_db = next((e["value"] for e in stack["Env"] if e["name"] == "NEXT_PUBLIC_SUPABASE_URL"), "")
+        if actual_db.rstrip("/") != os.environ.get("ELUS360_SUPABASE_URL", "").rstrip("/"):
+            raise ValueError("gate de schema aponta a banco diferente da stack")
+        if stack.get("GitConfig", {}).get("ConfigHash") != sha:
+            raise ValueError("Portainer ainda nao aponta para commit exato da release")
         print(f"ELUS360_SCHEMA_GREEN: {args.release} SHA {sha[:12]}")
         for name, old in previous.items():
             # Image digests are public; never print any other Portainer variable.
@@ -166,15 +173,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if os.environ.get("ELUS360_DEPLOY_APPROVAL") != f"DEPLOY-ELUS360:{args.release}":
             raise ValueError("aprovacao exata do redeploy ausente")
+        # Recheck the public main SHA immediately before changing Portainer.
+        current_main = http_json(f"https://api.github.com/repos/{REPO}/branches/main")["commit"]["sha"]
+        if current_main != sha:
+            raise ValueError("main mudou durante o preflight; redeploy recusado")
         print("Atualizacao autorizada; Git redeploy Prune=false")
         http_json(f"{PORTAINER}/api/stacks/{STACK_ID}/git/redeploy?endpointId={ENDPOINT_ID}",
                   key=key, method="PUT",
-                  payload={"Env": env, "PullImage": True, "Prune": False},
+                  payload={"Env": env, "PullImage": False, "Prune": False},
                   timeout=180)
         # Limited runtime verification. Never retry the mutation after a timeout.
         for _ in range(15):
             if inspect_containers(key, refs):
-                print("ELUS360_IMAGES_HEALTHY: app, worker, scheduler")
+                public_health = http_json("https://elus.wandora.com.br/api/v1/health", timeout=15)
+                health = public_health.get("data", {})
+                if health.get("version") != sha or health.get("status") != "healthy":
+                    raise ValueError("health/version publica nao confirma SHA da release")
+                print("ELUS360_IMAGES_HEALTHY: app, worker, scheduler; health/version confirmada")
                 return 0
             time.sleep(12)
         raise ValueError("redeploy foi aceito, mas runtime nao convergiu; reconciliar antes de repetir")
