@@ -41,7 +41,7 @@ jobs:
       - name: Instalar dependências imutáveis
         run: pnpm install --frozen-lockfile
       - name: Provar isolamento dos recibos
-        run: pnpm exec vitest run curso/atualizacao.test.ts
+        run: pnpm exec vitest run curso/atualizacao.test.ts curso/elus360-marca-publica.test.ts
       - name: Planejar atualização da Academia ELUS360 sem publicar
         run: |
           pnpm exec tsx curso/planejar-atualizacao.ts \
