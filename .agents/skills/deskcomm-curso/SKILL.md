@@ -8,6 +8,15 @@ metadata:
 
 # Manter o curso atual
 
+> **No fork `OARANHA/elus360`:** executar o procedimento próprio
+> [`docs/runbooks/atualizar-curso-elus360.md`](../../../docs/runbooks/atualizar-curso-elus360.md)
+> e iniciar o planejamento com `--edicao elus360`. O recibo e o repositório
+> `melgarafael/deskcomm-site` são do upstream e **não comprovam nem autorizam**
+> publicação de `https://elus360.com.br/curso`. A captura conserva a mesma
+> bancada, os mesmos capturadores e os gates de qualidade; a publicação só
+> ocorrerá após identificar o repositório e o commit realmente servidos na
+> Academia ELUS360. O nome técnico desta skill é preservado por compatibilidade.
+
 Invocação: `/deskcomm-curso` no Claude Code; `$deskcomm-curso` no Codex, seguido do pedido.
 
 Esta skill é a automação com IA: você lê as mudanças, corrige o material e executa os
