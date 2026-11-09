@@ -118,7 +118,7 @@ def stack_environment(stack: dict, refs: dict[str, str]) -> tuple[list[dict], di
     if set(previous) != set(by_var):
         raise ValueError("Portainer Env nao possui todos os pins de imagem")
     for image in previous.values():
-        if not re.fullmatch(r"ghcr\\.io/oaranha/[a-z0-9_-]+(?::[a-z0-9._-]+)?@sha256:[0-9a-f]{64}", image):
+        if not re.fullmatch(r"ghcr\.io/oaranha/[a-z0-9_-]+(?::[a-z0-9._-]+)?@sha256:[0-9a-f]{64}", image):
             raise ValueError("imagem atual nao tem digest OCI confiavel; interromper")
     return changed, previous
 
