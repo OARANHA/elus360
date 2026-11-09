@@ -74,6 +74,42 @@ class RedeployTests(unittest.TestCase):
         self.assertEqual(sha, SHA)
         self.assertEqual(len(refs), 4)
 
+    def test_previous_portainer_commit_is_valid_during_upgrade_preflight(self):
+        # The last deployed commit differs from the new release by definition.
+        import os
+        stack = portainer_stack()
+        stack["GitConfig"]["ConfigHash"] = "b" * 40
+        refs = redeploy.digest_refs(release_notes(), TAG)
+        with patch.dict(os.environ, {
+            "ELUS360_PORTAINER_API_KEY": "fake-token",
+            "ELUS360_SUPABASE_URL": "https://abcdefghijklmnopqrst.supabase.co",
+        }):
+            with patch.object(redeploy, "official_release", return_value=(refs, SHA)):
+                with patch.object(redeploy, "http_json", return_value=stack):
+                    self.assertEqual(redeploy.main(["--release", TAG, "--pre-migration"]), 0)
+
+    def test_missing_or_invalid_deployed_sha_fails_closed(self):
+        stack = portainer_stack()
+        for invalid in (None, "", "c" * 39, "not-a-commit"):
+            stack["GitConfig"]["ConfigHash"] = invalid
+            with self.assertRaises(ValueError):
+                redeploy.deployed_commit_hash(stack)
+        stack["GitConfig"]["ConfigHash"] = "b" * 40
+        self.assertEqual(redeploy.deployed_commit_hash(stack), "b" * 40)
+
+    def test_concurrent_portainer_change_blocks_redeploy(self):
+        from copy import deepcopy
+        original = portainer_stack()
+        current = deepcopy(original)
+        redeploy.assert_stack_unchanged(original, current)
+        current["GitConfig"]["ConfigHash"] = "b" * 40
+        with self.assertRaises(ValueError):
+            redeploy.assert_stack_unchanged(original, current)
+        current = deepcopy(original)
+        current["Env"][0]["value"] = "unexpected-new-image"
+        with self.assertRaises(ValueError):
+            redeploy.assert_stack_unchanged(original, current)
+
     def test_deploy_cannot_skip_schema_gate(self):
         with patch.object(redeploy, "official_release") as release:
             self.assertEqual(redeploy.main(["--release", TAG, "--execute", "--pre-migration"]), 3)
