@@ -19807,6 +19807,7 @@ export const DICIONARIO: Traducoes = {
   "O CRM que": { es: "El CRM que" },
   "trabalha por você.": { es: "trabaja por ti." },
   "Entrar na plataforma": { es: "Entrar a la plataforma" },
+  "Conhecer o curso ELUS360": { es: "Conocer el curso ELUS360" },
   "Atendimento centralizado": { es: "Atención centralizada" },
   "Conversas e histórico em um só lugar.": { es: "Conversaciones e historial en un solo lugar." },
   "Atendimento e qualificação com transferência para pessoas.": { es: "Atención y calificación con transferencia a personas." },
