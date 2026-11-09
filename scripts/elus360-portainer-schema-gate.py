@@ -15,10 +15,11 @@ import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 CONTRACT = Path(__file__).resolve().parents[1] / "deploy" / "elus360-schema-contract.json"
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
+HOSTED_SUPABASE = re.compile(r"^[a-z0-9]{20}\\.supabase\\.co$")
 RELEASE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 
 
@@ -42,10 +43,22 @@ def validate_contract(contract: dict, release: str) -> dict[str, list[str]]:
     return tables
 
 
-def check_schema(base_url: str, service_key: str, tables: dict[str, list[str]], opener=urlopen) -> list[str]:
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # never forward an API key to a redirect target
+
+
+def secure_open(request, timeout):
+    return build_opener(NoRedirect()).open(request, timeout=timeout)
+
+
+def check_schema(base_url: str, service_key: str, tables: dict[str, list[str]], opener=secure_open) -> list[str]:
     parsed = urlparse(base_url)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError("URL do Supabase deve ser HTTPS sem usuario/query/fragmento")
+    if (parsed.scheme != "https" or not parsed.hostname or
+            not HOSTED_SUPABASE.fullmatch(parsed.hostname) or
+            parsed.path not in ("", "/") or parsed.port not in (None, 443) or
+            parsed.username or parsed.password or parsed.query or parsed.fragment):
+        raise ValueError("URL deve ser a origem HTTPS do projeto Supabase hospedado, sem redirecionamentos")
     if not service_key.strip():
         raise ValueError("chave de servico ausente")
     base = base_url.rstrip("/")
