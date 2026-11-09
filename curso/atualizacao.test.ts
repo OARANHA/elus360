@@ -60,6 +60,39 @@ describe("planejamento do curso sobre objetos Git reais", () => {
     expect(plano.razoes_rodada_completa).not.toHaveLength(0);
   });
 
+  it("a edição ELUS360 ignora recibo anterior de melgarafael/deskcomm-site", () => {
+    const f = fixture();
+    const head = f.publicar(); // recibo upstream válido NÃO prova publicação ELUS360
+    const plano = f.planejar({ edicao: "elus360" });
+    expect(plano).toMatchObject({
+      base: null, head, origem_base: "ausente", modo: "completa", revisao_ia_necessaria: true,
+    });
+    expect(plano.modulos_candidatos.map((m) => m.id)).toEqual(["agenda", "inbox"]);
+  });
+
+  it("usa somente o recibo ELUS360 versionado e ancestral na edição própria", () => {
+    const f = fixture();
+    f.publicar();
+    f.escrever("curso/publicacao-elus360.json", JSON.stringify({
+      versao: 1, commit_fonte: f.fonte, site_commit: "d".repeat(40),
+      idiomas: ["pt-BR", "es"], publicado_em: "2026-10-28T12:00:00Z",
+    }));
+    const head = f.salvar();
+    const plano = f.planejar({ edicao: "elus360" });
+    expect(plano).toMatchObject({
+      base: f.fonte, head, origem_base: "publicacao_versionada", modo: "sem-recaptura",
+    });
+    expect(plano.modulos_candidatos).toEqual([]);
+    expect(plano.jornadas_candidatas).toEqual([]);
+  });
+
+  it("edicao CLI invalida falha fechada sem cair no recibo upstream", () => {
+    const f = fixture();
+    const resultado = f.cli("--edicao", "outro");
+    expect(resultado.status).not.toBe(0);
+    expect(resultado.stderr).toMatch(/edição inválida/);
+  });
+
   it("sem alteração desde a fonte publicada não pede recaptura", () => {
     const f = fixture();
     const head = f.publicar();
