@@ -18,8 +18,12 @@ MODE="${2:---preflight}"
   no_go 'segredos do gate ausentes'
 [ -n "${ELUS360_PORTAINER_API_KEY:-}" ] || no_go 'token Portainer ausente'
 # Preflight official release, schema and Portainer current stack without any DDL.
-python3 scripts/elus360-portainer-redeploy.py --release "$TAG"
-[ "$MODE" = --execute ] || exit 0
+if [ "$MODE" = --execute ]; then
+  python3 scripts/elus360-portainer-redeploy.py --release "$TAG" --pre-migration
+else
+  python3 scripts/elus360-portainer-redeploy.py --release "$TAG"
+  exit 0
+fi
 
 [ "${ELUS360_DEPLOY_APPROVAL:-}" = "DEPLOY-ELUS360:$TAG" ] ||
   no_go 'aprovacao especifica da release ausente'
