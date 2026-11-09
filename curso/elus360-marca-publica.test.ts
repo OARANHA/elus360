@@ -33,4 +33,21 @@ describe("Academia ELUS360 — fronteira do conteúdo público", () => {
     }
     expect(ocorrencias, "texto legado nas lições públicas; revisar e adaptar ao ELUS360").toEqual([]);
   });
+  it("templates, menu, meta description e jornadas usam ELUS360 sem apagar progresso dos alunos", () => {
+    const caminhos = [
+      "curso/site/pagina.html",
+      "curso/site/app.js",
+      "curso/site/demonstracoes.js",
+      "curso/montar.ts",
+    ];
+    const app = readFileSync(path.join(RAIZ, "curso/site/app.js"), "utf8");
+    // Chave de localStorage mantida por compatibilidade, sem texto legado visível.
+    const chaveAnterior = "curso-deskcomm:feitos";
+    expect(app).toContain(chaveAnterior);
+    for (const arquivo of caminhos) {
+      const fonte = readFileSync(path.join(RAIZ, arquivo), "utf8");
+      expect(fonte.replaceAll(chaveAnterior, ""), `${arquivo}: marca legada exposta`).not.toMatch(/deskcomm/i);
+    }
+  });
+
 });
