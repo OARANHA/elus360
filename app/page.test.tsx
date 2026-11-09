@@ -49,6 +49,9 @@ describe("/ — a página inicial pública", () => {
       (a) => a.getAttribute("href") === "/legal/terms",
     )).toBe(true);
     expect(screen.getByRole("link", { name: /Entrar na plataforma/ })).toHaveAttribute("href", "/login");
+    const curso = screen.getByRole("link", { name: /Conhecer o curso ELUS360/ });
+    expect(curso).toHaveAttribute("href", "https://elus360.com.br/curso");
+    expect(curso).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("o nome vem da marca resolvida, não de texto fixo", async () => {

@@ -12,7 +12,7 @@ describe("resolveBranding", () => {
     expect(resolveBranding(undefined, undefined)).toEqual({
       name: DEFAULT_APP_NAME,
       logoUrl: null,
-      initial: "D",
+      initial: "E",
     });
   });
 
@@ -23,6 +23,11 @@ describe("resolveBranding", () => {
     expect(resolveBranding("", "").name).toBe(DEFAULT_APP_NAME);
     expect(resolveBranding("   ", "   ").name).toBe(DEFAULT_APP_NAME);
     expect(resolveBranding("   ", "   ").logoUrl).toBeNull();
+  });
+
+  it("converte somente o nome legado da instalação, sem alterar o white-label", () => {
+    expect(resolveBranding("DeskcommCRM", null).name).toBe("ELUS360");
+    expect(resolveBranding("Minha Empresa", null).name).toBe("Minha Empresa");
   });
 
   it("usa a marca configurada e deriva a inicial", () => {
@@ -131,7 +136,7 @@ describe("nome do arquivo de códigos de recuperação", () => {
   it("deriva o prefixo da marca, sem acento e sem espaço", () => {
     expect(prefixoDoArquivo("Vendas Turbo")).toBe("vendas-turbo");
     expect(prefixoDoArquivo("Ótima Gestão")).toBe("otima-gestao");
-    expect(prefixoDoArquivo(DEFAULT_APP_NAME)).toBe("deskcommcrm");
+    expect(prefixoDoArquivo(DEFAULT_APP_NAME)).toBe("elus360");
   });
 
   it("não devolve hífen pendurado nem repetido", () => {

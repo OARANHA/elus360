@@ -16,7 +16,7 @@
  * runtime em vez de lida do bundle.
  */
 
-export const DEFAULT_APP_NAME = "DeskcommCRM";
+export const DEFAULT_APP_NAME = "ELUS360";
 
 export type Branding = {
   /** Nome exibido na interface e nos títulos de página. */
@@ -41,7 +41,10 @@ export function resolveBranding(
   name: string | undefined | null,
   logoUrl: string | undefined | null,
 ): Branding {
-  const resolvedName = (name ?? "").trim() || DEFAULT_APP_NAME;
+  // Instalações anteriores podem ter persistido o nome legado como padrão.
+  // Não o exibir; preservar integralmente marcas próprias do revendedor.
+  const configurado = (name ?? "").trim();
+  const resolvedName = !configurado || configurado === "DeskcommCRM" ? DEFAULT_APP_NAME : configurado;
   const resolvedLogo = (logoUrl ?? "").trim();
   return {
     name: resolvedName,
