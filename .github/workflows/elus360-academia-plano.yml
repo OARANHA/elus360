@@ -30,16 +30,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.source_ref || 'main' }}
-      - name: Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: pnpm 9.15.9
-        uses: pnpm/action-setup@v4
-        with:
-          version: '9.15.9'
-      - name: Instalar dependências imutáveis
-        run: pnpm install --frozen-lockfile
+      - name: Preparar Node/pnpm pelo caminho canônico do CI
+        uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: Provar isolamento dos recibos
         run: pnpm exec vitest run curso/atualizacao.test.ts curso/elus360-marca-publica.test.ts
       - name: Planejar atualização da Academia ELUS360 sem publicar
