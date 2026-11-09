@@ -63,8 +63,32 @@ release, a verificação recusa um manifesto cujo campo `release` ainda é
 `v1.102.0`. Cada release deve atualizar o contrato com os campos exigidos
 pelos novos handlers e conferir a cadeia completa de migrations.
 
-**Importante:** Este gate por si só não executa DDL e não aciona o Portainer.
-É uma proteção reutilizável de pré-deploy, **não é ainda uma implantação
-atômica automatizada**. O orquestrador futuro deve torná-lo obrigatório após a
-etapa de migrations e antes de modificar qualquer imagem. Não confundir
-este documento com garantia de backup ou com execução automática do upstream.
+**Importante:** O script isolado `elus360-portainer-schema-gate.py` não
+executa DDL nem aciona o Portainer. **Já existe** o orquestrador manual
+`scripts/elus360-portainer-upgrade.sh`, exposto exclusivamente pelo workflow
+`.github/workflows/elus360-portainer-upgrade.yml`: primeiro consulta a release
+oficial e faz preflight sem DDL; no modo `--execute`, sob aprovação operacional,
+reutiliza `reaplicar_baseline` do kit canônico, solicita recarga do PostgREST,
+confirma o contrato da release e só então chama `elus360-portainer-redeploy.py`
+para alterar os três digests e conferir imagens, SHA GitOps e health. O controller
+não usa as imagens do Deskcomm upstream nem modifica a stack por outro caminho.
+
+**Limites de aceite:** O fluxo **não é transação atômica** entre banco, Git e
+Portainer. A política `ELUS360_BACKUP_POLICY=verified` é uma declaração do
+operador, **não uma verificação automática de backup**; não confundir confirmação
+textual com arquivo recuperável. A opção `waived` requer decisão explícita
+e não implica que a reversão de schema seja segura. Antes de implantar, confirmar
+cópia recuperável, esquema compatível com rollback de imagem, imagens/digests
+anteriores e sequência de parada segura. Após um erro de rede na atualização,
+**nunca repetir a mutação sem reconciliar a stack e o runtime**.
+
+**Testes:** `tests/distribution/test_elus360_portainer_redeploy.py` cobre
+contratos isolados e `test_elus360_portainer_upgrade_flow.py` executa o
+entrypoint com simulações de Portainer/rede/Supabase para cenários de sucesso,
+no-go de schema, concorrência e falha após a mutação. Passar nesses testes,
+mesmo com CI verde, **não equivale** ao ensaio integrado com Docker/PostgreSQL
+descartáveis nem ao aceite funcional na instalação. O workflow existente
+`elus360-homologacao-descartavel.yml` confere imagens AMD64 e restore de dado
+sintético, mas declara expressamente que não verifica a migração completa de
+Supabase/Portainer. Permanece **NO-GO para produção** sem homologação integrada
+e autorização de deploy separada.
