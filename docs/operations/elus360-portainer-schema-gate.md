@@ -41,6 +41,18 @@ healthy.** A sequência para uma release do fork `OARANHA/elus360` é:
    manter as demais variáveis e dependências, `prune:false`, não fazer build
    na VPS, registrar digests anteriores para rollback. Não fazer deploy da voz
    se ela não estiver na topologia.
+**SHA do Portainer durante upgrades:** `GitConfig.ConfigHash` identifica o commit
+da **última implantação concluída**, não necessariamente o commit que será
+implantado. No pré-deploy ele deve ser um SHA válido, ainda que anterior à
+release alvo. Imediatamente antes do redeploy o controller relê a stack e
+bloqueia qualquer alteração concorrente de `GitConfig`, `Env` ou identidade.
+A release alvo continua obrigada a corresponder ao `main` remoto no instante
+da mutação. Somente **depois** do Git redeploy a verificação exige que
+`ConfigHash` seja igual ao SHA da release e que as imagens, health e versão
+também correspondam ao esperado. Isso não autoriza pular o gate do banco.
+Se o Portainer aceitar a ação e houver timeout, reconciliar o estado real
+antes de tentar novamente — nunca repetir o redeploy cegamente.
+
 5. Verificar `elus-app`, `elus-worker`, `elus-scheduler`, dependências,
    `/api/v1/health`, versão real do runtime e endpoints autenticados.
    CI verde e healthcheck TCP, isolados, não comprovam aceite funcional.
