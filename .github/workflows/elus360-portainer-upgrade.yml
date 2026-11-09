@@ -1,0 +1,81 @@
+# Fork-only hosted Supabase + Portainer Vigia release upgrade.
+# NO automatic push/tag trigger, NO local builds on the VPS.
+name: ELUS360 — upgrade Portainer com schema antes das imagens (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release publicada do fork (vN.N.N), com controller integrado nessa tag'
+        type: string
+        required: true
+      authorization:
+        description: 'Digite DEPLOY-ELUS360 para autorizar banco + Portainer'
+        type: string
+        required: true
+      backup_policy:
+        description: 'Decisão do operador sobre backup: verified ou waived'
+        type: choice
+        options: [verified, waived]
+        required: true
+      waiver_confirmation:
+        description: 'Se waived, digite DISPENSO-BACKUP; caso contrário deixe vazio'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elus360-portainer-vigia-release
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    if: github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main' && inputs.authorization == 'DEPLOY-ELUS360'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: elus360-production
+    steps:
+      - name: Validar confirmação explícita
+        env:
+          TAG: ${{ inputs.release }}
+          POLICY: ${{ inputs.backup_policy }}
+          WAIVER: ${{ inputs.waiver_confirmation }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::Release invalida'; exit 3; }
+          if [ "$POLICY" = waived ] && [ "$WAIVER" != DISPENSO-BACKUP ]; then
+            echo '::error::Renuncia ao backup exige texto exato'; exit 3
+          fi
+      - uses: actions/checkout@v4
+        with:
+          # Only source + baseline from exactly the official release,
+          # not the moving main or the Deskcomm upstream.
+          ref: ${{ inputs.release }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validar arquitetura, scripts e integridade da arvore
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test -s scripts/elus360-portainer-upgrade.sh
+          test -s scripts/elus360-portainer-redeploy.py
+          test -s scripts/elus360-portainer-schema-gate.py
+          test -s supabase/baseline.sql
+          bash -n scripts/elus360-portainer-upgrade.sh
+          python3 -m unittest discover -s tests/distribution -p 'test_elus360_portainer_*.py' -v
+      - name: Reconciliar esquema, validar contrato, implantar e conferir runtime
+        env:
+          ELUS360_SUPABASE_URL: ${{ secrets.ELUS360_SUPABASE_URL }}
+          ELUS360_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.ELUS360_SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_DB_ADMIN_URL: ${{ secrets.ELUS360_SUPABASE_DB_ADMIN_URL }}
+          ELUS360_PORTAINER_API_KEY: ${{ secrets.ELUS360_PORTAINER_API_KEY }}
+          ELUS360_BACKUP_POLICY: ${{ inputs.backup_policy }}
+          ELUS360_DEPLOY_APPROVAL: DEPLOY-ELUS360:${{ inputs.release }}
+          RELEASE: ${{ inputs.release }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/elus360-portainer-upgrade.sh "$RELEASE" --execute
