@@ -132,6 +132,22 @@ def stack_environment(stack: dict, refs: dict[str, str]) -> tuple[list[dict], di
     return changed, previous
 
 
+def deployed_commit_hash(stack: dict) -> str:
+    """ConfigHash is the LAST deployed Git commit, not the release being deployed."""
+    git_config = stack.get("GitConfig")
+    deployed = git_config.get("ConfigHash") if isinstance(git_config, dict) else None
+    if not isinstance(deployed, str) or not re.fullmatch(r"[0-9a-f]{40}", deployed):
+        raise ValueError("Portainer nao informa SHA do ultimo deploy; bloquear atualizacao")
+    return deployed
+
+
+def assert_stack_unchanged(before: dict, after: dict) -> None:
+    """Prevent overwriting a concurrent Portainer edit after the first preflight."""
+    identity = ("Id", "Name", "EndpointId", "Type", "GitConfig", "Env")
+    if any(before.get(field) != after.get(field) for field in identity):
+        raise ValueError("Portainer mudou durante o preflight; reconciliar antes de atualizar")
+
+
 def schema_gate(tag: str) -> None:
     gate = Path(__file__).with_name("elus360-portainer-schema-gate.py")
     result = subprocess.run([sys.executable, str(gate), "--release", tag],
@@ -175,8 +191,10 @@ def main(argv: list[str] | None = None) -> int:
         actual_db = next((e["value"] for e in stack["Env"] if e["name"] == "NEXT_PUBLIC_SUPABASE_URL"), "")
         if actual_db.rstrip("/") != os.environ.get("ELUS360_SUPABASE_URL", "").rstrip("/"):
             raise ValueError("gate de schema aponta a banco diferente da stack")
-        if stack.get("GitConfig", {}).get("ConfigHash") != sha:
-            raise ValueError("Portainer ainda nao aponta para commit exato da release")
+        # The old deployed SHA must be valid, but naturally differs on an upgrade.
+        # The target SHA is checked against GitHub main before mutation and
+        # against Portainer AFTER its Git redeploy finishes.
+        deployed_before = deployed_commit_hash(stack)
         print(f"ELUS360_PREFLIGHT: {args.release} SHA {sha[:12]}" if args.pre_migration else f"ELUS360_SCHEMA_GREEN: {args.release} SHA {sha[:12]}")
         for name, old in previous.items():
             # Image digests are public; never print any other Portainer variable.
@@ -190,6 +208,10 @@ def main(argv: list[str] | None = None) -> int:
         current_main = http_json(f"https://api.github.com/repos/{REPO}/branches/main")["commit"]["sha"]
         if current_main != sha:
             raise ValueError("main mudou durante o preflight; redeploy recusado")
+        latest_stack = http_json(f"{PORTAINER}/api/stacks/{STACK_ID}", key=key)
+        assert_stack_unchanged(stack, latest_stack)
+        if deployed_commit_hash(latest_stack) != deployed_before:
+            raise ValueError("SHA da stack alterado; reconciliar antes de atualizar")
         print("Atualizacao autorizada; Git redeploy Prune=false")
         http_json(f"{PORTAINER}/api/stacks/{STACK_ID}/git/redeploy?endpointId={ENDPOINT_ID}",
                   key=key, method="PUT",
@@ -198,6 +220,12 @@ def main(argv: list[str] | None = None) -> int:
         # Limited runtime verification. Never retry the mutation after a timeout.
         for _ in range(15):
             if inspect_containers(key, refs):
+                deployed_after = http_json(f"{PORTAINER}/api/stacks/{STACK_ID}", key=key)
+                if deployed_commit_hash(deployed_after) != sha:
+                    # Portainer may accept the request before finishing the deploy.
+                    # A healthy old container is not proof of the target commit.
+                    time.sleep(12)
+                    continue
                 public_health = http_json("https://elus.wandora.com.br/api/v1/health", timeout=15)
                 health = public_health.get("data", {})
                 if health.get("version") != sha or health.get("status") != "healthy":
