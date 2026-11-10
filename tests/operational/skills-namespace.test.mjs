@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { auditarNamespace } from "../../scripts/skills-embutidas/auditar-namespace-elus360.mjs";
@@ -83,3 +83,12 @@ test("mistura parcial de nomes diferentes bloqueia a migracao", () => cenario((d
   assert.equal(a.fase, "mista");
   assert.equal(a.gate, "BLOQUEADO_ESTADO_MISTO");
 }));
+
+test("workflow da skill de operação usa script migrado e presente", () => {
+  const workflow = readFileSync(join(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+  const referencias = [...workflow.matchAll(/^\s+run: bash (\.agents\/skills\/[^\s]+\/scripts\/conferir-mapa\.sh) --ci$/gm)];
+  assert.equal(referencias.length, 1, "a verificação do mapa deve aparecer uma vez no CI");
+  const esperado = ".agents/skills/elus360-operacao/scripts/conferir-mapa.sh";
+  assert.equal(referencias[0][1], esperado, "a execução não pode apontar para uma skill renomeada");
+  assert.ok(existsSync(join(process.cwd(), esperado)), "o script de auditoria do mapa precisa existir");
+});
