@@ -923,6 +923,8 @@ jobs:
       - name: Falhar se qualquer imagem não construiu — ou se o app não sobe
         env:
           EVENTO: ${{ github.event_name }}
+          REPOSITORIO: ${{ github.repository }}
+          REF: ${{ github.ref }}
           PORTAO: ${{ needs.a-tag-veio-da-main.result }}
           ALCANCE: ${{ needs.a-tag-veio-da-main.outputs.imagem }}
           BUILD: ${{ needs.build-and-push.result }}
@@ -939,12 +941,24 @@ jobs:
           # O portão reprova antes de tudo: tag fora da main deixa os builds
           # `skipped`, e nenhum `skipped` abaixo pode ler isso como aceitável.
           [ "$PORTAO" = "success" ]
-          # Em pull_request o build-and-push é sempre `skipped` (as mesmas
-          # imagens são construídas pelos dois jobs de baixo). Fora de PR ele
-          # publica, e só `success` serve.
+          # Em PR, a publicação upstream fica pulada: os jobs *-sobe testam as
+          # imagens. O fork ELUS360 só publica em elus360-release-manual.yml,
+          # com autorização explícita e quatro imagens linux/amd64 (ADR-0007).
+          # O workflow herdado NUNCA pode publicar no fork; em push da main
+          # ou de tag v*, exige smoke íntegro e skipped dos publishers upstream.
+          # Outros repositórios/eventos continuam sob a régua upstream estrita.
           if [ "$EVENTO" = "pull_request" ]; then
             [ "$BUILD" = "skipped" ]
             [ "$MANIFESTO" = "skipped" ]
+          elif [ "$REPOSITORIO" = "OARANHA/elus360" ] && [ "$EVENTO" = "push" ]; then
+            case "$REF" in
+              refs/heads/main|refs/tags/v*) ;;
+              *) echo "::error::ref não autorizada no fork: ${REF}" >&2; exit 1 ;;
+            esac
+            [ "$ALCANCE" = "sim" ]
+            [ "$BUILD" = "skipped" ]
+            [ "$MANIFESTO" = "skipped" ]
+            echo "::notice::ELUS360: smoke aprovado sem publicar imagens; publicação somente por elus360-release-manual.yml."
           else
             [ "$BUILD" = "success" ]
             [ "$MANIFESTO" = "success" ]
