@@ -13,6 +13,7 @@ function cenario(fn) {
     escrever(".agents/skills/deskcomm-contribuir/SKILL.md", "---\nname: deskcomm-contribuir\n---\n");
     escrever(".agents/skills/sistema-vivo/SKILL.md", "---\nname: sistema-vivo\n---\n");
     escrever(".claude/skills/deskcomm-contribuir/SKILL.md", "---\nname: deskcomm-contribuir\n---\n");
+    escrever(".claude/skills/sistema-vivo/SKILL.md", "---\nname: sistema-vivo\n---\n");
     escrever(".claude/settings.json", "{\"hooks\":\"deskcomm-contribuir/scripts/hooks/sessao.sh\"}");
     escrever("README.md", "Chamar deskcomm-contribuir.");
     escrever(".env.test", "SECRET=deskcomm-contribuir");
@@ -22,6 +23,7 @@ function cenario(fn) {
 }
 test("inventario sem escrita identifica hooks e preserva conteudo", () => cenario((dir) => {
   const a = auditarNamespace(dir);
+  assert.equal(a.fase, "antes_da_migracao");
   assert.equal(a.propostas.length, 1);
   assert.equal(a.propostas[0].novo, "elus360-contribuir");
   assert.deepEqual(a.manter, ["sistema-vivo"]);
@@ -38,4 +40,46 @@ test("colisao nao se torna sobrescrita silenciosa", () => cenario((dir, escrever
   const a = auditarNamespace(dir);
   assert.deepEqual(a.colisoes, ["elus360-contribuir"]);
   assert.equal(a.gate, "BLOQUEADO_COLISAO");
+}));
+
+function migrar(dir, escrever) {
+  rmSync(join(dir, ".agents/skills/deskcomm-contribuir"), { recursive: true, force: true });
+  rmSync(join(dir, ".claude/skills/deskcomm-contribuir"), { recursive: true, force: true });
+  escrever(".agents/skills/elus360-contribuir/SKILL.md", "---\nname: elus360-contribuir\n---\n");
+  escrever(".claude/skills/elus360-contribuir/SKILL.md", "---\nname: elus360-contribuir\n---\n");
+  execFileSync("git", ["add", "-A", "-f", "."], { cwd: dir });
+}
+test("apos migrar, detecta referencia executavel obsoleta", () => cenario((dir, escrever) => {
+  migrar(dir, escrever);
+  const a = auditarNamespace(dir);
+  assert.equal(a.fase, "apos_migracao");
+  assert.deepEqual(a.propostas, []);
+  assert.deepEqual(a.migradas, ["elus360-contribuir"]);
+  assert.deepEqual(a.manter, ["sistema-vivo"]);
+  assert.equal(a.gate, "BLOQUEADO_REFERENCIA_ATIVA_LEGADA");
+  assert.deepEqual(a.entradas_legadas[0].arquivo, ".claude/settings.json");
+  assert.ok(a.referencias.some((r) => r.arquivo === "README.md"));
+}));
+test("apos migrar e ajustar hooks, ainda exige homologacao real de CLI", () => cenario((dir, escrever) => {
+  migrar(dir, escrever);
+  escrever(".claude/settings.json", JSON.stringify({ hooks: "elus360-contribuir/scripts/hooks/sessao.sh" }));
+  const a = auditarNamespace(dir);
+  assert.equal(a.fase, "apos_migracao");
+  assert.equal(a.gate, "EXIGE_HOMOLOGACAO_CLI");
+  assert.deepEqual(a.entradas_legadas, []);
+  assert.ok(a.referencias.some((r) => r.arquivo === "README.md"));
+}));
+test("espelho desatualizado bloqueia a migracao", () => cenario((dir, escrever) => {
+  migrar(dir, escrever);
+  rmSync(join(dir, ".claude/skills/elus360-contribuir"), { recursive: true, force: true });
+  const a = auditarNamespace(dir);
+  assert.deepEqual(a.faltam_no_espelho, ["elus360-contribuir"]);
+  assert.equal(a.gate, "BLOQUEADO_ESPELHO_DESATUALIZADO");
+}));
+test("mistura parcial de nomes diferentes bloqueia a migracao", () => cenario((dir, escrever) => {
+  escrever(".agents/skills/elus360-curso/SKILL.md", "---\nname: elus360-curso\n---\n");
+  escrever(".claude/skills/elus360-curso/SKILL.md", "---\nname: elus360-curso\n---\n");
+  const a = auditarNamespace(dir);
+  assert.equal(a.fase, "mista");
+  assert.equal(a.gate, "BLOQUEADO_ESTADO_MISTO");
 }));
