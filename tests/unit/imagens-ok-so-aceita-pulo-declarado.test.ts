@@ -8,13 +8,16 @@
  *     nesse evento;
  *   - os jobs `*-sobe` pulados em pull_request que não alcança imagem nenhuma
  *     (`a-tag-veio-da-main` → `imagem=nao`, scripts/pr-mexe-na-imagem.sh).
+ *   - no fork OARANHA/elus360, exclusivamente push main ou tag v*,
+ *     os dois publishers upstream pulados (release própria é manual), mas
+ *     smoke de app e workers obrigatoriamente success.
  *
  * Toda porta que aceita `skipped` é uma porta por onde um desligamento passa
  * verde (é o buraco da issue #459, em gatilho-dos-jobs-de-entrega.test.ts).
  * Por isso aqui não se lê o script: ele é EXECUTADO contra a matriz inteira de
  * desfechos, e o conjunto do que passa tem de ser exatamente o declarado.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -41,10 +44,15 @@ const DESFECHOS = "success failure skipped cancelled";
 // SUBSHELL, e o código de saída é lido FORA de um `if`: dentro da condição de
 // um `if` o bash desliga o `set -e` do subshell, e o `[ ]` que falhou deixaria
 // de reprovar — a sonda aceitaria tudo.
-function combinacoesAceitas(): string[] {
+function combinacoesAceitas(
+  repositorio = "melgarafael/DeskcommCRM",
+  ref = "refs/heads/main",
+  eventos = "pull_request push",
+  alcances = "sim nao",
+): string[] {
   const programa = `
-for EVENTO in pull_request push; do
- for ALCANCE in sim nao; do
+for EVENTO in ${eventos}; do
+ for ALCANCE in ${alcances}; do
   for PORTAO in ${DESFECHOS}; do
    for BUILD in ${DESFECHOS}; do
     for MANIFESTO in ${DESFECHOS}; do
@@ -63,7 +71,7 @@ for EVENTO in pull_request push; do
 done
 true`;
   return execFileSync("bash", ["-c", programa], {
-    env: { ...process.env, SCRIPT_DO_JOB: SCRIPT },
+    env: { ...process.env, SCRIPT_DO_JOB: SCRIPT, REPOSITORIO: repositorio, REF: ref },
     encoding: "utf-8",
   })
     .split("\n")
@@ -74,7 +82,7 @@ const SCRIPT = scriptDoImagensOk();
 
 describe("imagens-ok só aceita o pulo declarado", () => {
   it("controle positivo: o recorte pegou o script que lê os cinco resultados", () => {
-    for (const v of ["$PORTAO", "$BUILD", "$MANIFESTO", "$APP", "$FUNDO", "$ALCANCE", "$EVENTO"]) {
+    for (const v of ["$PORTAO", "$BUILD", "$MANIFESTO", "$APP", "$FUNDO", "$ALCANCE", "$EVENTO", "$REPOSITORIO", "$REF"]) {
       expect(SCRIPT).toContain(v);
     }
   });
@@ -96,5 +104,57 @@ describe("imagens-ok só aceita o pulo declarado", () => {
         "push nao success success success success success",
       ].sort(),
     );
+  });
+});
+
+
+function resultadoCenario(override: Record<string, string> = {}): boolean {
+  const base = {
+    REPOSITORIO: "OARANHA/elus360",
+    REF: "refs/heads/main",
+    EVENTO: "push",
+    ALCANCE: "sim",
+    PORTAO: "success",
+    BUILD: "skipped",
+    MANIFESTO: "skipped",
+    APP: "success",
+    FUNDO: "success",
+  };
+  const rodou = spawnSync("bash", ["-c", SCRIPT], {
+    encoding: "utf8",
+    env: { ...process.env, ...base, ...override },
+  });
+  if (rodou.error) throw rodou.error;
+  return rodou.status === 0;
+}
+
+describe("fork ELUS360 não publica automaticamente, mas exige smoke completo", () => {
+  it("matriz de 1024 combinações aceita apenas o caso aprovado na main", { timeout: 60_000 }, () => {
+    const passam = combinacoesAceitas("OARANHA/elus360", "refs/heads/main", "push", "sim");
+    expect(passam).toEqual(["push sim success skipped skipped success success"]);
+  });
+
+  it("tag v* do fork mantém o mesmo contrato (não publica no workflow herdado)", () => {
+    expect(resultadoCenario({ REF: "refs/tags/v1.102.0" })).toBe(true);
+  });
+
+  const casosRejeitados: Array<[string, Record<string, string>]> = [
+    ["repositório diferente", { REPOSITORIO: "OARANHA/outro" }],
+    ["nome upstream com publishers pulados", { REPOSITORIO: "melgarafael/DeskcommCRM" }],
+    ["branch não autorizada", { REF: "refs/heads/feature" }],
+    ["tag não versionada", { REF: "refs/tags/experimental" }],
+    ["disparo manual do workflow herdado", { EVENTO: "workflow_dispatch" }],
+    ["alcance inválido", { ALCANCE: "nao" }],
+    ["gate de origem pulado", { PORTAO: "skipped" }],
+    ["gate de origem falhou", { PORTAO: "failure" }],
+    ["publisher upstream rodou inesperadamente", { BUILD: "success" }],
+    ["manifesto upstream rodou inesperadamente", { MANIFESTO: "success" }],
+    ["smoke do app pulado", { APP: "skipped" }],
+    ["smoke do app falhou", { APP: "failure" }],
+    ["smoke de worker pulado", { FUNDO: "skipped" }],
+    ["smoke de worker falhou", { FUNDO: "failure" }],
+  ];
+  it.each(casosRejeitados)("falha fechado: %s", (_caso, campos) => {
+    expect(resultadoCenario(campos)).toBe(false);
   });
 });
