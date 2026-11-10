@@ -5,8 +5,46 @@ import { describe, expect, it } from "vitest";
 
 const RAIZ = process.cwd();
 const catalogo = JSON.parse(readFileSync(path.join(RAIZ, "curso/catalogo-publico-elus360.json"), "utf8")) as {
-  versao: number; tipo: string; url: string; modulos: string[]; idioma: string;
+  versao: number; tipo: string; url: string; modulos: string[]; idioma: string; observado_em: string;
 };
+
+const MODULOS_OBSERVADOS_EM_2026_11_09 = [
+  "inbox",
+  "radar",
+  "agenda",
+  "respostas-rapidas",
+  "funis",
+  "contatos",
+  "tarefas",
+  "agentes",
+  "follow-ups",
+  "casos",
+  "conexoes",
+  "desempenho",
+  "meta-ads",
+  "atividades",
+  "tipos-de-agendamento",
+  "aviso-de-agendamento",
+  "propostas",
+  "modelos-de-proposta",
+  "financeiro",
+  "meta-de-vendas",
+  "perfil",
+  "seguranca",
+  "notificacoes",
+  "app-no-celular",
+  "equipe",
+  "distribuicao-de-atendimento",
+  "automacoes",
+  "tags",
+  "recursos-opcionais",
+  "organizacao",
+  "conversoes",
+  "meta-ads-conexao",
+  "marca",
+  "plano-e-cobranca",
+  "lgpd",
+] as const;
 
 describe("Academia ELUS360 — fronteira do conteúdo público", () => {
   it("o inventário observado não pode fingir ser comprovante de publicação", () => {
@@ -14,7 +52,10 @@ describe("Academia ELUS360 — fronteira do conteúdo público", () => {
     expect(catalogo.url).toBe("https://elus360.com.br/curso");
     expect(catalogo.idioma).toBe("pt-BR");
     expect(new Set(catalogo.modulos).size).toBe(catalogo.modulos.length);
-    expect(catalogo.modulos.length).toBeGreaterThan(0);
+    // Snapshot de navegação observado, não autorização de publicação.
+    // Alterar esta lista exige revisão editorial explícita deste gate.
+    expect(catalogo.observado_em).toBe("2026-11-09");
+    expect(catalogo.modulos).toEqual(MODULOS_OBSERVADOS_EM_2026_11_09);
     for (const modulo of catalogo.modulos) {
       expect(modulo).toMatch(/^[a-z0-9-]+$/);
       expect(modulo.startsWith("admin-"), "áreas administrativas não foram aprovadas na Academia pública").toBe(false);
