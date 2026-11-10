@@ -278,6 +278,12 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
     condicao: "github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'",
     efeito: "Compila as quatro imagens AMD64 sem publicar; sem ele não há smoke Docker.",
   },
+  "elus360-academia-plano.yml::plano": {
+    condicao: "github.repository == 'OARANHA/elus360'",
+    efeito:
+      "O plano de revisão da Academia executa apenas no fork ELUS360 e emite artefato " +
+      "read-only após release ou disparo manual; job pulado não é prova de atualização do curso.",
+  },
   "elus360-ai-autonomy-triple.yml::baseline-parity": { condicao: null, efeito: "Paridade SQL obrigatória." },
   "elus360-ai-autonomy-triple.yml::governance-unit-and-types": { condicao: null, efeito: "Gates de governança IA." },
   "elus360-ai-autonomy-triple.yml::autonomy-postgres": { condicao: null, efeito: "Segurança Postgres descartável." },

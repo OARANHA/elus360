@@ -87,7 +87,7 @@ describe("hrefs do menu do curso", () => {
     expect(linkDo(menu, "tela").getAttribute("href")).toBe(hrefDaTela);
     const demonstracao = menu.querySelector("a.item-menu");
     expect(demonstracao?.getAttribute("href")).toBe("#acao");
-    expect(demonstracao?.textContent).toBe("Deskcomm em ação");
+    expect(demonstracao?.textContent).toBe("ELUS360 em ação");
   });
 
   for (const [caso, sufixo] of [

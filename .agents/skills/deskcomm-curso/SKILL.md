@@ -2,11 +2,20 @@
 name: deskcomm-curso
 description: 'Atualizar o curso visual.'
 metadata:
-  fonte-de-verdade: curso/publicacao.json
-  procedimento: docs/runbooks/atualizar-curso.md
+  fonte-de-verdade: curso/publicacao-elus360.json
+  procedimento: docs/runbooks/atualizar-curso-elus360.md
 ---
 
 # Manter o curso atual
+
+> **No fork `OARANHA/elus360`:** executar o procedimento próprio
+> [`docs/runbooks/atualizar-curso-elus360.md`](../../../docs/runbooks/atualizar-curso-elus360.md)
+> e iniciar o planejamento com `--edicao elus360`. O recibo e o repositório
+> `melgarafael/deskcomm-site` são do upstream e **não comprovam nem autorizam**
+> publicação de `https://elus360.com.br/curso`. A captura conserva a mesma
+> bancada, os mesmos capturadores e os gates de qualidade; a publicação só
+> ocorrerá após identificar o repositório e o commit realmente servidos na
+> Academia ELUS360. O nome técnico desta skill é preservado por compatibilidade.
 
 Invocação: `/deskcomm-curso` no Claude Code; `$deskcomm-curso` no Codex, seguido do pedido.
 
@@ -14,16 +23,19 @@ Esta skill é a automação com IA: você lê as mudanças, corrige o material e
 capturadores existentes. O planejador só faz a triagem determinística. Não inicie um daemon,
 agendamento pago nem outra CLI de IA para substituir o trabalho desta sessão.
 
-Localize o clone do **melgarafael/DeskcommCRM** e leia `CLAUDE.md` e
-[`docs/runbooks/atualizar-curso.md`](../../../docs/runbooks/atualizar-curso.md) no clone antes de
-operar a bancada. A publicação do site vive em outro repositório,
-**melgarafael/deskcomm-site**. Quando instalada globalmente, resolva esses caminhos a partir
-do clone; o diretório global da skill não contém o curso.
+No fork, localize o clone de **OARANHA/elus360** e leia `CLAUDE.md`, `AGENTS.md` e
+[`docs/runbooks/atualizar-curso-elus360.md`](../../../docs/runbooks/atualizar-curso-elus360.md)
+antes de operar a bancada. O site público pertence ao repositório
+**OARANHA/elus360-landing**, com currículo editorial próprio e PR #40 de auditoria.
+O repositório **melgarafael/deskcomm-site** é apenas referência upstream e
+**nunca** é destino de publicação do ELUS360.
 
 ## Decisões essenciais
 
-- A base é `commit_fonte` de `curso/publicacao.json`, conferida contra o curso que foi
-  efetivamente publicado. Não use “última tag”, data de imagem ou `package.json` como substituto.
+- No ELUS360, a base é `commit_fonte` de `curso/publicacao-elus360.json`,
+  **somente após** recibo gerado com deploy do site comprovado; o arquivo
+  herdado `curso/publicacao.json` é do upstream e não prova a Academia.
+  A base deve ser conferida contra o curso que foi efetivamente publicado. Não use “última tag”, data de imagem ou `package.json` como substituto.
   O recibo exige também `site_commit` com SHA completo. Se falta esse vínculo ou uma publicação
   anterior comprovada, faça rodada completa e diga por quê.
 - Compare commits exatos. Alteração local ainda não faz parte de `head`; registre o estado da
@@ -42,7 +54,7 @@ do clone; o diretório global da skill não contém o curso.
 1. Confira a fonte publicada e o commit a ensinar. Rode:
 
    ```bash
-   pnpm exec tsx curso/planejar-atualizacao.ts --head HEAD --saida curso/saida/plano-atualizacao.json
+   pnpm exec tsx curso/planejar-atualizacao.ts --edicao elus360 --head HEAD --idioma pt-BR --saida curso/saida/plano-elus360.json
    ```
 
    `--idioma pt-BR` e `--idioma es` restringem idiomas; sem eles o plano inclui ambos.
@@ -70,16 +82,18 @@ do clone; o diretório global da skill não contém o curso.
    Em falha, corrija a causa, restaure o estado e repita a aula/jornada inteira afetada. Não apague
    a pendência à mão nem mude metadados da foto para conseguir montar.
 
-5. Sincronize o conteúdo canônico e as traduções no `deskcomm-site`. Exporte o conjunto completo
-   concluído com `pnpm exec tsx curso/exportar-capturas.ts --idioma es --saida curso/saida/es --site <clone-do-site>`.
-   O comando valida IDs, procedência, medidas e JPEGs antes da troca, preserva a geometria e não
-   altera o HTML PT. Arquivos alheios, conjunto incompleto ou falhas bloqueiam a exportação.
-   Confira o diff dos assets e do manifesto no site e execute os checks que existem lá.
-   Use PRs e os checks obrigatórios dos dois repositórios; publicar significa também verificar o
-   deploy final pela tela. Só registre a nova publicação depois dessa prova, com SHA da fonte,
-   idiomas concluídos, data real e SHA do site. Não avance o registro durante uma rodada parcial
-   ou falha. Na entrega, informe links, idiomas, o que foi recapturado/reutilizado e pendências
-   concretas; nunca afirme automação, quantidade ou publicação que você não observou.
+5. **Não publique via exportador do Deskcomm.** No ELUS360, compare os módulos
+   permitidos do currículo editorial em **OARANHA/elus360-landing** com a fonte do
+   CRM, utilizando a auditoria somente leitura documentada em
+   [`docs/runbooks/atualizar-curso-elus360.md`](../../../docs/runbooks/atualizar-curso-elus360.md)
+   e a PR de auditoria do site. Preserve títulos, IDs, imagens, marcações, simulador e
+   progresso dos alunos. O exportador legado tem contrato ES específico e não faz
+   atualização automática do HTML PT. Valide capturas, textos e conteúdo no preview
+   real da Academia; depois use PR e checks obrigatórios nos dois repositórios.
+   Publicação exige autorização separada, verificação da imagem/commit implantados
+   e prova visual do curso. Só registre o recibo próprio após essa prova, com SHA
+   da fonte, idiomas realmente publicados, data e SHA do site. Em falha não altere
+   o recibo nem apresente a atualização como concluída.
 
 O runbook detalha os comandos de bancada, o recibo de publicação e a retomada de falhas.
 Os cenários de avaliação estão em [`evals/evals.json`](evals/evals.json).

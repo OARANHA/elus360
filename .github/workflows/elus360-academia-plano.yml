@@ -1,0 +1,69 @@
+name: ELUS360 Academia — plano de revisão da release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Ref/SHA da versão ELUS360 a ensinar (só para planejamento)"
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elus360-academia-plano-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plano:
+    if: github.repository == 'OARANHA/elus360'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Conferir a fonte imutável
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.source_ref || 'main' }}
+      - name: Preparar Node/pnpm pelo caminho canônico do CI
+        uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Provar isolamento dos recibos
+        run: pnpm exec vitest run curso/atualizacao.test.ts curso/elus360-marca-publica.test.ts
+      - name: Planejar atualização da Academia ELUS360 sem publicar
+        run: |
+          pnpm exec tsx curso/planejar-atualizacao.ts \
+            --edicao elus360 --head HEAD --idioma pt-BR \
+            --saida curso/saida/plano-elus360.json
+      - name: Resumo auditável
+        run: |
+          node -e '
+          const fs=require("node:fs");
+          const p=JSON.parse(fs.readFileSync("curso/saida/plano-elus360.json","utf8"));
+          const summary=[
+            "## Revisão da Academia ELUS360 — plano, não publicação",
+            "",
+            "- Fonte: `"+p.head+"`",
+            "- Modo: `"+p.modo+"`",
+            "- Recibo de publicação: `"+p.origem_base+"`",
+            "- Módulos candidatos: "+p.modulos_candidatos.length,
+            "- Jornadas candidatas: "+p.jornadas_candidatas.length,
+            "- Mudanças sem mapeamento local: "+p.pendencias_nao_mapeadas.length,
+            "",
+            "**Este workflow não altera lições, imagens, site, banco, imagens GHCR ou produção.**",
+            "Antes de publicar: revisar o diff, o site realmente servido e o runbook próprio."
+          ];
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,summary.join("\n")+"\n");
+          '
+      - name: Guardar plano para revisão humana
+        uses: actions/upload-artifact@v4
+        with:
+          name: plano-elus360-academia
+          path: curso/saida/plano-elus360.json
+          if-no-files-found: error
+          retention-days: 14
