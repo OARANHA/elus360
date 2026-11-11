@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "release": "v1.102.0",
-  "description": "Contrato mínimo pós-migrations exigido pelo ELUS360 em Portainer. Toda nova release deve revisar este arquivo; uma release diferente é recusada.",
+  "release": "v1.102.1",
+  "description": "Contrato minimo pos-migrations para a release v1.102.1 do fork ELUS360. Revisado: a evolucao apos v1.102.0 inclui o gate Portainer e ajustes sem novos requisitos de colunas deste contrato minimo; releases seguintes exigem revisao explicita.",
   "tables": {
     "contacts": [
       "id",

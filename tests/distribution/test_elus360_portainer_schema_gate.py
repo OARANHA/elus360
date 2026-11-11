@@ -23,9 +23,11 @@ class FakeResponse:
 class GateTests(unittest.TestCase):
     def test_current_contract_exact_release(self):
         config = json.loads((ROOT / "deploy" / "elus360-schema-contract.json").read_text())
-        tables = gate.validate_contract(config, "v1.102.0")
+        tables = gate.validate_contract(config, "v1.102.1")
         self.assertIn("importacoes_de_historico", tables)
         self.assertIn("runtime_confirmation", tables["system_version"])
+        with self.assertRaises(ValueError):
+            gate.validate_contract(config, "v1.102.0")
         with self.assertRaises(ValueError):
             gate.validate_contract(config, "v1.103.0")
 
