@@ -567,7 +567,7 @@ for sh in bash zsh; do
   passo0 "$cmd" "$sem_guias" "$antigo/app"
   if [ "$code" != 0 ] && [ -z "$out" ]; then ok "($sh) clone sem o script, sem instalação global: sai com erro e sem resposta inventada"; else falha "($sh) clone sem o script, sem instalação global: sai com erro e sem resposta inventada" "code=$code out=$out"; fi
   assert_contains "$err" "^NÃO MEDIDO — não achei o quem-sou.sh no clone .*c7-antigo" "($sh) e o erro diz o que não achou e onde procurou"
-  assert_contains "$err" "comando de uma linha do README (https://github.com/melgarafael/DeskcommCRM#readme) e rode de novo" "($sh) e diz como sair dali"
+  assert_contains "$err" "comando de uma linha do README (https://github.com/OARANHA/elus360#readme) e rode de novo" "($sh) e diz como sair dali"
   passo0 "$cmd" "$sem_guias" "$fora"
   if [ "$code" != 0 ] && [ -z "$out" ]; then ok "($sh) fora de clone, sem instalação global: sai com erro e sem resposta inventada"; else falha "($sh) fora de clone, sem instalação global: sai com erro e sem resposta inventada" "code=$code out=$out"; fi
   assert_contains "$err" "^NÃO MEDIDO — não achei o quem-sou.sh nem nas pastas globais" "($sh) e o erro não finge que havia clone"

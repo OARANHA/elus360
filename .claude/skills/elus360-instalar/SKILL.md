@@ -1,6 +1,6 @@
 ---
 name: elus360-instalar
-description: 'Guia de instalação e operação do ELUS360 (fork do DeskcommCRM) numa VPS (HostGator ou qualquer servidor com Docker), para quem não é técnico ou instala para um cliente. Use SEMPRE que alguém quiser instalar, subir, configurar, atualizar, fazer backup ou restaurar o CRM, trocar domínio, cor ou e-mails, conectar o WhatsApp, ou quando aparecer erro de instalação — SSL/cadeado, DNS, Supabase (nuvem ou no servidor, pooler, IPv6), chave de IA, Resend, proxy (Traefik, CloudPanel, Hostinger), "app reiniciando", "esqueci a senha", "perdi o autenticador" — mesmo que a pessoa não diga a palavra "instalar". Conduz passo a passo, roda os scripts do kit e explica em português simples.'
+description: 'Guia ELUS360 (fork do DeskcommCRM) para instalar e operar em VPS Linux AMD64 com Docker, usando OARANHA/elus360 e release própria verificada. Use para instalação, atualização, backup, domínio, DNS, SSL, Supabase, WAHA/WhatsApp, chaves de IA, SMTP, proxy, contêiner reiniciando, recuperação de senha ou autenticação. Aplica os gates da ADR-0007, não cria imagem na VPS e recusa instalação sem release própria; segue prompts e scripts do kit com segurança.'
 metadata:
   publico: leigo, agência, operador de VPS
   fonte-de-verdade: hostgator-setup-kit/install.sh
