@@ -7,6 +7,8 @@ on:
       - "scripts/elus-upstream-dependency-risk.mjs"
       - "scripts/elus-upstream-precision-diagnostics.mjs"
       - "tests/operational/elus-upstream-reconcile.test.mjs"
+      - "scripts/elus-upstream-review-queue.mjs"
+      - "tests/operational/elus-upstream-review-queue.test.mjs"
       - ".github/workflows/elus360-upstream-reconcile.yml"
   workflow_dispatch:
     inputs:
@@ -51,6 +53,7 @@ jobs:
           set -euo pipefail
           node --check scripts/elus-upstream-reconcile.mjs
           node --test tests/operational/elus-upstream-reconcile.test.mjs
+          node --test tests/operational/elus-upstream-review-queue.test.mjs
 
       - name: Provar release publicada e SHAs oficiais, antes de analisar
         id: refs
@@ -106,6 +109,13 @@ jobs:
             if(plan.gate!=="candidate_analysis_ready") console.log("::warning::CONFLITOS_OU_CONTRATOS_REQUEREM_REVISAO: "+plan.gate);
           '
 
+      - name: Gerar fila auditável e priorizada sem promover patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/elus-upstream-review-queue.mjs "$RUNNER_TEMP/elus-upstream-plan.json" "$RUNNER_TEMP/elus-upstream-review-queue.json" "$RUNNER_TEMP/elus-upstream-review-queue.md"
+          cat "$RUNNER_TEMP/elus-upstream-review-queue.md" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -116,5 +126,7 @@ jobs:
             ${{ runner.temp }}/elus-upstream-plan.json
             ${{ runner.temp }}/elus-upstream-prepare.json
             ${{ runner.temp }}/elus-upstream-summary.md
+            ${{ runner.temp }}/elus-upstream-review-queue.json
+            ${{ runner.temp }}/elus-upstream-review-queue.md
             ${{ runner.temp }}/elus-upstream-safe.patch
             ${{ runner.temp }}/elus-upstream-candidate/.elus-upstream/report.json
