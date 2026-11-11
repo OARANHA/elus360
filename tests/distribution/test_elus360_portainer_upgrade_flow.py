@@ -144,6 +144,24 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
                                     rc = redeploy.main(["--release", TAG] + (["--execute"] if execute else []))
         return rc, calls
 
+    def test_workflow_validates_release_before_untrusted_tag_checkout(self):
+        """An attacker-supplied ref cannot execute tagged code with deploy secrets."""
+        workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
+        before = workflow.index("name: Validar release e SHA antes de executar codigo da tag")
+        checkout = workflow.index("ref: ${{ inputs.release }}")
+        privileged = workflow.index("name: Reconciliar esquema, validar contrato, implantar e conferir runtime")
+        self.assertLess(before, checkout)
+        self.assertLess(checkout, privileged)
+        preflight = workflow[before:checkout]
+        self.assertIn('repos/$REPO/releases/tags/$TAG', preflight)
+        self.assertIn('repos/$REPO/git/ref/tags/$TAG', preflight)
+        self.assertIn('repos/$REPO/branches/main', preflight)
+        self.assertIn('test "$tag_sha" = "$EXPECTED_SHA"', preflight)
+        self.assertIn('test "$main_sha" = "$EXPECTED_SHA"', preflight)
+        self.assertIn('test "$tag_type" = commit', preflight)
+        self.assertNotIn("ELUS360_SUPABASE_SERVICE_ROLE_KEY", preflight)
+        self.assertNotIn("ELUS360_PORTAINER_API_KEY", preflight)
+
     def test_happy_path_upgrades_from_previous_sha_and_preserves_secrets(self):
         rc, gates = self.run_controller()
         self.assertEqual(rc, 0)

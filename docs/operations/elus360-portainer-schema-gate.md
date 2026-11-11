@@ -83,9 +83,14 @@ anteriores e sequência de parada segura. Após um erro de rede na atualização
 **nunca repetir a mutação sem reconciliar a stack e o runtime**.
 
 **Testes:** `tests/distribution/test_elus360_portainer_redeploy.py` cobre
-contratos isolados e `test_elus360_portainer_upgrade_flow.py` executa o
-entrypoint com simulações de Portainer/rede/Supabase para cenários de sucesso,
-no-go de schema, concorrência e falha após a mutação. Passar nesses testes,
+contratos isolados e `test_elus360_portainer_upgrade_flow.py` executa
+**somente o controller Python** `elus360-portainer-redeploy.py` com chamadas
+Portainer/rede/Supabase simuladas (sucesso, no-go, concorrência e falha após
+mutação). **Não** executa o entrypoint Bash `elus360-portainer-upgrade.sh`,
+o `reaplicar_baseline` com DDL real, nem um ambiente Portainer/PostgreSQL
+descartável. O workflow de upgrade deve validar a **publicação e o SHA de
+main da tag antes de fazer checkout ou executar qualquer código da release**
+com segredos operacionais. Passar nesses testes,
 mesmo com CI verde, **não equivale** ao ensaio integrado com Docker/PostgreSQL
 descartáveis nem ao aceite funcional na instalação. O workflow existente
 `elus360-homologacao-descartavel.yml` confere imagens AMD64 e restore de dado

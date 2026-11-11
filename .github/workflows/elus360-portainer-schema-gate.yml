@@ -6,6 +6,7 @@ on:
       - 'scripts/elus360-portainer-schema-gate.py'
       - 'tests/distribution/test_elus360_portainer_schema_gate.py'
       - 'tests/distribution/test_elus360_portainer_redeploy.py'
+      - 'tests/distribution/test_elus360_portainer_upgrade_flow.py'
       - 'scripts/elus360-portainer-redeploy.py'
       - 'scripts/elus360-portainer-upgrade.sh'
       - '.github/workflows/elus360-portainer-upgrade.yml'
