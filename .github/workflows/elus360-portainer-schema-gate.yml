@@ -1,0 +1,58 @@
+name: ELUS360 — contrato de esquema Portainer
+on:
+  pull_request:
+    paths:
+      - 'deploy/elus360-schema-contract.json'
+      - 'scripts/elus360-portainer-schema-gate.py'
+      - 'tests/distribution/test_elus360_portainer_schema_gate.py'
+      - 'tests/distribution/test_elus360_portainer_redeploy.py'
+      - 'tests/distribution/test_elus360_portainer_upgrade_flow.py'
+      - 'scripts/elus360-portainer-redeploy.py'
+      - 'scripts/elus360-portainer-upgrade.sh'
+      - '.github/workflows/elus360-portainer-upgrade.yml'
+      - '.github/workflows/elus360-portainer-schema-gate.yml'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release publicada do fork, ex.: v1.102.0'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contrato e regressões sem acesso ao banco
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/distribution -p 'test_elus360_portainer_*.py' -v
+          bash -n scripts/elus360-portainer-upgrade.sh
+  production-preflight:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'OARANHA/elus360'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recusar release não publicada ou fora da main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 3
+          test "$(gh release view "$TAG" --repo OARANHA/elus360 --json isDraft,isPrerelease --jq '.isDraft == false and .isPrerelease == false')" = true || { echo 'ELUS_DISTRIBUTION_NO_GO: release não publicada'; exit 3; }
+          gh release view "$TAG" --repo OARANHA/elus360 >/dev/null
+          git fetch --tags origin main
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || { echo 'ELUS_DISTRIBUTION_NO_GO: tag ausente'; exit 3; }
+          git merge-base --is-ancestor "refs/tags/$TAG" HEAD || { echo 'ELUS_DISTRIBUTION_NO_GO: tag fora de main'; exit 3; }
+      - name: Conferir somente esquema, sem ler dados de clientes
+        env:
+          ELUS360_SUPABASE_URL: ${{ secrets.ELUS360_SUPABASE_URL }}
+          ELUS360_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.ELUS360_SUPABASE_SERVICE_ROLE_KEY }}
+          RELEASE: ${{ inputs.release }}
+        run: python3 scripts/elus360-portainer-schema-gate.py --release "$RELEASE"

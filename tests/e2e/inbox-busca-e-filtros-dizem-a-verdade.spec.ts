@@ -110,6 +110,13 @@ test("lista vazia por filtro NÃO se passa por caixa vazia, e mantém a saída",
 
 test('"Limpar filtros" devolve a lista e MANTÉM a aba', async ({ page }) => {
   await page.getByLabel(CAMPO_DE_BUSCA).fill("zzqqxxnaoexiste");
+  // A busca é debounced e a lista depende do servidor; não exigir o botão
+  // antes de chegar a resposta vazia. No CI #42569392375 o próximo assert
+  // iniciou ainda na transição, embora o controle da spec anterior passasse.
+  await expect(
+    page.getByText(/Nenhuma conversa com esses filtros/i),
+    "a busca filtrada deve concluir e mostrar o estado vazio antes de limpar",
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Limpar filtros/i })).toBeVisible();
 
   await page.getByRole("button", { name: /Limpar filtros/i }).click();
