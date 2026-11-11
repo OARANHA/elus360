@@ -12,6 +12,7 @@ import { TextDecoder } from "node:util";
 import { auditPath, contractSignals, checksForSignals, heuristicSignalProvenance } from "./elus-upstream-contract-risk.mjs";
 import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals, protectedImportProvenance, nearestUnsafeRiskEvidence } from "./elus-upstream-dependency-risk.mjs";
 import { diagnoseAstPrecision } from "./elus-upstream-precision-diagnostics.mjs";
+import { deltaDecision, localCustomizationConsumers } from "./elus-upstream-delta-policy.mjs";
 
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
@@ -68,7 +69,9 @@ function statusFor(path, before, after, fork, signals = []) {
 }
 function parse(args) {
   const mode = args[0] === "prepare" ? "prepare" : "plan";
-  const params = args[0] === "prepare" || args[0] === "plan" ? args.slice(1) : args;
+  const raw=args[0]==="prepare"||args[0]==="plan"?args.slice(1):args;
+  const deltaFirst=raw.at(-1)==="--delta-first";
+  const params=deltaFirst?raw.slice(0,-1):raw;
   if ((mode === "plan" && params.length !== 6) || (mode === "prepare" && params.length !== 8) ||
       params[0] !== "--base" || params[2] !== "--target" || params[4] !== "--fork" ||
       (mode === "prepare" && params[6] !== "--out"))
@@ -81,12 +84,12 @@ function parse(args) {
     const check = spawnSync("git", ["merge-base", "--is-ancestor", refs[0], refs[1]], {cwd:process.cwd()});
     if (check.status !== 0) throw Error("RELEASES_NOT_ANCESTRAL");
   }
-  return {refs, mode, out: params[7]};
+  return {refs, mode, out: params[7],deltaFirst};
 }
-function inspectForkDependencies(fork,candidatePaths,unsafePaths=[],hardUnsafePaths=[]) {
+function inspectForkDependencies(fork,candidatePaths,unsafePaths=[],hardUnsafePaths=[],localPaths=[]) {
   // A lack of candidates is NOT a successful AST graph scan.
   const notRun=(reason,inventoryCount=0,unresolved=0,complete=false)=>({
-    dependents:new Map(),riskCouplings:new Map(),nearestHardRisk:new Map(),seenCandidates:new Set(),
+    dependents:new Map(),riskCouplings:new Map(),nearestHardRisk:new Map(),localConsumers:new Map(),seenCandidates:new Set(),
     executed:false,not_run_reason:reason,complete,count:0,
     inventory_count:inventoryCount,unresolved
   });
@@ -128,6 +131,7 @@ function inspectForkDependencies(fork,candidatePaths,unsafePaths=[],hardUnsafePa
   return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
     riskCouplings:changedRiskCouplings(candidatePaths,unsafePaths,graph),
     nearestHardRisk:nearestUnsafeRiskEvidence([...seenCandidates],hardUnsafePaths,graph),
+    localConsumers:localCustomizationConsumers(candidatePaths,localPaths,graph),
     seenCandidates,
     executed:true,not_run_reason:null,inventory_count:entries.length,
     complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length,unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort()};
@@ -143,13 +147,22 @@ function inventoryFor(fork) {
     return parsed && Array.isArray(parsed.surfaces) ? parsed : null;
   } catch {return null;}
 }
-export function reconcile(base, target, fork) {
+export function reconcile(base, target, fork, {deltaFirst=false}={}) {
   for (const ref of [base,target,fork]) {
     if (!SHA.test(ref)) throw Error("PIN_REQUIRED");
     git(["rev-parse","--verify",ref+"^{commit}"]);
   }
   const change = git(["diff", "--name-only", "-z", "--no-renames", base, target]);
   const paths = change ? change.split("\0").filter(Boolean) : [];
+  const forkDiff=deltaFirst?git(["diff","--name-only","-z","--no-renames",base,fork]):"";
+  const localPaths=forkDiff?forkDiff.split("\0").filter(Boolean):[];
+  const modes=deltaFirst?[base,target,fork].map(ref=>{
+    const tree=git(["ls-tree","-r","-z",ref],{binary:true}).toString("utf8");
+    return new Map(tree.split("\0").filter(Boolean).map(line=>{
+      const tab=line.indexOf("\t");
+      return [line.slice(tab+1),line.slice(0,line.indexOf(" "))];
+    }));
+  }):null;
   const configBlob=oid(fork,"tsconfig.json");
   const configuredTs=configBlob?readSource(fork,"tsconfig.json",configBlob):null;
   const files = paths.map(path => {
@@ -172,9 +185,15 @@ export function reconcile(base, target, fork) {
       source_is_test: /(?:test|spec)\.[cm]?[jt]sx?$/.test(path),
       blocked_by_initial_signals: flags.length>0
     } : null;
+    const decision=deltaFirst?deltaDecision({
+      path,baseOid:before,targetOid:after,forkOid:local,
+      baseMode:modes[0].get(path)??null,targetMode:modes[1].get(path)??null,
+      forkMode:modes[2].get(path)??null
+    }):null;
     return {path, impact: impact(path), preliminary_status:preliminary,
       status: statusFor(path, before, after, local, flags),
       signals: flags, suggested_checks: checksForSignals(flags),
+      ...(decision?{delta_first:{decision,authorization:"candidate_only"}}:{}),
       ...(candidateAnalysis?{candidate_analysis:candidateAnalysis}:{})};
   });
   // Reclassify source candidates whose NEW target imports reference another unsafe
@@ -197,7 +216,9 @@ export function reconcile(base, target, fork) {
   // or source AST signals already blocked them. This is evidence, not approval.
   const hardUnsafe=files.filter(f=>f.preliminary_status!=="safe_to_prepare" &&
     !["already_integrated","unchanged","safe_to_prepare"].includes(f.status)).map(f=>f.path);
-  const dependencyScan=inspectForkDependencies(fork,preliminaryCandidates,unsafe,hardUnsafe);
+  const directPaths=deltaFirst?files.filter(f=>f.delta_first?.decision==="stage_direct_candidate").map(f=>f.path):[];
+  const scanPaths=deltaFirst?[...new Set([...preliminaryCandidates,...directPaths])]:preliminaryCandidates;
+  const dependencyScan=inspectForkDependencies(fork,scanPaths,unsafe,hardUnsafe,localPaths);
   const uninventoried=new Set(uninventoriedAiSurfaces(paths,inventoryFor(fork)));
   for(const file of files) {
     const initialCandidate=file.preliminary_status==="safe_to_prepare";
@@ -257,6 +278,25 @@ export function reconcile(base, target, fork) {
       a.authorization="none";
     }
   }
+  if(deltaFirst)for(const file of files){
+    if(file.delta_first?.decision!=="stage_direct_candidate")continue;
+    const consumers=dependencyScan.localConsumers.get(file.path)??[];
+    if(consumers.length){
+      file.delta_first={decision:"review_customization_dependency",authorization:"none",
+        custom_consumers:consumers.slice(0,15)};
+      continue;
+    }
+    if(/\.[cm]?[jt]sx?$/.test(file.path)){
+      const original=readSource(base,file.path,oid(base,file.path));
+      const incoming=readSource(target,file.path,oid(target,file.path));
+      const introduced=newUnsafeImportSignals(file.path,original,incoming,localPaths,configuredTs);
+      if(introduced.length)file.delta_first={decision:"review_new_customization_import",
+        authorization:"none",signals:introduced};
+    }
+  }
+  const deltaTotals=deltaFirst?files.reduce((acc,f)=>{
+    const key=f.delta_first.decision;acc[key]=(acc[key]??0)+1;return acc;
+  },{}):null;
   const counts = {};
   for (const file of files) counts[file.status] = (counts[file.status] ?? 0) + 1;
   const gated = files.filter(f => !["already_integrated", "unchanged", "safe_to_prepare"].includes(f.status));
@@ -314,6 +354,14 @@ export function reconcile(base, target, fork) {
       scanned:dependencyScan.count,complete:dependencyScan.complete,
       unresolved_count:dependencyScan.unresolved,unresolved_reasons:dependencyScan.unresolved_reasons??[]},
     candidate_coverage,
+    ...(deltaFirst?{delta_first:{
+      policy:"delta_first",stage:"candidate_only_no_merge",
+      fork_changed_paths:localPaths.length,changed_paths:files.length,
+      staged_candidate_paths:deltaTotals.stage_direct_candidate??0,
+      review_paths:files.filter(f=>f.delta_first.decision.startsWith("review_")).length,
+      decisions:deltaTotals,dependency_graph_complete:dependencyScan.complete,
+      authorization:"no_merge_no_deploy"
+    }}:{}),
     uninventoried_ai_paths: [...uninventoried].sort(),
     disclaimer: "Comparacao por blobs, nao prova equivalencia semantica. Nenhuma alteracao foi aplicada. Validar SHA oficial, testes e contratos antes da PR.",
     files
@@ -325,7 +373,7 @@ export function reconcile(base, target, fork) {
  * Cria worktree detached num caminho novo absoluto; nao faz git add/commit/push.
  * O checkout do fork e comparado por SHA pinado: nao modifica a branch atual.
  */
-export function prepare(base, target, fork, out) {
+export function prepare(base, target, fork, out, {deltaFirst=false}={}) {
   if (!out || !isAbsolute(out)) throw Error("ABSOLUTE_OUTPUT_REQUIRED");
   const dir = resolve(out);
   if (existsSync(dir)) throw Error("OUTPUT_ALREADY_EXISTS");
@@ -333,8 +381,10 @@ export function prepare(base, target, fork, out) {
   const nested = relative(top,dir);
   if (!nested.startsWith(".."+sep) && nested !== ".." && !isAbsolute(nested))
     throw Error("OUTPUT_MUST_BE_OUTSIDE_CHECKOUT");
-  const report = reconcile(base,target,fork);
-  const safe = report.files.filter(x=>x.status === "safe_to_prepare").map(x=>x.path);
+  const report = reconcile(base,target,fork,{deltaFirst});
+  const safe = report.files.filter(x=>deltaFirst?
+    x.delta_first?.decision==="stage_direct_candidate":
+    x.status==="safe_to_prepare").map(x=>x.path);
   if (git(["status","--porcelain"])) throw Error("WORKTREE_NOT_CLEAN");
   git(["worktree","add","--detach",dir,fork]);
   try {
@@ -347,7 +397,7 @@ export function prepare(base, target, fork, out) {
     }
     mkdirSync(resolve(dir,".elus-upstream"),{recursive:true});
     writeFileSync(resolve(dir,".elus-upstream","report.json"),JSON.stringify({
-      ...report, preparedFiles:safe, note:"Worktree detached, sem commit. Revisar os arquivos antes de qualquer PR."
+      ...report, preparedFiles:safe, note:"Worktree detached, sem commit. Delta-first prepara candidatos independentes; CI, revisao e aprovacao obrigatorios antes de merge/deploy."
     },null,2)+"\n");
     return {output:dir, preparedFiles:safe.length, reviewRequired:report.gate!=="candidate_analysis_ready",totals:report.totals};
   } catch(e) {
@@ -357,8 +407,8 @@ export function prepare(base, target, fork, out) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const {refs:[base,target,fork],mode,out} = parse(process.argv.slice(2));
-    const result = mode === "prepare" ? prepare(base,target,fork,out) : reconcile(base,target,fork);
+    const {refs:[base,target,fork],mode,out,deltaFirst} = parse(process.argv.slice(2));
+    const result = mode === "prepare" ? prepare(base,target,fork,out,{deltaFirst}) : reconcile(base,target,fork,{deltaFirst});
     process.stdout.write(JSON.stringify(result,null,2) + "\n");
   } catch(e) {
     process.stderr.write("ELUS_RECONCILE_NO_GO:" + String(e.message).slice(0,150) + "\n");

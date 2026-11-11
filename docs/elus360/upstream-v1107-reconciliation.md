@@ -98,3 +98,9 @@ resolver conflitos, fazer merge, aplicar migrations ou atualizar o Portainer.
 A geração dos novos artefatos e seus testes foram adicionados à PR #34;
 a evidência acima refere-se à **execução anterior**. O novo HEAD ainda
 precisa de seu próprio CI para ser considerado testado.
+
+## Delta-first: preparo de candidatos sem sobrescrever o fork (11/11/2026)
+
+Modo `--delta-first`: usa comparação de blob Git **e modo** entre base oficial, destino oficial e ELUS360 para selecionar `stage_direct_candidate`. Mantém o status histórico do reconciliador, análise AST, sinais de risco e bloqueios próprios. Arquivos alterados pelo fork, exclusões, modes não regulares, schema, distribuição, namespace ELUS, consumidores personalizados e imports novos para customizações não são preparados automaticamente. Os demais são preparados somente em **worktree detached descartável**, não em `main`.
+
+O patch `elus-upstream-direct-candidate.patch` é um **candidato**, não um patch homologado. O grafo incompleto continua reportado; os testes completos de integração/segurança/banco/E2E, revisão e aprovação para merge/deploy permanecem obrigatórios. Sem `--delta-first`, o modo conservador original continua disponível e com os testes existentes.

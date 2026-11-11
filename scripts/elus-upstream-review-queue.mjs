@@ -50,7 +50,7 @@ export function buildReviewQueue(plan, digest) {
 
   const counts = {};
   const names = new Set();
-  const entries = plan.files.map(item => {
+  const validated = plan.files.map(item => {
     if (!item || !validPath(item.path) || names.has(item.path) ||
         !STATES.has(item.status) || !Array.isArray(item.signals) ||
         item.signals.some(signal => typeof signal !== "string"))
@@ -67,8 +67,10 @@ export function buildReviewQueue(plan, digest) {
         graph_complete:item.candidate_analysis?.dependency_graph?.complete === true,
       },
       authorization:"none", manual_review_required:true,
+      delta_decision:item.delta_first?.decision??null,
     };
   });
+  const entries=plan.delta_first?validated.filter(item=>item.delta_decision!=="stage_direct_candidate"):validated;
   for (const [state, count] of Object.entries(counts))
     if (plan.totals[state] !== count) throw Error("STATUS_TOTAL_MISMATCH");
   for (const [state, count] of Object.entries(plan.totals))
@@ -86,7 +88,8 @@ export function buildReviewQueue(plan, digest) {
       unresolved_count:plan.dependency_scan?.unresolved_count ?? null,
       unresolved_reasons:plan.dependency_scan?.unresolved_reasons ?? [],
     },
-    totals:{changed:entries.length,statuses:counts,groups},
+    totals:{changed:plan.files.length,requires_review:entries.length,
+      staged_candidates:plan.delta_first?.staged_candidate_paths??0,statuses:counts,groups},
     policy:{authorization:"none",auto_apply:false,auto_merge:false,auto_deploy:false},
     entries,
   };

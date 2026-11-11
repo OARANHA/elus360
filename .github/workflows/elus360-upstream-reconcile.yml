@@ -3,10 +3,12 @@ on:
   pull_request:
     paths:
       - "scripts/elus-upstream-reconcile.mjs"
+      - "scripts/elus-upstream-delta-policy.mjs"
       - "scripts/elus-upstream-contract-risk.mjs"
       - "scripts/elus-upstream-dependency-risk.mjs"
       - "scripts/elus-upstream-precision-diagnostics.mjs"
       - "tests/operational/elus-upstream-reconcile.test.mjs"
+      - "tests/operational/elus-upstream-delta-first.test.mjs"
       - "scripts/elus-upstream-review-queue.mjs"
       - "tests/operational/elus-upstream-review-queue.test.mjs"
       - ".github/workflows/elus360-upstream-reconcile.yml"
@@ -52,6 +54,8 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/elus-upstream-reconcile.mjs
+          node --check scripts/elus-upstream-delta-policy.mjs
+          node --test tests/operational/elus-upstream-delta-first.test.mjs
           node --test tests/operational/elus-upstream-reconcile.test.mjs
           node --test tests/operational/elus-upstream-review-queue.test.mjs
 
@@ -94,16 +98,16 @@ jobs:
           FORK: ${{ steps.refs.outputs.fork }}
         run: |
           set -euo pipefail
-          node scripts/elus-upstream-reconcile.mjs plan --base "$BASE" --target "$TARGET" --fork "$FORK" > "$RUNNER_TEMP/elus-upstream-plan.json"
-          node scripts/elus-upstream-reconcile.mjs prepare --base "$BASE" --target "$TARGET" --fork "$FORK" --out "$RUNNER_TEMP/elus-upstream-candidate" > "$RUNNER_TEMP/elus-upstream-prepare.json"
-          git -C "$RUNNER_TEMP/elus-upstream-candidate" diff --binary --no-ext-diff > "$RUNNER_TEMP/elus-upstream-safe.patch"
+          node scripts/elus-upstream-reconcile.mjs plan --base "$BASE" --target "$TARGET" --fork "$FORK" --delta-first > "$RUNNER_TEMP/elus-upstream-plan.json"
+          node scripts/elus-upstream-reconcile.mjs prepare --base "$BASE" --target "$TARGET" --fork "$FORK" --out "$RUNNER_TEMP/elus-upstream-candidate" --delta-first > "$RUNNER_TEMP/elus-upstream-prepare.json"
+          git -C "$RUNNER_TEMP/elus-upstream-candidate" diff --binary --no-ext-diff > "$RUNNER_TEMP/elus-upstream-direct-candidate.patch"
           node --input-type=module -e '
             import fs from "node:fs";
             const path=process.env.RUNNER_TEMP;
             const plan=JSON.parse(fs.readFileSync(path+"/elus-upstream-plan.json","utf8"));
             const prepared=JSON.parse(fs.readFileSync(path+"/elus-upstream-prepare.json","utf8"));
             const details=Object.entries(plan.totals).map(([key,value])=>"- "+key+": "+value).join("\n");
-            const summary=["## ELUS360 — reconciliação oficial", "Base: "+plan.refs.base, "Destino: "+plan.refs.target, "Fork: "+plan.refs.fork, "", "Gate: **"+plan.gate+"**", "Dependências completas: **"+plan.dependency_scan.complete+"**", "Arquivos preparados: **"+prepared.preparedFiles+"**", "", details, "", "Somente candidato; revisão/PR/CI/merge/deploy ainda exigidos."].join("\n");
+            const summary=["## ELUS360 — reconciliação oficial", "Base: "+plan.refs.base, "Destino: "+plan.refs.target, "Fork: "+plan.refs.fork, "", "Gate: **"+plan.gate+"**", "Dependências completas: **"+plan.dependency_scan.complete+"**", "Candidatos diretos preparados: **"+prepared.preparedFiles+"**", "", details, "", "Somente candidato; revisão/PR/CI/merge/deploy ainda exigidos."].join("\n");
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,summary+"\n");
             fs.writeFileSync(path+"/elus-upstream-summary.md",summary+"\n");
             if(plan.gate!=="candidate_analysis_ready") console.log("::warning::CONFLITOS_OU_CONTRATOS_REQUEREM_REVISAO: "+plan.gate);
@@ -128,5 +132,5 @@ jobs:
             ${{ runner.temp }}/elus-upstream-summary.md
             ${{ runner.temp }}/elus-upstream-review-queue.json
             ${{ runner.temp }}/elus-upstream-review-queue.md
-            ${{ runner.temp }}/elus-upstream-safe.patch
+            ${{ runner.temp }}/elus-upstream-direct-candidate.patch
             ${{ runner.temp }}/elus-upstream-candidate/.elus-upstream/report.json
