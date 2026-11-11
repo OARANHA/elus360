@@ -97,6 +97,14 @@ if scenario in fatal:
     sys.exit(100)
 if scenario == "todos_parados" or (scenario not in ("saudavel", "browser_cdn_parado") and "azure.archive.ubuntu.com" in uri):
     sys.exit(124)
+if scenario in ("dns_transitorio", "dns_persistente") and (
+    scenario == "dns_persistente" or "azure.archive.ubuntu.com" in uri
+):
+    host = "azure.archive.ubuntu.com" if "azure.archive.ubuntu.com" in uri else "security.ubuntu.com"
+    print("Err:1 " + uri + " noble InRelease", flush=True)
+    print("  Temporary failure resolving '" + host + "'", flush=True)
+    print("W: Some index files failed to download. They have been ignored, or old ones used instead.", flush=True)
+    sys.exit(100)
 if scenario == "indice_invalido" and "update" in sys.argv:
     print("E: The repository is not signed.", flush=True)
     sys.exit(100)
@@ -160,6 +168,23 @@ describe("APT do E2E abandona a fonte Azure que não termina", () => {
     const r = rodar(FFMPEG, "azure_parado", fonte, true);
     expect(r.status, r.saida).toBe(0);
     expect(r.fonte).toBe(fonte.replace(AZURE, CANONICAL));
+  });
+
+  it("DNS Ubuntu transitório (W:/Err:, sem E: Failed to fetch) usa segunda fonte e instala", () => {
+    const r = rodar(FFMPEG, "dns_transitorio");
+    expect(r.status, r.saida).toBe(0);
+    expect(r.fonte).toBe(DEB822.replace(AZURE, CANONICAL));
+    expect(r.chamadas.filter((linha) => linha.startsWith("timeout"))).toHaveLength(2);
+    expect(r.chamadas.some((linha) => linha.startsWith("apt-get install") && linha.includes(CANONICAL))).toBe(true);
+    expect(r.pin).toEqual(r.pinAntes);
+  });
+
+  it("DNS Ubuntu indisponível em ambas as fontes permanece RED, sem quarta tentativa", () => {
+    const r = rodar(FFMPEG, "dns_persistente");
+    expect(r.status, r.saida).not.toBe(0);
+    expect(r.chamadas.filter((linha) => linha.startsWith("timeout"))).toHaveLength(3);
+    expect(r.saida).toContain("::error");
+    expect(r.pin).toEqual(r.pinAntes);
   });
 
   it("arquivo oficial também parado permanece vermelho após três tentativas limitadas", () => {
