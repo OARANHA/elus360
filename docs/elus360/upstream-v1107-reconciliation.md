@@ -45,3 +45,56 @@ As entradas manuais do workflow permitem outras versões oficiais, desde que o o
 - **Distribuição ELUS360:** release própria do fork, imagens Linux AMD64, Supabase/schema, Portainer e canário.
 
 A versão `v1.107.0` do Deskcomm **não** é uma release instalável do ELUS360 sem essa integração.
+
+## Evidência do workflow real — run #42994738258 (CI GREEN anterior)
+
+A execução associada ao HEAD `2e39a43ddb5f1157c6a45bc6ac2947da77ca2e98` publicou
+o [artifact `elus360-upstream-reconcile-artifacts`](https://github.com/OARANHA/elus360/actions/runs/42994738258)
+(ID `13843692575`). O JSON do plano real foi inspecionado, não inferido do comparador Git.
+
+- `gate=manual_review_required` para **1.351 caminhos**;
+- `contract_requires_review=1081`, `protected_requires_review=263`,
+  `conflict_requires_review=6`, `deletion_requires_review=1`;
+- `dependency_scan.executed=true`, **3.470** fontes analisadas, `complete=false`,
+  **2 referências de importação calculadas não resolvidas**;
+- **691** candidatos preliminares comuns, reclassificados para revisão por sinais de contratos;
+- **12** candidatos com `potential_compatibility_manual_review` — classificação **apenas de triagem**;
+- `prepare.preparedFiles=0`, patch `elus-upstream-safe.patch` com **0 bytes**.
+
+A contagem de **18 divergências por blob** do inventário inicial não contradiz
+`conflict_requires_review=6` no reconciliador: os demais caminhos podem receber
+`protected_requires_review` por prioridade de classificação. Nenhuma das duas
+contagens prova resolução de um conflito.
+
+### Doze arquivos para revisão dirigida (não autorização)
+
+1. `lib/agenda/google/mudanca-vinda-do-google.ts`
+2. `lib/agenda/servicos/motivos.ts`
+3. `lib/automation/actions/register-all.ts`
+4. `lib/campanhas/elegibilidade.ts`
+5. `lib/channels/adapters/meta-cloud.ts`
+6. `lib/channels/adapters/waha.ts`
+7. `lib/channels/adapters/zernio.ts`
+8. `lib/email/estado.ts`
+9. `lib/followup/fluxos-da-etapa.ts`
+10. `lib/mcp/tools/pipelines.ts`
+11. `lib/modulos/catalogo.ts`
+12. `lib/waha/ingest.ts`
+
+Todos continuam exigindo revisão humana. O primeiro arquivo de vocabulário aditivo
+`lib/agenda/servicos/motivos.ts` foi isolado na [PR #36](https://github.com/OARANHA/elus360/pull/36),
+com verificação de blob oficial e testes de regressão; **não** representa
+a atualização funcional completa da agenda nem da v1.107.0.
+
+### Nova fila automatizada de revisão
+
+`scripts/elus-upstream-review-queue.mjs` consome o plano oficial fixado do
+workflow, valida SHAs completos, integridade dos totais, caminhos e duplicações,
+e gera `elus-upstream-review-queue.json` e `.md` com as classes de risco e
+o digest SHA-256 do plano. O output mantém `authorization:none` para todos
+os itens. Essa fila é **somente para revisar**, nunca para aprovar patches,
+resolver conflitos, fazer merge, aplicar migrations ou atualizar o Portainer.
+
+A geração dos novos artefatos e seus testes foram adicionados à PR #34;
+a evidência acima refere-se à **execução anterior**. O novo HEAD ainda
+precisa de seu próprio CI para ser considerado testado.
