@@ -1,6 +1,6 @@
 ---
 name: elus360-saas
-description: 'Guia para revender o DeskcommCRM como SaaS próprio: painel do dono, empresas-clientes, planos e teste grátis, cobrança pela Stripe ou pelo Asaas, régua de atraso, troca de plano, nota fiscal e contrato/LGPD. Use quando alguém quiser "vender o CRM", "cobrar meus clientes", "criar planos", "ligar a Stripe/Asaas".'
+description: 'Guia para revender o ELUS360 (fork do DeskcommCRM) como SaaS próprio: painel do dono, empresas-clientes, planos e teste grátis, cobrança pela Stripe ou pelo Asaas, régua de atraso, troca de plano, nota fiscal e contrato/LGPD. Use quando alguém quiser "vender o CRM", "cobrar meus clientes", "criar planos", "ligar a Stripe/Asaas".'
 metadata:
   publico: revendedor, agência, dono de instalação
   fonte-de-verdade: docs/saas/

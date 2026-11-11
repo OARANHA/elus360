@@ -1,6 +1,6 @@
 ---
 name: elus360-curso
-description: 'Atualizar o curso visual.'
+description: 'Atualizar a Academia ELUS360 quando o CRM mudar: revisar aulas, planejar recapturas pt-BR/es e preparar PR no site correto, sem publicação automática. Use quando pedirem atualizar o curso, revisar telas, recapturar aulas ou alinhar a Academia à release ELUS360.'
 metadata:
   fonte-de-verdade: curso/publicacao-elus360.json
   procedimento: docs/runbooks/atualizar-curso-elus360.md

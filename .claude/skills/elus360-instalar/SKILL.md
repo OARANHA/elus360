@@ -1,12 +1,21 @@
 ---
 name: elus360-instalar
-description: 'Guia de instalação e operação do DeskcommCRM numa VPS (HostGator ou qualquer servidor com Docker), para quem não é técnico ou instala para um cliente. Use SEMPRE que alguém quiser instalar, subir, configurar, atualizar, fazer backup ou restaurar o CRM, trocar domínio, cor ou e-mails, conectar o WhatsApp, ou quando aparecer erro de instalação — SSL/cadeado, DNS, Supabase (nuvem ou no servidor, pooler, IPv6), chave de IA, Resend, proxy (Traefik, CloudPanel, Hostinger), "app reiniciando", "esqueci a senha", "perdi o autenticador" — mesmo que a pessoa não diga a palavra "instalar". Conduz passo a passo, roda os scripts do kit e explica em português simples.'
+description: 'Guia de instalação e operação do ELUS360 (fork do DeskcommCRM) numa VPS (HostGator ou qualquer servidor com Docker), para quem não é técnico ou instala para um cliente. Use SEMPRE que alguém quiser instalar, subir, configurar, atualizar, fazer backup ou restaurar o CRM, trocar domínio, cor ou e-mails, conectar o WhatsApp, ou quando aparecer erro de instalação — SSL/cadeado, DNS, Supabase (nuvem ou no servidor, pooler, IPv6), chave de IA, Resend, proxy (Traefik, CloudPanel, Hostinger), "app reiniciando", "esqueci a senha", "perdi o autenticador" — mesmo que a pessoa não diga a palavra "instalar". Conduz passo a passo, roda os scripts do kit e explica em português simples.'
 metadata:
   publico: leigo, agência, operador de VPS
   fonte-de-verdade: hostgator-setup-kit/install.sh
 ---
 
-# Instalar e operar o DeskcommCRM
+# Instalar e operar o ELUS360
+
+> **Contrato obrigatório do fork:** a fonte é `OARANHA/elus360`, não
+> `melgarafael/DeskcommCRM`. Antes de instalar ou atualizar, siga
+> `docs/adr/0007-elus360-linux-amd64.md`: host Linux AMD64, quatro imagens
+> próprias com release numérica publicada e verificada, sem build na VPS, sem
+> canal `stable` e sem substituir a release por uma tag upstream.
+> `hostgator-setup-kit/install.sh` recusa a operação antes dos efeitos quando
+> não existe release própria verificável; **não contorne** `ELUS_DISTRIBUTION_NO_GO`.
+> As orientações herdadas abaixo só valem quando compatíveis com esses gates.
 
 Você está conduzindo uma pessoa que, quase sempre, **não programa** — ou que instala para um
 cliente e quer acertar de primeira. O produto se vende como "um comando na VPS"; a experiência de
@@ -117,8 +126,8 @@ cá. Registradores, passo a passo: `references/dominio-e-dns.md`.
 ### 5. Rodar o instalador — no modo interativo
 
 ```bash
-git clone https://github.com/melgarafael/DeskcommCRM.git deskcommcrm   # se ainda não clonou
-cd deskcommcrm
+git clone https://github.com/OARANHA/elus360.git elus360   # se ainda não clonou
+cd elus360
 bash hostgator-setup-kit/install.sh
 ```
 
@@ -151,7 +160,7 @@ caminho. Se a pessoa já tiver a chave em mãos, ótimo: ela é validada na hora
 3. Onboarding: nome da empresa, o que ela faz, fuso horário; depois o WhatsApp — deixe o app do
    celular **já aberto em Aparelhos conectados** antes de clicar, o QR vale só uns minutos.
 4. Agendar backup diário (o Supabase grátis **não** faz backup sozinho):
-   `crontab -e` → `0 3 * * *  cd /caminho/deskcommcrm && bash hostgator-setup-kit/backup.sh`.
+   `crontab -e` → `0 3 * * *  cd /caminho/elus360 && bash hostgator-setup-kit/backup.sh`.
    Os arquivos ficam **na mesma VPS**; copiar para fora é manual. No single-server isso não é
    opcional: o servidor guarda o banco e os anexos, e o backup é a única outra cópia — combine
    com a pessoa para onde ele vai (outro servidor, armazenamento da hospedagem, o computador dela).

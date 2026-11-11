@@ -1,6 +1,6 @@
 ---
 name: elus360-operacao
-description: 'Guia de operação diária do DeskcommCRM para quem já tem o sistema instalado e precisa encontrar telas, entender fluxos, configurar recursos correntes e resolver dúvidas de uso sem mexer no código. Use quando alguém perguntar "onde fica", "como uso", "como configuro na tela", "o que este menu faz", "qual a ordem para operar", ou precisar de um mapa do produto entre Inbox, CRM, IA, Canais, Análise e Organização. Encaminha instalação, cliente novo, prompt, métricas e desenvolvimento para as skills específicas.'
+description: 'Guia de operação diária do ELUS360 (fork do DeskcommCRM) para quem já tem o sistema instalado e precisa encontrar telas, entender fluxos, configurar recursos correntes e resolver dúvidas de uso sem mexer no código. Use quando alguém perguntar "onde fica", "como uso", "como configuro na tela", "o que este menu faz", "qual a ordem para operar", ou precisar de um mapa do produto entre Inbox, CRM, IA, Canais, Análise e Organização. Encaminha instalação, cliente novo, prompt, métricas e desenvolvimento para as skills específicas.'
 metadata:
   publico: operador, gestor, implantador
   escopo: uso diário pela interface

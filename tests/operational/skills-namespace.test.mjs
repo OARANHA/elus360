@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { auditarNamespace } from "../../scripts/skills-embutidas/auditar-namespace-elus360.mjs";
@@ -91,4 +91,37 @@ test("workflow da skill de operação usa script migrado e presente", () => {
   const esperado = ".agents/skills/elus360-operacao/scripts/conferir-mapa.sh";
   assert.equal(referencias[0][1], esperado, "a execução não pode apontar para uma skill renomeada");
   assert.ok(existsSync(join(process.cwd(), esperado)), "o script de auditoria do mapa precisa existir");
+});
+
+test("skills ELUS360 anunciam o fork no frontmatter e nao encaminham instalacao ao upstream", () => {
+  const raiz = process.cwd();
+  const source = join(raiz, ".agents/skills");
+  const mirror = join(raiz, ".claude/skills");
+  const nomes = readdirSync(source, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name.startsWith("elus360-"))
+    .map((d) => d.name)
+    .sort();
+  assert.equal(nomes.length, 10, "a migracao deve preservar as dez skills ELUS360");
+
+  for (const nome of nomes) {
+    const src = readFileSync(join(source, nome, "SKILL.md"), "utf8");
+    const esp = readFileSync(join(mirror, nome, "SKILL.md"), "utf8");
+    assert.equal(esp, src, "espelho divergente: " + nome);
+    const frontmatter = src.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    assert.ok(frontmatter, "frontmatter ausente: " + nome);
+    assert.match(frontmatter[1], new RegExp("^name: " + nome + "$", "m"), "nome da skill");
+    const desc = frontmatter[1].match(/^description:\s*(.+)$/m)?.[1] || "";
+    assert.match(desc, /ELUS360/, "a descoberta automatica deve identificar o fork: " + nome);
+  }
+
+  const instalar = readFileSync(join(source, "elus360-instalar/SKILL.md"), "utf8");
+  assert.match(instalar, /git clone https:\/\/github\.com\/OARANHA\/elus360\.git elus360/);
+  assert.doesNotMatch(instalar, /git clone https:\/\/github\.com\/melgarafael\/DeskcommCRM/);
+  assert.match(instalar, /ELUS_DISTRIBUTION_NO_GO/);
+  assert.match(instalar, /docs\/adr\/0007-elus360-linux-amd64\.md/);
+
+  const contribuir = readFileSync(join(source, "elus360-contribuir/SKILL.md"), "utf8");
+  assert.match(contribuir, /OARANHA\/elus360-landing/);
+  assert.match(contribuir, /elus360-release-manual\.yml/);
+  assert.doesNotMatch(contribuir, /\[deskcomm\.com\.br\/guias\]/);
 });
