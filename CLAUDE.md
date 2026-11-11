@@ -694,16 +694,16 @@ mesma tabela vale para Codex, Cursor, OpenCode e Antigravity; ver `AGENTS.md`). 
 qualquer pasta, `bash scripts/instalar-guias.sh`; editando um guia numa branch, rode com `--fonte .`
 naquele clone — no Claude Code a skill GLOBAL vence a do projeto com o mesmo nome:
 
-- `deskcomm-instalar` — instalar, atualizar ou consertar a instalação numa VPS
-- `deskcomm-operacao` — usar o CRM no dia a dia, encontrar telas, fluxos e configurações pela interface
-- `deskcomm-curso` — atualizar aulas, traduções e capturas do curso a partir das mudanças do produto
-- `deskcomm-cliente-novo` — configurar o CRM para um cliente ou nicho (agentes, roteadores, follow-ups, conhecimento)
-- `deskcomm-saas` — revender o CRM como SaaS: planos, cobrança pela Stripe ou pelo Asaas, régua, contrato
-- `deskcomm-metricas` — desempenho, conversão, custo de IA, funil, relatório
-- `deskcomm-prompt` — afinar o prompt de um agente que não performa
-- `deskcomm-contribuir` — o espelho da triagem, antes do PR; fica quieto para o mantenedor
-- `deskcomm-extensao` — criar extensão em vez de PR no núcleo: régua de destino, contrato do pacote e envio
-- `deskcomm-doutrina` — as três regras que mais custam, antes de escrever código
+- `elus360-instalar` — instalar, atualizar ou consertar a instalação numa VPS
+- `elus360-operacao` — usar o CRM no dia a dia, encontrar telas, fluxos e configurações pela interface
+- `elus360-curso` — atualizar aulas, traduções e capturas do curso a partir das mudanças do produto
+- `elus360-cliente-novo` — configurar o CRM para um cliente ou nicho (agentes, roteadores, follow-ups, conhecimento)
+- `elus360-saas` — revender o CRM como SaaS: planos, cobrança pela Stripe ou pelo Asaas, régua, contrato
+- `elus360-metricas` — desempenho, conversão, custo de IA, funil, relatório
+- `elus360-prompt` — afinar o prompt de um agente que não performa
+- `elus360-contribuir` — o espelho da triagem, antes do PR; fica quieto para o mantenedor
+- `elus360-extensao` — criar extensão em vez de PR no núcleo: régua de destino, contrato do pacote e envio
+- `elus360-doutrina` — as três regras que mais custam, antes de escrever código
 
 Os guias têm página pública em [deskcomm.com.br/guias](https://www.deskcomm.com.br/guias), escrita
 à mão em `deskcomm-site/conteudo/guias.ts`: guia criado, renomeado ou com comando novo pede a mesma

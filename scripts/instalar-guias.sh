@@ -4,8 +4,8 @@
 # `$0` vale `bash` e não há arquivo de onde reler um comentário — o --help saía vazio, com exit 0.
 ajuda() {
   cat <<'AJUDA'
-instalar-guias.sh — deixa os guias do assistente (deskcomm-instalar, deskcomm-cliente-novo,
-deskcomm-metricas, deskcomm-prompt, deskcomm-contribuir, deskcomm-doutrina e deskcomm-curso) disponíveis
+instalar-guias.sh — deixa os guias do assistente (elus360-instalar, elus360-cliente-novo,
+elus360-metricas, elus360-prompt, elus360-contribuir, elus360-doutrina e elus360-curso) disponíveis
 em QUALQUER pasta, não só dentro de um clone do DeskcommCRM.
 
 ── Por que existe ────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ clone/branch antigo, e quem opera vários clientes a partir de outra pasta. Medi
 1. Mantém uma cópia rasa só de `.agents/skills` em ~/.deskcomm/guias (clone esparso da main,
    atualizado a cada execução — e SÓ nela). Com --fonte DIR, usa o `.agents/skills` de um
    clone seu.
-2. Liga cada guia `deskcomm-*` nas pastas GLOBAIS que os CLIs leem — medidas, não supostas:
+2. Liga cada guia `elus360-*` nas pastas GLOBAIS que os CLIs leem — medidas, não supostas:
      ~/.claude/skills       Claude Code (e Cursor e OpenCode, por compatibilidade)
      ~/.agents/skills       Codex, Cursor e OpenCode (padrão aberto Agent Skills)
      ~/.gemini/config/skills  Antigravity
@@ -39,8 +39,8 @@ toca no link que você mesmo fez para o `deskcomm-*` de outro clone.
 
 ── Uso ───────────────────────────────────────────────────────────────────────
 
-  curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash -s -- --remover
+  curl -fsSL https://raw.githubusercontent.com/OARANHA/elus360/main/scripts/instalar-guias.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/OARANHA/elus360/main/scripts/instalar-guias.sh | bash -s -- --remover
   bash scripts/instalar-guias.sh                 # instala ou atualiza (cópia da main)
   bash scripts/instalar-guias.sh --fonte .       # aponta para ESTE clone (quem edita os guias)
   bash scripts/instalar-guias.sh --remover       # desfaz
@@ -54,7 +54,7 @@ AJUDA
 
 set -euo pipefail
 
-REPO_URL="${DESKCOMM_REPO_URL:-https://github.com/melgarafael/DeskcommCRM.git}"
+REPO_URL="${DESKCOMM_REPO_URL:-https://github.com/OARANHA/elus360.git}"
 CACHE_PADRAO="$HOME/.deskcomm/guias"
 CACHE="${DESKCOMM_GUIAS_HOME:-$CACHE_PADRAO}"
 # Absoluto, como o --fonte: o link guarda o caminho LITERAL, e um relativo
@@ -93,7 +93,7 @@ eh_nosso() {  # eh_nosso <alvo> [fonte...]
       for f in "$@"; do case "$destino" in "$f/$(basename "$alvo")") return 0 ;; esac; done
       return 1
     fi
-    case "$destino" in */.agents/skills/deskcomm-*) return 0 ;; esac
+    case "$destino" in */.agents/skills/elus360-*|*/.agents/skills/deskcomm-*) return 0 ;; esac
     return 1
   fi
   [ -f "$alvo/$MARCA" ]
@@ -158,7 +158,7 @@ if [ "$acao" = "remover" ]; then
     # `deskcomm-*` de outro clone responde que sim: ela era apagada, o contrário do que o
     # cabeçalho promete.
     ler_fontes "$dest"
-    for alvo in "$dest"/deskcomm-*; do
+    for alvo in "$dest"/elus360-* "$dest"/deskcomm-*; do
       [ -e "$alvo" ] || [ -L "$alvo" ] || continue
       if eh_nosso "$alvo" "${fontes_registradas[@]}"; then rm -rf "$alvo"; removidos=$((removidos + 1)); fi
     done
@@ -171,7 +171,7 @@ fi
 # ── A fonte dos guias ────────────────────────────────────────────────────────
 if [ -n "$fonte" ]; then
   origem="$(cd "$fonte" && pwd)/.agents/skills"
-  [ -d "$origem" ] || { echo "não achei $origem — --fonte deve ser a raiz de um clone do DeskcommCRM" >&2; exit 1; }
+  [ -d "$origem" ] || { echo "não achei $origem — --fonte deve ser a raiz de um clone do ELUS360" >&2; exit 1; }
   echo "fonte: $origem (seu clone)"
 else
   command -v git >/dev/null 2>&1 || { echo "precisa do git instalado" >&2; exit 1; }
@@ -219,9 +219,9 @@ else
 fi
 
 guias=()
-for d in "$origem"/deskcomm-*; do [ -f "$d/SKILL.md" ] && guias+=("$(basename "$d")"); done
+for d in "$origem"/elus360-*; do [ -f "$d/SKILL.md" ] && guias+=("$(basename "$d")"); done
 if [ ${#guias[@]} -eq 0 ]; then
-  echo "nenhum guia deskcomm-* em $origem" >&2
+  echo "nenhum guia elus360-* em $origem" >&2
   if [ -z "$fonte" ]; then
     echo "Se a cópia ficou pela metade, apague-a e rode o comando de novo: rm -rf \"$CACHE\"" >&2
   fi
@@ -242,7 +242,7 @@ for dest in "${DESTINOS[@]}"; do
   # lado da nova. "Da fonte" é de QUALQUER fonte registrada, não só da de agora: ao trocar da
   # cópia para `--fonte` (ou o inverso), o guia que só a fonte anterior tinha seguia ligado a
   # ela, e o registro reescrito no fim desta volta o tirava também do alcance do `--remover`.
-  for alvo in "$dest"/deskcomm-*; do
+  for alvo in "$dest"/elus360-* "$dest"/deskcomm-*; do
     [ -e "$alvo" ] || [ -L "$alvo" ] || continue
     eh_nosso "$alvo" "${fontes_registradas[@]}" "$origem" || continue
     case " ${guias[*]} " in
@@ -253,7 +253,7 @@ for dest in "${DESTINOS[@]}"; do
   for g in "${guias[@]}"; do
     alvo="$dest/$g"
     if [ -e "$alvo" ] || [ -L "$alvo" ]; then
-      if eh_nosso "$alvo"; then rm -rf "$alvo"
+      if eh_nosso "$alvo" "${fontes_registradas[@]}" "$origem"; then rm -rf "$alvo"
       else echo "  pulei $alvo — já existe uma skill sua com esse nome"; pulados=$((pulados + 1)); continue; fi
     fi
     if ln -s "$origem/$g" "$alvo" 2>/dev/null && [ -L "$alvo" ]; then
@@ -272,7 +272,7 @@ echo "ok: ${#guias[@]} guias em ${#DESTINOS[@]} pastas — $ligados ligados, $co
 printf '  %s\n' "${guias[@]}"
 [ "$obsoletos" = 0 ] || echo "  (removi $obsoletos instalação(ões) de guia que saiu da fonte)"
 echo "Abra uma sessão NOVA do seu assistente e peça o assunto em português (ex.: \"quero instalar o CRM na minha VPS\") — o guia certo carrega sozinho em qualquer um deles."
-echo "Para chamar pelo nome: /deskcomm-instalar no Claude Code, no Cursor e no Antigravity; \$deskcomm-instalar no Codex; no OpenCode, peça pelo nome (\"use o guia deskcomm-instalar\")."
+echo "Para chamar pelo nome: /elus360-instalar no Claude Code, no Cursor e no Antigravity; \$elus360-instalar no Codex; no OpenCode, peça pelo nome (\"use o guia elus360-instalar\")."
 if [ -z "$fonte" ] || [ "$copiados" -gt 0 ]; then
   echo "Os guias NÃO se atualizam sozinhos: rode este comando de novo para trazer a versão nova."
 fi

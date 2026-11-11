@@ -198,16 +198,16 @@ cite cada um:
 **Os cinco são checks obrigatórios** na branch protection da `main` — medido em 2026-08-14 @ `741c4ec8` (o comando exige permissão de **admin** no repositório: com token de contribuidor ele devolve `404`, medido em 2026-09-13):
 | Situação                                                                            | Guia                    |
 | ----------------------------------------------------------------------------------- | ----------------------- |
-| Instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp | `deskcomm-instalar`     |
-| Usar o CRM no dia a dia; encontrar telas, fluxos e configurações pela interface     | `deskcomm-operacao`     |
-| Atualizar aulas, traduções e capturas do curso com as mudanças do produto           | `deskcomm-curso`        |
-| Configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base    | `deskcomm-cliente-novo` |
-| Revender como SaaS: planos, cobrança pela Stripe ou Asaas, régua, contrato          | `deskcomm-saas`         |
-| Desempenho, conversão, custo de IA, funil, relatório                                | `deskcomm-metricas`     |
-| O agente responde errado, passa tudo para humano, não usa a agenda; afinar o prompt | `deskcomm-prompt`       |
-| Contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main`   | `deskcomm-contribuir`   |
-| Criar extensão/plugin/módulo de nicho, ou transformar um PR de nicho em pacote      | `deskcomm-extensao`     |
-| Escrever ou revisar código aqui                                                     | `deskcomm-doutrina`     |
+| Instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp | `elus360-instalar`     |
+| Usar o CRM no dia a dia; encontrar telas, fluxos e configurações pela interface     | `elus360-operacao`     |
+| Atualizar aulas, traduções e capturas do curso com as mudanças do produto           | `elus360-curso`        |
+| Configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base    | `elus360-cliente-novo` |
+| Revender como SaaS: planos, cobrança pela Stripe ou Asaas, régua, contrato          | `elus360-saas`         |
+| Desempenho, conversão, custo de IA, funil, relatório                                | `elus360-metricas`     |
+| O agente responde errado, passa tudo para humano, não usa a agenda; afinar o prompt | `elus360-prompt`       |
+| Contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main`   | `elus360-contribuir`   |
+| Criar extensão/plugin/módulo de nicho, ou transformar um PR de nicho em pacote      | `elus360-extensao`     |
+| Escrever ou revisar código aqui                                                     | `elus360-doutrina`     |
 
 O gate de arquitetura de qualquer peça que atende pessoas é a skill `sistema-vivo` (lei em
 [`docs/doctrine/sistema-vivo.md`](docs/doctrine/sistema-vivo.md)).
@@ -545,14 +545,14 @@ casar, mesmo que a pessoa não saiba que ele existe. Fora de um clone (ou num cl
 
 | situação | guia |
 |---|---|
-| instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp que não conecta | `deskcomm-instalar` |
-| configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base de conhecimento | `deskcomm-cliente-novo` |
-| revender como SaaS: painel do dono, planos, cobrança pela Stripe ou pelo Asaas, régua, contrato com o cliente final | `deskcomm-saas` |
-| desempenho, conversão, custo de IA, funil, relatório | `deskcomm-metricas` |
-| atualizar aulas, traduções e capturas do curso com as mudanças do produto | `deskcomm-curso` |
-| o agente responde errado, passa tudo para humano, não usa a agenda; melhorar o prompt | `deskcomm-prompt` |
-| contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main` | `deskcomm-contribuir` — que fica quieto quando `bash .agents/skills/deskcomm-contribuir/scripts/quem-sou.sh` responde `mantenedor` |
-| escrever ou revisar código aqui | `deskcomm-doutrina` (as três regras que mais custam) e `sistema-vivo` (o gate de arquitetura) |
+| instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp que não conecta | `elus360-instalar` |
+| configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base de conhecimento | `elus360-cliente-novo` |
+| revender como SaaS: painel do dono, planos, cobrança pela Stripe ou pelo Asaas, régua, contrato com o cliente final | `elus360-saas` |
+| desempenho, conversão, custo de IA, funil, relatório | `elus360-metricas` |
+| atualizar aulas, traduções e capturas do curso com as mudanças do produto | `elus360-curso` |
+| o agente responde errado, passa tudo para humano, não usa a agenda; melhorar o prompt | `elus360-prompt` |
+| contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main` | `elus360-contribuir` — que fica quieto quando `bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh` responde `mantenedor` |
+| escrever ou revisar código aqui | `elus360-doutrina` (as três regras que mais custam) e `sistema-vivo` (o gate de arquitetura) |
 
 Os guias têm vitrine pública em [deskcomm.com.br/guias](https://www.deskcomm.com.br/guias) (pt-BR,
 en, es), escrita à mão no repositório `deskcomm-site` (`conteudo/guias.ts`). Guia criado,

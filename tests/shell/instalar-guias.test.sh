@@ -5,8 +5,8 @@
 #   bash tests/shell/instalar-guias.test.sh
 #
 # O que está sob prova:
-#   1. Instala: cada guia deskcomm-* vira link nas três pastas globais que os CLIs leem
-#      (~/.claude/skills, ~/.agents/skills, ~/.gemini/config/skills), e só os deskcomm-*.
+#   1. Instala: cada guia elus360-* vira link nas três pastas globais que os CLIs leem
+#      (~/.claude/skills, ~/.agents/skills, ~/.gemini/config/skills), e só os elus360-*.
 #      A cópia é esparsa (só .agents/skills), e a saída diz que nada se atualiza sozinho
 #      e como chamar o guia em cada CLI.
 #   2. Não sobrescreve skill da pessoa com o mesmo nome — avisa e pula.
@@ -59,7 +59,7 @@ montar_repo() {  # montar_repo <pasta>
   local r="$1" n
   mkdir -p "$r"
   git -C "$r" init -q -b main
-  for n in deskcomm-instalar deskcomm-prompt sistema-vivo; do
+  for n in elus360-instalar elus360-prompt sistema-vivo; do
     mkdir -p "$r/.agents/skills/$n"
     printf -- "---\nname: %s\ndescription: 'guia %s'\n---\n\nversão 1\n" "$n" "$n" > "$r/.agents/skills/$n/SKILL.md"
   done
@@ -89,41 +89,41 @@ echo "1. instalar a partir do repositório"
 saida="$(bash "$SCRIPT" 2>&1)"; code=$?
 checa "[ $code = 0 ]" "sai com 0"
 for dest in .claude/skills .agents/skills .gemini/config/skills; do
-  checa "[ -L \"\$HOME/$dest/deskcomm-instalar\" ] && [ -f \"\$HOME/$dest/deskcomm-instalar/SKILL.md\" ]" "deskcomm-instalar ligado em ~/$dest"
-  checa "[ -L \"\$HOME/$dest/deskcomm-prompt\" ]" "deskcomm-prompt ligado em ~/$dest"
+  checa "[ -L \"\$HOME/$dest/elus360-instalar\" ] && [ -f \"\$HOME/$dest/elus360-instalar/SKILL.md\" ]" "elus360-instalar ligado em ~/$dest"
+  checa "[ -L \"\$HOME/$dest/elus360-prompt\" ]" "elus360-prompt ligado em ~/$dest"
   checa "[ ! -e \"\$HOME/$dest/sistema-vivo\" ]" "sistema-vivo (não é guia deskcomm-*) fica de fora de ~/$dest"
 done
-checa "grep -qE '^  deskcomm-instalar\$' <<<\"\$saida\" && ! grep -qE '^ +/deskcomm-' <<<\"\$saida\"" "a saída lista os guias pelo NOME, sem a barra que o Codex e o OpenCode não entendem"
+checa "grep -qE '^  elus360-instalar\$' <<<\"\$saida\" && ! grep -qE '^ +/deskcomm-' <<<\"\$saida\"" "a saída lista os guias pelo NOME, sem a barra que o Codex e o OpenCode não entendem"
 checa "grep -q 'sessão NOVA' <<<\"\$saida\"" "a saída avisa para abrir sessão nova"
 checa "[ -d \"\$HOME/.deskcomm/guias/.agents/skills\" ] && [ ! -e \"\$HOME/.deskcomm/guias/app\" ]" "a cópia é esparsa: traz .agents/skills e não traz app/"
 checa "grep -q 'NÃO se atualizam sozinhos' <<<\"\$saida\"" "a saída diz que os guias não se atualizam sozinhos"
 checa "grep -q 'Claude Code, um guia instalado aqui vale mais' <<<\"\$saida\"" "a saída diz que no Claude Code o guia global vence o do clone"
-checa "grep -qF '\$deskcomm-instalar no Codex' <<<\"\$saida\" && ! grep -q 'digite /deskcomm-' <<<\"\$saida\"" "a saída ensina \$ no Codex, sem mandar digitar / em todos"
+checa "grep -qF '\$elus360-instalar no Codex' <<<\"\$saida\" && ! grep -q 'digite /deskcomm-' <<<\"\$saida\"" "a saída ensina \$ no Codex, sem mandar digitar / em todos"
 
 echo "2. não sobrescreve skill da pessoa"
-rm -f "$HOME/.claude/skills/deskcomm-prompt"; mkdir -p "$HOME/.claude/skills/deskcomm-prompt"
-echo "minha versão" > "$HOME/.claude/skills/deskcomm-prompt/SKILL.md"
+rm -f "$HOME/.claude/skills/elus360-prompt"; mkdir -p "$HOME/.claude/skills/elus360-prompt"
+echo "minha versão" > "$HOME/.claude/skills/elus360-prompt/SKILL.md"
 saida="$(bash "$SCRIPT" 2>&1)"
-checa "grep -q 'pulei .*deskcomm-prompt' <<<\"\$saida\"" "avisa que pulou"
-checa "grep -q 'minha versão' \"\$HOME/.claude/skills/deskcomm-prompt/SKILL.md\"" "a skill da pessoa ficou intacta"
+checa "grep -q 'pulei .*elus360-prompt' <<<\"\$saida\"" "avisa que pulou"
+checa "grep -q 'minha versão' \"\$HOME/.claude/skills/elus360-prompt/SKILL.md\"" "a skill da pessoa ficou intacta"
 
 echo "3. atualizar"
-sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/deskcomm-instalar/SKILL.md" && rm -f "$repo/.agents/skills/deskcomm-instalar/SKILL.md.bak"
+sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/elus360-instalar/SKILL.md" && rm -f "$repo/.agents/skills/elus360-instalar/SKILL.md.bak"
 git -C "$repo" commit -qam "v2"
 bash "$SCRIPT" >/dev/null 2>&1
-checa "grep -q 'versão 2' \"\$HOME/.agents/skills/deskcomm-instalar/SKILL.md\"" "a versão nova chega pelo link"
+checa "grep -q 'versão 2' \"\$HOME/.agents/skills/elus360-instalar/SKILL.md\"" "a versão nova chega pelo link"
 
 echo "4. --fonte DIR"
 clone="$TMP/clone"; git clone -q "$repo" "$clone"
-sed -i.bak 's/versão 2/versão local/' "$clone/.agents/skills/deskcomm-instalar/SKILL.md" && rm -f "$clone/.agents/skills/deskcomm-instalar/SKILL.md.bak"
+sed -i.bak 's/versão 2/versão local/' "$clone/.agents/skills/elus360-instalar/SKILL.md" && rm -f "$clone/.agents/skills/elus360-instalar/SKILL.md.bak"
 bash "$SCRIPT" --fonte "$clone" >/dev/null 2>&1
-checa "grep -q 'versão local' \"\$HOME/.claude/skills/deskcomm-instalar/SKILL.md\"" "o link passa a apontar para o clone local"
+checa "grep -q 'versão local' \"\$HOME/.claude/skills/elus360-instalar/SKILL.md\"" "o link passa a apontar para o clone local"
 
 echo "5. --remover"
 saida="$(bash "$SCRIPT" --remover 2>&1)"; code=$?
 checa "[ $code = 0 ]" "sai com 0"
-checa "[ ! -e \"\$HOME/.agents/skills/deskcomm-instalar\" ] && [ ! -L \"\$HOME/.agents/skills/deskcomm-instalar\" ]" "remove o link"
-checa "[ -f \"\$HOME/.claude/skills/deskcomm-prompt/SKILL.md\" ]" "não remove a skill da pessoa"
+checa "[ ! -e \"\$HOME/.agents/skills/elus360-instalar\" ] && [ ! -L \"\$HOME/.agents/skills/elus360-instalar\" ]" "remove o link"
+checa "[ -f \"\$HOME/.claude/skills/elus360-prompt/SKILL.md\" ]" "não remove a skill da pessoa"
 
 echo "6. opção inválida"
 bash "$SCRIPT" --nao-existe >/dev/null 2>&1; code=$?
@@ -138,10 +138,10 @@ mkdir -p "$HOME/.claude/skills/deskcomm-meu"; echo "meu" > "$HOME/.claude/skills
 outro="$TMP/renomeado/outro-repo/.agents/skills/deskcomm-meu-fork"
 mkdir -p "$outro"; echo "fork" > "$outro/SKILL.md"
 ln -s "$outro" "$HOME/.claude/skills/deskcomm-meu-fork"
-git -C "$repo" mv .agents/skills/deskcomm-prompt .agents/skills/deskcomm-prompt-agente && git -C "$repo" commit -qm renomeia
+git -C "$repo" mv .agents/skills/elus360-prompt .agents/skills/elus360-prompt-agente && git -C "$repo" commit -qm renomeia
 bash "$SCRIPT" >/dev/null 2>&1
 for dest in .claude/skills .agents/skills .gemini/config/skills; do
-  checa "[ ! -e \"\$HOME/$dest/deskcomm-prompt\" ] && [ ! -L \"\$HOME/$dest/deskcomm-prompt\" ] && [ -f \"\$HOME/$dest/deskcomm-prompt-agente/SKILL.md\" ]" "em ~/$dest, o nome antigo sai e o novo entra"
+  checa "[ ! -e \"\$HOME/$dest/elus360-prompt\" ] && [ ! -L \"\$HOME/$dest/elus360-prompt\" ] && [ -f \"\$HOME/$dest/elus360-prompt-agente/SKILL.md\" ]" "em ~/$dest, o nome antigo sai e o novo entra"
 done
 checa "[ -f \"\$HOME/.claude/skills/deskcomm-meu/SKILL.md\" ]" "a varredura não toca skill deskcomm-* da pessoa"
 checa "[ -L \"\$HOME/.claude/skills/deskcomm-meu-fork\" ] && [ -f \"\$outro/SKILL.md\" ]" "a varredura não toca LINK que a pessoa fez para o deskcomm-* de outro repositório"
@@ -151,15 +151,15 @@ cenario copia
 mkdir -p "$TMP/ln-falso"; printf '#!/bin/sh\nexit 1\n' > "$TMP/ln-falso/ln"; chmod +x "$TMP/ln-falso/ln"
 saida="$(PATH="$TMP/ln-falso:$PATH" bash "$SCRIPT" 2>&1)"; code=$?
 checa "[ $code = 0 ] && grep -q '0 ligados, 6 copiados' <<<\"\$saida\"" "sem ln, copia os 6 e sai com 0"
-checa "[ ! -L \"\$HOME/.agents/skills/deskcomm-instalar\" ] && [ -f \"\$HOME/.agents/skills/deskcomm-instalar/.deskcomm-guia\" ]" "a cópia leva a marca .deskcomm-guia"
-sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/deskcomm-instalar/SKILL.md" && rm -f "$repo/.agents/skills/deskcomm-instalar/SKILL.md.bak"
-git -C "$repo" mv .agents/skills/deskcomm-prompt .agents/skills/deskcomm-prompt-agente
+checa "[ ! -L \"\$HOME/.agents/skills/elus360-instalar\" ] && [ -f \"\$HOME/.agents/skills/elus360-instalar/.deskcomm-guia\" ]" "a cópia leva a marca .deskcomm-guia"
+sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/elus360-instalar/SKILL.md" && rm -f "$repo/.agents/skills/elus360-instalar/SKILL.md.bak"
+git -C "$repo" mv .agents/skills/elus360-prompt .agents/skills/elus360-prompt-agente
 git -C "$repo" commit -qam "v2 e renomeia"
 saida="$(PATH="$TMP/ln-falso:$PATH" bash "$SCRIPT" 2>&1)"
-checa "grep -q 'versão 2' \"\$HOME/.agents/skills/deskcomm-instalar/SKILL.md\" && ! grep -q pulei <<<\"\$saida\"" "a segunda execução atualiza a cópia (não pula)"
-checa "[ ! -e \"\$HOME/.claude/skills/deskcomm-prompt\" ]" "a cópia do guia renomeado sai"
+checa "grep -q 'versão 2' \"\$HOME/.agents/skills/elus360-instalar/SKILL.md\" && ! grep -q pulei <<<\"\$saida\"" "a segunda execução atualiza a cópia (não pula)"
+checa "[ ! -e \"\$HOME/.claude/skills/elus360-prompt\" ]" "a cópia do guia renomeado sai"
 saida="$(bash "$SCRIPT" --remover 2>&1)"
-checa "grep -q 'ok: 6 ligação' <<<\"\$saida\" && [ ! -e \"\$HOME/.agents/skills/deskcomm-instalar\" ]" "--remover apaga as 6 cópias"
+checa "grep -q 'ok: 6 ligação' <<<\"\$saida\" && [ ! -e \"\$HOME/.agents/skills/elus360-instalar\" ]" "--remover apaga as 6 cópias"
 
 echo "9. execução interrompida no sparse-checkout"
 cenario interrompido
@@ -168,7 +168,7 @@ git_falso "$TMP/git-mata" 'kill -KILL "$PPID"; exit 130'
 { PATH="$TMP/git-mata:$PATH" bash "$SCRIPT" >/dev/null 2>&1; } 2>/dev/null; code=$?   # o aviso "Killed" é do bash de fora
 checa "[ $code != 0 ]" "(pré-condição) a primeira execução morre no meio"
 saida="$(bash "$SCRIPT" 2>&1)"; code=$?
-checa "[ $code = 0 ] && [ -f \"\$HOME/.claude/skills/deskcomm-instalar/SKILL.md\" ]" "a execução seguinte se cura e liga os guias"
+checa "[ $code = 0 ] && [ -f \"\$HOME/.claude/skills/elus360-instalar/SKILL.md\" ]" "a execução seguinte se cura e liga os guias"
 
 echo "10. sparse-checkout que falha num clone novo"
 cenario sparse-falha
@@ -178,21 +178,21 @@ checa "[ $code != 0 ] && [ ! -e \"\$HOME/.deskcomm/guias\" ]" "sai com erro e n�
 
 echo "11. nenhum guia na fonte"
 cenario sem-guias
-git -C "$repo" rm -rq .agents/skills/deskcomm-instalar .agents/skills/deskcomm-prompt && git -C "$repo" commit -qm "sem guias"
+git -C "$repo" rm -rq .agents/skills/elus360-instalar .agents/skills/elus360-prompt && git -C "$repo" commit -qm "sem guias"
 saida="$(bash "$SCRIPT" 2>&1)"; code=$?
 checa "[ $code = 1 ] && grep -qF \"rm -rf \\\"\$HOME/.deskcomm/guias\\\"\" <<<\"\$saida\"" "sai com 1 e diz como apagar a cópia"
 
 echo "12. edição à mão pela pasta global"
 cenario editado
 bash "$SCRIPT" >/dev/null 2>&1
-echo "anotação local" >> "$HOME/.claude/skills/deskcomm-instalar/SKILL.md"
-echo "anotação local" >> "$HOME/.claude/skills/deskcomm-prompt/SKILL.md"
-sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/deskcomm-instalar/SKILL.md" && rm -f "$repo/.agents/skills/deskcomm-instalar/SKILL.md.bak"
+echo "anotação local" >> "$HOME/.claude/skills/elus360-instalar/SKILL.md"
+echo "anotação local" >> "$HOME/.claude/skills/elus360-prompt/SKILL.md"
+sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/elus360-instalar/SKILL.md" && rm -f "$repo/.agents/skills/elus360-instalar/SKILL.md.bak"
 git -C "$repo" commit -qam v2
 saida="$(bash "$SCRIPT" 2>&1)"; code=$?
 checa "[ $code = 0 ]" "a atualização não trava (sai com 0)"
-checa "grep -q 'versão 2' \"\$HOME/.claude/skills/deskcomm-instalar/SKILL.md\" && ! grep -q 'anotação' \"\$HOME/.claude/skills/deskcomm-instalar/SKILL.md\"" "o guia editado E mudado na main chega na versão nova"
-checa "! grep -q 'anotação' \"\$HOME/.claude/skills/deskcomm-prompt/SKILL.md\"" "a edição que não conflita também não sobrevive calada"
+checa "grep -q 'versão 2' \"\$HOME/.claude/skills/elus360-instalar/SKILL.md\" && ! grep -q 'anotação' \"\$HOME/.claude/skills/elus360-instalar/SKILL.md\"" "o guia editado E mudado na main chega na versão nova"
+checa "! grep -q 'anotação' \"\$HOME/.claude/skills/elus360-prompt/SKILL.md\"" "a edição que não conflita também não sobrevive calada"
 checa "grep -q 'descartad' <<<\"\$saida\"" "avisa que descartou a alteração"
 
 echo "13. DESKCOMM_GUIAS_HOME"
@@ -200,18 +200,18 @@ cenario pasta-alheia
 mkdir -p "$TMP/pasta-alheia/minha"; echo nota > "$TMP/pasta-alheia/minha/nota.txt"
 saida="$(DESKCOMM_GUIAS_HOME="$TMP/pasta-alheia/minha" bash "$SCRIPT" 2>&1)"; code=$?
 checa "[ $code != 0 ] && [ -f \"\$TMP/pasta-alheia/minha/nota.txt\" ] && grep -q 'não mexo' <<<\"\$saida\"" "pasta com arquivo e sem .git: recusa e a nota fica"
-alheio="$TMP/pasta-alheia/clone-alheio"; git clone -q "$repo" "$alheio"; echo "trabalho" >> "$alheio/.agents/skills/deskcomm-instalar/SKILL.md"
+alheio="$TMP/pasta-alheia/clone-alheio"; git clone -q "$repo" "$alheio"; echo "trabalho" >> "$alheio/.agents/skills/elus360-instalar/SKILL.md"
 DESKCOMM_GUIAS_HOME="$alheio" bash "$SCRIPT" >/dev/null 2>&1; code=$?
-checa "[ $code != 0 ] && grep -q 'trabalho' \"\$alheio/.agents/skills/deskcomm-instalar/SKILL.md\"" "clone que não é a cópia do script: recusa e o trabalho não commitado fica"
+checa "[ $code != 0 ] && grep -q 'trabalho' \"\$alheio/.agents/skills/elus360-instalar/SKILL.md\"" "clone que não é a cópia do script: recusa e o trabalho não commitado fica"
 mkdir -p "$TMP/pasta-alheia/vazia"
 PATH="$TMP/git-falha:$PATH" DESKCOMM_GUIAS_HOME="$TMP/pasta-alheia/vazia" bash "$SCRIPT" >/dev/null 2>&1
 checa "[ -d \"\$TMP/pasta-alheia/vazia\" ]" "pasta vazia que já existia: uma falha não a apaga"
 DESKCOMM_GUIAS_HOME="$TMP/pasta-alheia/vazia" bash "$SCRIPT" >/dev/null 2>&1; code=$?
-checa "[ $code = 0 ] && [ -f \"\$HOME/.agents/skills/deskcomm-instalar/SKILL.md\" ]" "pasta vazia que já existia: é aceita"
+checa "[ $code = 0 ] && [ -f \"\$HOME/.agents/skills/elus360-instalar/SKILL.md\" ]" "pasta vazia que já existia: é aceita"
 cenario relativo
 mkdir -p "$TMP/relativo/cwd"
 (cd "$TMP/relativo/cwd" && DESKCOMM_GUIAS_HOME=cache-rel bash "$SCRIPT" >/dev/null 2>&1)
-checa "[ -f \"\$HOME/.claude/skills/deskcomm-instalar/SKILL.md\" ]" "caminho relativo: o link resolve (vira absoluto)"
+checa "[ -f \"\$HOME/.claude/skills/elus360-instalar/SKILL.md\" ]" "caminho relativo: o link resolve (vira absoluto)"
 
 echo "14. --help"
 # Pelo pipe o script chega pela entrada padrão e `$0` vale `bash`: um --help que relê o próprio
@@ -234,9 +234,9 @@ echo "15. --fonte com link segue a árvore viva do clone"
 cenario fonte-viva
 clone_vivo="$TMP/fonte-viva/clone"; git clone -q "$repo" "$clone_vivo"
 bash "$SCRIPT" --fonte "$clone_vivo" >/dev/null 2>&1
-sed -i.bak 's/versão 1/versão editada sem rodar de novo/' "$clone_vivo/.agents/skills/deskcomm-instalar/SKILL.md"
-rm -f "$clone_vivo/.agents/skills/deskcomm-instalar/SKILL.md.bak"
-checa "grep -q 'versão editada sem rodar de novo' \"\$HOME/.claude/skills/deskcomm-instalar/SKILL.md\"" "a edição no clone chega pela pasta global SEM rodar o script de novo"
+sed -i.bak 's/versão 1/versão editada sem rodar de novo/' "$clone_vivo/.agents/skills/elus360-instalar/SKILL.md"
+rm -f "$clone_vivo/.agents/skills/elus360-instalar/SKILL.md.bak"
+checa "grep -q 'versão editada sem rodar de novo' \"\$HOME/.claude/skills/elus360-instalar/SKILL.md\"" "a edição no clone chega pela pasta global SEM rodar o script de novo"
 
 echo "16. cópia de uma versão anterior do script"
 cenario copia-sem-marca
@@ -245,11 +245,11 @@ bash "$SCRIPT" >/dev/null 2>&1
 # não a gravava. Tirar a marca reproduz esse estado sem prender o teste a um SHA.
 git -C "$HOME/.deskcomm/guias" config --unset deskcomm.guias
 antes="$(git -C "$HOME/.deskcomm/guias" rev-parse HEAD)"
-sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/deskcomm-instalar/SKILL.md"
-rm -f "$repo/.agents/skills/deskcomm-instalar/SKILL.md.bak"; git -C "$repo" commit -qam v2
+sed -i.bak 's/versão 1/versão 2/' "$repo/.agents/skills/elus360-instalar/SKILL.md"
+rm -f "$repo/.agents/skills/elus360-instalar/SKILL.md.bak"; git -C "$repo" commit -qam v2
 saida="$(bash "$SCRIPT" 2>&1)"; code=$?
 checa "[ $code = 0 ] && ! grep -q 'não mexo nela' <<<\"\$saida\"" "a cópia sem a marca é adotada, não recusada"
-checa "grep -q 'versão 2' \"\$HOME/.claude/skills/deskcomm-instalar/SKILL.md\" && [ \"\$(git -C \"\$HOME/.deskcomm/guias\" rev-parse HEAD)\" != \"\$antes\" ]" "e a versão nova chega (os guias não congelam no dia da instalação)"
+checa "grep -q 'versão 2' \"\$HOME/.claude/skills/elus360-instalar/SKILL.md\" && [ \"\$(git -C \"\$HOME/.deskcomm/guias\" rev-parse HEAD)\" != \"\$antes\" ]" "e a versão nova chega (os guias não congelam no dia da instalação)"
 checa "[ \"\$(git -C \"\$HOME/.deskcomm/guias\" config --get deskcomm.guias)\" = true ]" "a marca fica gravada, e a execução seguinte não reprecisa adotar"
 
 # Os quatro sinais que seguram a adoção, um caso para cada um. O clone do caso 13 falha em DOIS
@@ -279,9 +279,9 @@ checa "[ $code != 0 ] && grep -q 'não mexo nela' <<<\"\$saida\" && [ -z \"\$(gi
 
 cenario adocao-sujo
 mkdir -p "$HOME/.deskcomm"; git clone -q --depth 1 "file://$repo" "$HOME/.deskcomm/guias"
-echo "trabalho" >> "$HOME/.deskcomm/guias/.agents/skills/deskcomm-instalar/SKILL.md"
+echo "trabalho" >> "$HOME/.deskcomm/guias/.agents/skills/elus360-instalar/SKILL.md"
 saida="$(bash "$SCRIPT" 2>&1)"; code=$?
-checa "[ $code != 0 ] && grep -q 'trabalho' \"\$HOME/.deskcomm/guias/.agents/skills/deskcomm-instalar/SKILL.md\"" "clone raso do mesmo repositório com pendência: recusado e o trabalho fica"
+checa "[ $code != 0 ] && grep -q 'trabalho' \"\$HOME/.deskcomm/guias/.agents/skills/elus360-instalar/SKILL.md\"" "clone raso do mesmo repositório com pendência: recusado e o trabalho fica"
 
 echo "18. --remover poupa o link que a pessoa fez à mão"
 cenario remover-alheio
@@ -292,7 +292,7 @@ saida="$(bash "$SCRIPT" --remover 2>&1)"
 checa "grep -q 'ok: 0 ligação' <<<\"\$saida\" && [ -L \"\$HOME/.claude/skills/deskcomm-meu-fork\" ]" "sem instalação nenhuma, --remover não tem o que desfazer e não toca o link da pessoa"
 bash "$SCRIPT" >/dev/null 2>&1
 saida="$(bash "$SCRIPT" --remover 2>&1)"
-checa "grep -q 'ok: 6 ligação' <<<\"\$saida\" && [ -L \"\$HOME/.claude/skills/deskcomm-meu-fork\" ] && [ ! -e \"\$HOME/.agents/skills/deskcomm-instalar\" ]" "com instalação, --remover tira as 6 ligações e o link da pessoa fica"
+checa "grep -q 'ok: 6 ligação' <<<\"\$saida\" && [ -L \"\$HOME/.claude/skills/deskcomm-meu-fork\" ] && [ ! -e \"\$HOME/.agents/skills/elus360-instalar\" ]" "com instalação, --remover tira as 6 ligações e o link da pessoa fica"
 
 echo "19. o comando de desfazer que a documentação ensina"
 cenario documentacao
@@ -311,11 +311,11 @@ for doc in "$RAIZ/README.md" "$RAIZ/CHANGELOG.md" "$RAIZ"/.changes/*.md; do
   documentos=$((documentos + 1))
   bash "$SCRIPT" >/dev/null 2>&1
   saida="$(cat "$SCRIPT" | eval "$desfaz" 2>&1)"; code=$?
-  checa "[ $code = 0 ] && [ ! -e \"\$HOME/.agents/skills/deskcomm-instalar\" ]" "o comando de $(basename "$doc") desfaz de verdade (é: $desfaz)"
+  checa "[ $code = 0 ] && [ ! -e \"\$HOME/.agents/skills/elus360-instalar\" ]" "o comando de $(basename "$doc") desfaz de verdade (é: $desfaz)"
 done
 checa "[ $documentos -ge 2 ]" "o comando foi lido de pelo menos dois documentos (guarda de vacuidade)"
 # A outra metade que só vive em prosa: a forma de chamar em cada CLI e a defasagem da cópia.
-checa "grep -qF '\$deskcomm-instalar' \"\$RAIZ/README.md\" && ! grep -qE 'digite .?/deskcomm-' \"\$RAIZ/README.md\"" "o README ensina a forma do Codex e não manda digitar / em todos"
+checa "grep -qF '\$elus360-instalar' \"\$RAIZ/README.md\" && ! grep -qE 'digite .?/deskcomm-' \"\$RAIZ/README.md\"" "o README ensina a forma do Codex e não manda digitar / em todos"
 checa "grep -q 'se atualizam sozinhos' \"\$RAIZ/README.md\" && grep -q 'vale mais que o do clone' \"\$RAIZ/README.md\"" "o README diz que a cópia não se atualiza sozinha e que no Claude Code ela vence o clone"
 
 # Os deskcomm-* que sobraram nas três pastas, fora o link que a pessoa fez à mão.
@@ -323,15 +323,15 @@ checa "grep -q 'se atualizam sozinhos' \"\$RAIZ/README.md\" && grep -q 'vale mai
 guias_que_sobraram() {
   local d a
   for d in .claude/skills .agents/skills .gemini/config/skills; do
-    for a in "$HOME/$d"/deskcomm-*; do
+    for a in "$HOME/$d"/elus360-* "$HOME/$d"/deskcomm-*; do
       { [ -e "$a" ] || [ -L "$a" ]; } || continue
       [ "$(basename "$a")" = deskcomm-meu-fork ] || echo "$d/$(basename "$a")"
     done
   done
 }
 guia_extra() {  # guia_extra <clone> — um guia que só esse clone tem
-  mkdir -p "$1/.agents/skills/deskcomm-extra"
-  printf -- "---\nname: deskcomm-extra\ndescription: 'guia extra'\n---\n" > "$1/.agents/skills/deskcomm-extra/SKILL.md"
+  mkdir -p "$1/.agents/skills/elus360-extra"
+  printf -- "---\nname: elus360-extra\ndescription: 'guia extra'\n---\n" > "$1/.agents/skills/elus360-extra/SKILL.md"
 }
 
 echo "20. trocar de fonte não deixa guia da fonte anterior ligado"
@@ -339,20 +339,20 @@ cenario troca-de-fonte
 fork_troca="$TMP/troca-de-fonte/outro-repo/.agents/skills/deskcomm-meu-fork"
 mkdir -p "$fork_troca" "$HOME/.agents/skills"; echo fork > "$fork_troca/SKILL.md"
 ln -s "$fork_troca" "$HOME/.agents/skills/deskcomm-meu-fork"
-bash "$SCRIPT" >/dev/null 2>&1   # a cópia: deskcomm-instalar e deskcomm-prompt
+bash "$SCRIPT" >/dev/null 2>&1   # a cópia: elus360-instalar e elus360-prompt
 menor="$TMP/troca-de-fonte/clone-menor"; git clone -q "$repo" "$menor"
-git -C "$menor" rm -rq .agents/skills/deskcomm-prompt
+git -C "$menor" rm -rq .agents/skills/elus360-prompt
 bash "$SCRIPT" --fonte "$menor" >/dev/null 2>&1
 for dest in .claude/skills .agents/skills .gemini/config/skills; do
-  checa "[ ! -e \"\$HOME/$dest/deskcomm-prompt\" ] && [ ! -L \"\$HOME/$dest/deskcomm-prompt\" ]" "cópia → --fonte sem o deskcomm-prompt: ele sai de ~/$dest na hora da troca"
+  checa "[ ! -e \"\$HOME/$dest/elus360-prompt\" ] && [ ! -L \"\$HOME/$dest/elus360-prompt\" ]" "cópia → --fonte sem o elus360-prompt: ele sai de ~/$dest na hora da troca"
 done
 bash "$SCRIPT" --remover >/dev/null 2>&1; code=$?
 checa "[ $code = 0 ] && [ -z \"\$(guias_que_sobraram)\" ]" "e o --remover seguinte não deixa guia nenhum nas três pastas"
 maior="$TMP/troca-de-fonte/clone-maior"; git clone -q "$repo" "$maior"; guia_extra "$maior"
 bash "$SCRIPT" --fonte "$maior" >/dev/null 2>&1
-bash "$SCRIPT" >/dev/null 2>&1   # de volta à cópia, que não tem o deskcomm-extra
+bash "$SCRIPT" >/dev/null 2>&1   # de volta à cópia, que não tem o elus360-extra
 for dest in .claude/skills .agents/skills .gemini/config/skills; do
-  checa "[ ! -e \"\$HOME/$dest/deskcomm-extra\" ] && [ ! -L \"\$HOME/$dest/deskcomm-extra\" ]" "--fonte com o deskcomm-extra → cópia: ele sai de ~/$dest na hora da troca"
+  checa "[ ! -e \"\$HOME/$dest/elus360-extra\" ] && [ ! -L \"\$HOME/$dest/elus360-extra\" ]" "--fonte com o elus360-extra → cópia: ele sai de ~/$dest na hora da troca"
 done
 bash "$SCRIPT" --remover >/dev/null 2>&1; code=$?
 checa "[ $code = 0 ] && [ -z \"\$(guias_que_sobraram)\" ]" "e o --remover seguinte não deixa guia nenhum nas três pastas"
