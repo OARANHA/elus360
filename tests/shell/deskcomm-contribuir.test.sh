@@ -47,7 +47,7 @@ assert_not_contains() { if grep -q -- "$2" <<<"$1"; then falha "$3" "não espera
 assert_exit() { if [ "$1" = "$2" ]; then ok "$3"; else falha "$3" "exit esperado $2, veio $1"; fi; }
 
 # gh neutralizado: quem-sou.sh não pode depender de rede nem da conta de quem roda o teste
-FAKEBIN="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/gh"; chmod +x "$FAKEBIN/gh"
+FAKEBIN="$(mktemp -d)"; printf '#!/usr/bin/env bash\nif [ "${1:-}" = api ] && [ "${2:-}" = user ] && [ "${ELUS_FAKE_GH_LOGIN:-}" = OARANHA ]; then printf "OARANHA\\n"; exit 0; fi\nexit 1\n' > "$FAKEBIN/gh"; chmod +x "$FAKEBIN/gh"
 export PATH="$FAKEBIN:$PATH"
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" "$FAKEBIN"' EXIT
@@ -106,6 +106,20 @@ assert_contains "$saida" "^mantenedor$" "e-mail do .mailmap → mantenedor (--cu
 cfg "$clone" user.email "119944436+melgarafael@users.noreply.github.com"
 saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh)"
 assert_contains "$saida" "^mantenedor" "segundo e-mail do .mailmap → mantenedor"
+
+echo "1-bis. mantenedor autenticado do ELUS360 e anti-falso-positivo"
+clone="$TMP/c1-owner"; clonar "$clone" "contribuidor@exemplo.invalid"
+cfg "$clone" remote.origin.url "https://github.com/OARANHA/elus360.git"
+saida="$(cd "$clone" && ELUS_FAKE_GH_LOGIN=OARANHA bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh --curto)"
+assert_contains "$saida" "^mantenedor$" "OARANHA autenticado e origin do fork → mantenedor"
+saida="$(cd "$clone" && ELUS_FAKE_GH_LOGIN=OARANHA bash .agents/skills/elus360-contribuir/scripts/hooks/sessao.sh)"
+if [ -z "$saida" ]; then ok "hook do dono do ELUS360 permanece silencioso"; else falha "hook do dono do ELUS360 permanece silencioso" "saída: $saida"; fi
+cfg "$clone" remote.origin.url "https://github.com/outro/projeto.git"
+saida="$(cd "$clone" && ELUS_FAKE_GH_LOGIN=OARANHA bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh --curto)"
+assert_contains "$saida" "^contribuidor$" "OARANHA em origin alheio não vira mantenedor"
+cfg "$clone" remote.origin.url "https://github.com/OARANHA/elus360.git"
+saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh --curto)"
+assert_contains "$saida" "^contribuidor$" "sem gh autenticado não atribui identidade do dono"
 
 echo "2. check-migration-triple.sh (pre-commit)"
 clone="$TMP/c2"; clonar "$clone" "alguem@fork.dev"
@@ -526,6 +540,7 @@ clone="$TMP/c6"; clonar "$clone" "alguem@fork.dev"; cfg "$clone" --unset core.ho
 saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/hooks/sessao.sh)"; code=$?
 assert_exit "$code" 0 "sai com 0"
 assert_contains "$saida" "clone é de um contribuidor" "contribuidor recebe o lembrete"
+assert_contains "$saida" "\\[ELUS360\\]" "hook identifica a marca ELUS360"
 assert_contains "$saida" "NÃO armados" "diz que os hooks não estão armados"
 cfg "$clone" core.hooksPath ".agents/skills/elus360-contribuir/scripts/hooks"
 saida="$(cd "$clone" && bash .agents/skills/elus360-contribuir/scripts/hooks/sessao.sh)"

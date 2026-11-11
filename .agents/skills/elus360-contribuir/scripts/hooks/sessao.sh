@@ -18,7 +18,7 @@ estado_hooks="hooks de git do contribuidor NÃO armados (bash .agents/skills/elu
 case "$hooks" in *elus360-contribuir*) estado_hooks="hooks de git do contribuidor armados" ;; esac
 
 cat <<TXT
-[DeskcommCRM] Este clone é de um contribuidor (não do mantenedor). Antes de codar ou commitar,
+[ELUS360] Este clone é de um contribuidor (não do mantenedor). Antes de codar ou commitar,
 carregue a skill elus360-contribuir: ela mede o que a triagem mede (branch atrasada, tripla de
 migration, marca do fork no diff, fragmento de release) e evita retrabalho. $estado_hooks.
 Guias para outras situações: elus360-instalar, elus360-cliente-novo, elus360-metricas, elus360-prompt.

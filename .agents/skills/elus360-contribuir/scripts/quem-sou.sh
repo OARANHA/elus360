@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# quem-sou.sh — diz se quem está neste clone é o mantenedor do DeskcommCRM ou um
-# contribuidor, e POR QUÊ. A skill elus360-contribuir (e os hooks) usam a
+# quem-sou.sh — diferencia o mantenedor do fork ELUS360 de contribuidor,
+# preservando o contrato histórico do upstream DeskcommCRM. Não autoriza ações. A skill elus360-contribuir (e os hooks) usam a
 # primeira palavra da saída; o resto é para gente ler.
 #
 # Sinais, em ordem de custo (nenhum toca a rede sem `gh` já logado):
 #   1. o e-mail do git está no .mailmap do repo como o dono do produto;
-#   2. o `gh` está logado como @melgarafael;
-#   3. o `origin` é o repositório principal ou um fork (informativo).
+#   2. o `gh` autenticado como @OARANHA no origin ELUS360, ou como
+#      @melgarafael no upstream original, sinaliza mantenedor;
+#   3. o `origin` identifica o repositório (informativo; NÃO é autenticação).
 #
 # Uso: bash quem-sou.sh            → "mantenedor — ..." ou "contribuidor — ..."
 #      bash quem-sou.sh --curto    → só a palavra
@@ -33,16 +34,27 @@ if [ -n "$email" ] && [ -f "$raiz/.mailmap" ]; then
   fi
 fi
 
-# 2) gh logado como o dono (só se o gh existe; nunca pede login).
+# 2) Github CLI já autenticado: só reconhece o mantenedor do repositório
+# correspondente. Falha de gh/rede => contribuinte; nunca solicita login.
+# Isto é conveniência de orientação, não prova de autorização para ações.
 if [ -z "$motivo" ] && command -v gh >/dev/null 2>&1; then
   login="$(gh api user --jq .login 2>/dev/null || true)"
-  [ "$login" = "melgarafael" ] && motivo="o gh está logado como @melgarafael"
+  case "$origin" in
+    https://github.com/OARANHA/elus360|https://github.com/OARANHA/elus360.git|git@github.com:OARANHA/elus360|git@github.com:OARANHA/elus360.git)
+      [ "$login" = "OARANHA" ] && motivo="o gh está logado como @OARANHA no fork ELUS360"
+      ;;
+    https://github.com/melgarafael/DeskcommCRM|https://github.com/melgarafael/DeskcommCRM.git|git@github.com:melgarafael/DeskcommCRM|git@github.com:melgarafael/DeskcommCRM.git)
+      [ "$login" = "melgarafael" ] && motivo="o gh está logado como @melgarafael no upstream"
+      ;;
+  esac
 fi
 
 case "$origin" in
-  *github.com[:/]melgarafael/DeskcommCRM*) remoto="origin é o repositório principal" ;;
+  https://github.com/OARANHA/elus360|https://github.com/OARANHA/elus360.git|git@github.com:OARANHA/elus360|git@github.com:OARANHA/elus360.git)
+    remoto="origin é o repositório ELUS360" ;;
+  *github.com[:/]melgarafael/DeskcommCRM*) remoto="origin é o upstream original" ;;
   "")                                       remoto="sem origin configurado" ;;
-  *)                                        remoto="origin é um fork ($origin)" ;;
+  *)                                        remoto="origin é outro repositório ($origin)" ;;
 esac
 
 if [ -n "$motivo" ]; then
