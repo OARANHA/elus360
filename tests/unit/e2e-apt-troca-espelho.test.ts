@@ -187,6 +187,14 @@ describe("APT do E2E abandona a fonte Azure que não termina", () => {
     expect(r.pin).toEqual(r.pinAntes);
   });
 
+  it("browser: DNS persistente com aviso APT W: não é erro CDN e esgota três tentativas", () => {
+    const r = rodar(BROWSER, "dns_persistente");
+    expect(r.status, r.saida).not.toBe(0);
+    expect(r.chamadas.filter((linha) => linha.startsWith("timeout"))).toHaveLength(3);
+    expect(r.saida).toContain("::error");
+    expect(r.pin).toEqual(r.pinAntes);
+  });
+
   it("arquivo oficial também parado permanece vermelho após três tentativas limitadas", () => {
     const r = rodar(FFMPEG, "todos_parados");
     expect(r.status, r.saida).not.toBe(0);

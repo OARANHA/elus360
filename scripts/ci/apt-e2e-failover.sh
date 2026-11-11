@@ -89,7 +89,11 @@ recuperar_apt_e2e() {
   if grep -Eqi "Temporary failure resolving '(azure\.archive\.ubuntu\.com|archive\.ubuntu\.com|security\.ubuntu\.com)'|Could not resolve host: (azure\.archive\.ubuntu\.com|archive\.ubuntu\.com|security\.ubuntu\.com)" "$log"; then
     dns_ubuntu=sim
   fi
-  if grep -Eqi 'Downloading.*(Chrome|Chromium|FFMPEG|ffmpeg|Headless Shell).*https?://|Failed to download' "$log" ||
+  # APT emite "W: Some index files failed to download" após falha de DNS.
+  # "Failed to download" sem contexto confundia esse aviso com CDN do browser:
+  # o segundo failover era recusado e o Chromium nunca chegava ao teste.
+  # A detecção de CDN exige o nome do navegador/ffmpeg ou sua URL explícita.
+  if grep -Eqi 'Downloading.*(Chrome|Chromium|FFMPEG|ffmpeg|Headless Shell).*https?://|^(Error: )?Failed to download (Chrome|Chromium|FFMPEG|ffmpeg|Headless Shell)' "$log" ||
      { [ "$dns_ubuntu" != sim ] &&
        ! grep -Eq '^(Get|Hit|Ign|Err):[0-9]+ |^E: (Failed to fetch|Unable to fetch)' "$log"; }; then
     echo '::error title=Preparo falhou fora do transporte APT::não há falha APT medida nesta tentativa; sem repetir nem trocar a fonte.'
