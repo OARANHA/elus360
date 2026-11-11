@@ -44,16 +44,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: Dependência AST e regressões do reconciliador
         run: |
           set -euo pipefail
-          pnpm install --frozen-lockfile --ignore-scripts
           node --check scripts/elus-upstream-reconcile.mjs
           node --test tests/operational/elus-upstream-reconcile.test.mjs
 
