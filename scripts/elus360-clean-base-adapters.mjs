@@ -209,9 +209,18 @@ function mergeDistributionThreeWay({candidate,report,rule}) {
     const content=child.stdout;
     if(!content || content===ours.toString('utf8'))
       throw new Error('ELUS_DISTRIBUTION_MERGE_WITHOUT_ELUS_DELTA: '+path);
+    // O namespace tem fonte única no _common.sh original do ELUS (blob
+    // pinado acima). Não repetimos o literal no reconciliador: o gate oficial
+    // de namespace do fork exige exatamente essa propriedade.
+    const forkNamespace=rule.kind==='distribution_common_three_way'
+      ? /^IMG_NS="([^"]+)"$/m.exec(fork.toString('utf8'))?.[1] : null;
+    if(rule.kind==='distribution_common_three_way' && !forkNamespace)
+      throw new Error('ELUS_DISTRIBUTION_SOURCE_NAMESPACE_MISSING: '+path);
     const mandatory=rule.kind==='distribution_common_three_way'
-      ? ['IMG_NS="ghcr.io/oaranha"','elus360_origem_confiavel()','ELUS_DISTRIBUTION_NO_GO','--no-build']
-      : ['elus360_origem_confiavel','ELUS_DISTRIBUTION_NO_GO','preflight_plataforma_atualizacao','BACKUP_ESPERA_LOCK=300'];
+      ? ['IMG_NS="'+forkNamespace+'"','elus360_origem_confiavel()',
+          'ELUS_DISTRIBUTION_NO_GO','--no-build']
+      : ['elus360_origem_confiavel','ELUS_DISTRIBUTION_NO_GO',
+          'preflight_plataforma_atualizacao','BACKUP_ESPERA_LOCK=300'];
     if(mandatory.some(x=>!content.includes(x)))
       throw new Error('ELUS_DISTRIBUTION_REQUIRED_CONTRACT_MISSING: '+path);
     return {path,kind:rule.kind,official_blob:rule.officialBlob,
