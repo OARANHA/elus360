@@ -139,7 +139,7 @@ export function run(argv) {
   const report = JSON.parse(readFileSync(reportPath,'utf8'));
   const actualHead = git(['-C',candidate,'rev-parse','HEAD']);
   // A árvore composta não pode ser a branch da PR nem a main; checkout detached.
-  if (git(['-C',candidate,'symbolic-ref','-q','HEAD'], {stdio:['ignore','pipe','ignore']} ) !== '') 
+  if (git(['-C',candidate,'branch','--show-current']) !== '') 
     throw new Error('CANDIDATE_MUST_BE_DETACHED');
   const sourceByPath = {}, officialBlobByPath = {};
   for(const adapter of ADAPTERS){
