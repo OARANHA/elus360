@@ -8,6 +8,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function argsOf(argv) {
   if (argv.length !== 8) throw new Error('USO: --repo PATH --base SHA --fork SHA --target SHA');
@@ -61,8 +62,12 @@ function semanticPrefix(path) {
   const basename = path.split('/').at(-1);
   // Detecta apenas padrões reconhecidos, sem pressupor que números próximos
   // representam a ordem real de execução ou a mesma migration.
-  const m = /^(\d{8,14})_(\d{4})_/.exec(basename);
-  return m ? { timestamp: m[1], sequence: m[2] } : null;
+  // O padrão Supabase é 14 dígitos (YYYYMMDDHHMMSS) seguidos de '_' ou '.sql'.
+  // Também reconhecemos o padrão histórico com sequência '_NNNN_'.
+  const modern = /^(\d{14})(?:_|\.sql$)/.exec(basename);
+  if (modern) return { version: modern[1] };
+  const legacy = /^(\d{8,13})_(\d{4})_/.exec(basename);
+  return legacy ? { version: legacy[1] + '_' + legacy[2] } : null;
 }
 
 function checkPrefixes(entries) {
@@ -71,7 +76,7 @@ function checkPrefixes(entries) {
     if (!path.startsWith('supabase/migrations/')) continue;
     const prefix = semanticPrefix(path);
     if (!prefix) continue;
-    const key = prefix.timestamp + '_' + prefix.sequence;
+    const key = prefix.version;
     grouped.set(key, [...(grouped.get(key) || []), path]);
   }
   return [...grouped.entries()].filter(([, paths]) => paths.length > 1)
@@ -81,18 +86,25 @@ function checkPrefixes(entries) {
 export function inspectTrees(base, fork, target) {
   const localDelta = delta(base, fork), upstreamDelta = delta(base, target);
   const upstreamPaths = new Set(upstreamDelta.map(x => x.path));
-  const overlap = localDelta.filter(x => upstreamPaths.has(x.path));
+  const overlappingChanges = localDelta.filter(x => upstreamPaths.has(x.path));
+  // Uma alteração com o mesmo OID/mode nos dois destinos não é conflito.
+  const identical = overlappingChanges.filter(x => {
+    const forkFile = fork.get(x.path), targetFile = target.get(x.path);
+    return forkFile?.oid === targetFile?.oid && forkFile?.mode === targetFile?.mode;
+  });
+  const identicalPaths = new Set(identical.map(x => x.path));
+  const overlap = overlappingChanges.filter(x => !identicalPaths.has(x.path));
   const localNew = localDelta.filter(x => x.status === 'added' && x.path.endsWith('.sql'));
   const targetNew = upstreamDelta.filter(x => x.status === 'added' && x.path.endsWith('.sql'));
   const upstreamByPrefix = new Map();
   for (const x of targetNew) {
     const p = semanticPrefix(x.path);
-    if (p) upstreamByPrefix.set(p.timestamp + '_' + p.sequence,
-      [...(upstreamByPrefix.get(p.timestamp + '_' + p.sequence) || []), x.path]);
+    if (p) upstreamByPrefix.set(p.version,
+      [...(upstreamByPrefix.get(p.version) || []), x.path]);
   }
   const prefixCollisions = localNew.flatMap(x => {
     const p = semanticPrefix(x.path);
-    const paths = p && upstreamByPrefix.get(p.timestamp + '_' + p.sequence);
+    const paths = p && upstreamByPrefix.get(p.version);
     return paths?.some(other => other !== x.path)
       ? [{ fork_path: x.path, upstream_paths: paths }] : [];
   });
@@ -101,6 +113,7 @@ export function inspectTrees(base, fork, target) {
     local_delta_count: localDelta.length,
     upstream_delta_count: upstreamDelta.length,
     overlapping_paths: overlap,
+    already_identical_paths: identical.map(x => x.path),
     migration_prefix_collisions: prefixCollisions,
     duplicate_fork_prefixes: checkPrefixes(fork),
     duplicate_target_prefixes: checkPrefixes(target),
@@ -113,7 +126,7 @@ export function inspectTrees(base, fork, target) {
   };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const flags = argsOf(process.argv.slice(2));
     const repo = resolve(flags.get('--repo'));
