@@ -193,6 +193,21 @@ export function keepOfficialDocumentation(item) {
   return classifyConflict(item).category === 'upstream_docs_candidate';
 }
 
+/**
+ * Ferramentas de contribuição da comunidade não pertencem ao runtime ELUS360:
+ * a imagem oficial exclui .agents e .claude no .dockerignore.
+ * Manter o conteúdo de origem é uma decisão de overlay, NÃO certificação
+ * para executar hooks. Nenhum hook é instalado/ativado por este montador.
+ */
+export function keepOfficialDeveloperScript(item) {
+  if(!item || item.reason!=='deletion_or_unsupported_mode' || item.fork_status!=='D')
+    return false;
+  const path=assertSafePath(item.path);
+  if(!/^\.(?:agents|claude)\/skills\/deskcomm-[^/]+\/scripts\/.+$/.test(path))
+    return false;
+  return classifyConflict(item).category==='upstream_scripts_security_review';
+}
+
 export function planChanges({report, targetSha, sourceByPath, officialBlobByPath, adapters = ADAPTERS}) {
   if (report?.schema_version !== 1 || report?.stage !== 'PREPARED_NOT_VALIDATED' ||
       report.upstream_target_sha !== OFFICIAL_TARGET || targetSha !== OFFICIAL_TARGET ||
@@ -220,7 +235,8 @@ export function planChanges({report, targetSha, sourceByPath, officialBlobByPath
   const adaptedPaths = new Set(changed.map(c=>c.path));
   // Prioridade da base oficial: não há delta ELUS a reaplicar em docs apagados.
   const officialKept = report.review.filter(item =>
-    !adaptedPaths.has(item.path) && keepOfficialDocumentation(item));
+    !adaptedPaths.has(item.path) &&
+    (keepOfficialDocumentation(item) || keepOfficialDeveloperScript(item)));
   const keptPaths = new Set(officialKept.map(item=>item.path));
   const remaining = report.review.filter(item =>
     !adaptedPaths.has(item.path) && !keptPaths.has(item.path));
@@ -275,16 +291,27 @@ export function run(argv) {
     if(m)officialDocs.set(m[3],{mode:m[1],sha:m[2]});
   }
   const officialKept=[];
+  // Devtools do upstream não entram na imagem ELUS. Falha fechada se o
+  // .dockerignore oficial deixar de excluí-los em release futura.
+  const dockerIgnore=readFileSync(join(candidate,'.dockerignore'),'utf8');
+  const dockerRules=new Set(dockerIgnore.split(/\r?\n/).map(x=>x.trim()));
+  const devtoolExclusionsOk=dockerRules.has('.agents') && dockerRules.has('.claude');
   for(const item of plan.officialKept) {
+    const developerTool=keepOfficialDeveloperScript(item);
     const expected=officialDocs.get(item.path);
-    if(!expected || expected.mode!=='100644' || report.staged.includes(item.path))
+    const allowedMode=developerTool ? ['100644','100755'].includes(expected?.mode)
+      : expected?.mode==='100644';
+    if(!expected || !allowedMode || report.staged.includes(item.path) ||
+        (developerTool && !devtoolExclusionsOk))
       throw new Error('ELUS_OFFICIAL_DOCUMENT_NOT_SAFE: '+item.path);
     const bytes=readFileSync(join(candidate,item.path));
     const actual=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
     if(actual!==expected.sha)
       throw new Error('ELUS_OFFICIAL_DOCUMENT_MODIFIED: '+item.path);
     officialKept.push({path:item.path,official_blob:expected.sha,
-      decision:'keep_official_document_no_elus_overlay'});
+      decision:developerTool ? 'keep_official_devtool_excluded_from_runtime'
+        : 'keep_official_document_no_elus_overlay'});
+
   }
   for(const c of plan.changed) writeFileSync(join(candidate,c.path),c.content);
   git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path)]);
@@ -301,6 +328,7 @@ export function run(argv) {
     unresolved:plan.remaining,
     candidate_patch:{sha256:digest(patch),bytes:patch.length},
     gates:{source_blobs_pinned:true, official_documents_verified:true,
+      devtools_excluded_from_runtime:devtoolExclusionsOk,
       authorization:'NOT_RUN',typecheck:'NOT_RUN',build:'NOT_RUN',
       tenant_isolation:'NOT_RUN',db_upgrade:'NOT_RUN',functional_e2e:'NOT_RUN',merge_deploy:'FORBIDDEN'}
   };
