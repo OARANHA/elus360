@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ADAPTERS, OFFICIAL_TARGET, adaptText, planChanges } from '../../scripts/elus360-clean-base-adapters.mjs';
 
-// Testes de planChanges usam os seis adaptadores de baixa complexidade;
-// o AgentForm é validado na composição do worktree oficial, com o blob pinado.
-const FIXTURE_ADAPTERS = ADAPTERS.filter((adapter) => adapter.kind !== 'agent_form_managed');
+// Testes compactos usam seis adaptadores de baixa complexidade;
+// AgentForm e dicionário exigem provas de integridade no worktree oficial.
+const FIXTURE_ADAPTERS = ADAPTERS.filter((adapter) => !['agent_form_managed','i18n_elus_entries'].includes(adapter.kind));
 
 function sourceFixture() {
   const byPath={};
@@ -24,7 +24,7 @@ function sourceFixture() {
   return {report,sourceByPath:byPath,officialBlobByPath};
 }
 test('seis adaptadores só aceitam blob oficial fixado e conflito explícito',()=>{
-  assert.equal(ADAPTERS.length,7);
+  assert.equal(ADAPTERS.length,8);
   assert.equal(FIXTURE_ADAPTERS.length,6);
   const f=sourceFixture();
   const planned=planChanges({...f,targetSha:OFFICIAL_TARGET,adapters:FIXTURE_ADAPTERS});
@@ -69,4 +69,25 @@ test('AgentForm mantém grants ELUS e preserva o fonte oficial pinado',()=>{
     assert.notEqual(before,after);
     assert.equal(adaptText(before,{path:adapter.path,edits:[[before,after]]}),after);
   }
+});
+
+test('Dicionário ELUS insere 48 entradas sem suprimir o catálogo da v1.108',()=>{
+  const adapter=ADAPTERS.find((a)=>a.kind==='i18n_elus_entries');
+  assert.ok(adapter);
+  assert.equal(adapter.officialBlob,'7884118824fb6fb17b420e9038e1ede60dbe33b6');
+  assert.equal(adapter.edits.length,1);
+  const [needle, replacement]=adapter.edits[0];
+  assert.ok(needle.startsWith('};\\n\\n/**'));
+  assert.match(needle,/Traduz, ou devolve o próprio texto/);
+  const keys=[...replacement.matchAll(/^  ("(?:\\\\.|[^"\\\\])*"):\\s*\\{\\s*es:/gm)].map((m)=>JSON.parse(m[1]));
+  assert.equal(keys.length,48);
+  assert.equal(new Set(keys).size,48,'nenhuma tradução ELUS pode repetir chave');
+  assert.ok(keys.includes('IA ELUS360 gerenciada'));
+  assert.ok(keys.includes('Inteligência artificial ELUS360'));
+  const original='  ...TEXTOS_CADENCIAS,\\n'+needle;
+  const applied=adaptText(original,adapter);
+  assert.match(applied,/\\.\\.\\.TEXTOS_CADENCIAS,/);
+  assert.match(applied,/Inteligência artificial ELUS360/);
+  assert.match(applied,/Traduz, ou devolve o próprio texto/);
+  assert.throws(()=>adaptText(original+needle,adapter),/ADAPTER_ANCHOR_MISMATCH/);
 });
