@@ -4,10 +4,14 @@ on:
     paths:
       - "scripts/elus360-clean-base-prepare.mjs"
       - "scripts/elus360-clean-base-classify.mjs"
+      - "scripts/elus360-clean-base-adapters.mjs"
       - "tests/operational/elus360-clean-base.test.mjs"
       - "tests/operational/elus360-clean-base-classify.test.mjs"
+      - "tests/operational/elus360-clean-base-adapters.test.mjs"
       - ".github/workflows/elus360-clean-base-candidate.yml"
       - "docs/elus360/clean-base-v1108.md"
+      - "docs/elus360/clean-base-v1108-conflict-triage.md"
+      - "docs/elus360/clean-base-v1108-composition.md"
   workflow_dispatch:
 
 permissions:
@@ -31,7 +35,8 @@ jobs:
           set -euo pipefail
           node --check scripts/elus360-clean-base-prepare.mjs
           node --check scripts/elus360-clean-base-classify.mjs
-          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs
+          node --check scripts/elus360-clean-base-adapters.mjs
+          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs tests/operational/elus360-clean-base-adapters.test.mjs
       - name: Comprovar tags oficiais e SHA da candidata
         id: source
         shell: bash
@@ -104,6 +109,87 @@ jobs:
             "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.json" \
             "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.md"
           cat "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Aplicar adaptadores ELUS somente sobre blobs oficiais pinados
+        id: compose_adapters
+        run: |
+          set -euo pipefail
+          node scripts/elus360-clean-base-adapters.mjs \
+            --candidate "$RUNNER_TEMP/elus360-official-clean" \
+            --source-report "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-report.json" \
+            --reports "$RUNNER_TEMP/elus360-clean-reports"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.9"
+          run_install: false
+
+      - name: Instalar dependências do código oficial composto (runner efêmero)
+        id: composed_install
+        continue-on-error: true
+        if: ${{ steps.compose_adapters.outcome == 'success' }}
+        run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" install --frozen-lockfile
+
+      - name: TypeScript de TODA a árvore composta v1.108.0
+        id: composed_types
+        continue-on-error: true
+        if: ${{ steps.composed_install.outcome == 'success' }}
+        run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" typecheck
+
+      - name: Regressões de IA, tenant e governança na árvore composta
+        id: composed_units
+        continue-on-error: true
+        if: ${{ steps.composed_install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/elus360-official-clean"
+          pnpm exec vitest run \
+            tests/unit/elus360-chutes-plataforma.test.ts \
+            tests/unit/elus360-version-governance.test.ts \
+            tests/unit/elus360-ia-gerenciada-guard.test.ts \
+            lib/elus360/ai-managed/authorize-version-write.test.ts \
+            'app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts'
+
+      - name: Build de produção do código composto (SEM publicar imagem)
+        id: composed_build
+        continue-on-error: true
+        if: ${{ steps.composed_install.outcome == 'success' }}
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" build
+
+      - name: Publicar vereditos da árvore composta e reprovar falhas reais
+        if: always()
+        env:
+          ADAPTERS: ${{ steps.compose_adapters.outcome }}
+          INSTALL: ${{ steps.composed_install.outcome }}
+          TYPES: ${{ steps.composed_types.outcome }}
+          UNIT: ${{ steps.composed_units.outcome }}
+          BUILD: ${{ steps.composed_build.outcome }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const folder=path.join(process.env.RUNNER_TEMP,'elus360-clean-reports');
+          const statuses=Object.fromEntries(['ADAPTERS','INSTALL','TYPES','UNIT','BUILD'].map(k=>[k.toLowerCase(),process.env[k]]));
+          const failed=Object.entries(statuses).filter(([,v])=>v!=='success').map(([k])=>k);
+          const file=path.join(folder,'elus360-composed-report.json');
+          const composition=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):null;
+          const remaining=composition?.counts?.unresolved??null;
+          const record={schema_version:1,stage:failed.length?'COMPOSED_TEST_FAILED':'COMPOSED_TECHNICAL_CHECKS_PASSED',
+            source_sha:composition?.fork_sha??null,upstream_target_sha:composition?.upstream_target_sha??null,
+            statuses,failed_steps:failed,unresolved_conflicts:remaining,
+            release_gate:'NO_GO_PENDING_ADAPTERS_DB_AUTH_E2E'};
+          fs.mkdirSync(folder,{recursive:true});
+          fs.writeFileSync(path.join(folder,'elus360-composed-validation.json'),JSON.stringify(record,null,2)+'\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            '\n## Validação da aplicação composta\n\n'+
+            Object.entries(statuses).map(([k,v])=>'- '+k+': '+v).join('\n')+
+            '\nConflitos não resolvidos: '+String(remaining)+
+            '\n**Release NO-GO:** autorização, DB upgrade e E2E real da versão composta pendentes.\n');
+          if(failed.length){console.error('ELUS_COMPOSED_VALIDATION_NO_GO: '+failed.join(', '));process.exitCode=1;}
+          else if(remaining)console.log('::warning::ELUS_RELEASE_NO_GO: '+remaining+' conflitos ainda exigem revisão');
+          NODE
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -115,3 +201,6 @@ jobs:
             ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base.patch
             ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-classification.json
             ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-classification.md
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-report.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed.patch
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-validation.json
