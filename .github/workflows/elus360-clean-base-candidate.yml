@@ -128,6 +128,10 @@ jobs:
         id: composed_types
         continue-on-error: true
         if: ${{ steps.composed_install.outcome == 'success' }}
+        env:
+          # OOM real no job 131030826900 com heap padrão de ~2 GiB; limite explícito
+          # abaixo da RAM do runner ubuntu-24.04, sem afrouxar timeouts ou ignorar TS.
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" typecheck
 
       - name: Regressões de IA, tenant e governança na árvore composta
@@ -150,6 +154,7 @@ jobs:
         if: ${{ steps.composed_install.outcome == 'success' }}
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" build
 
       - name: Publicar vereditos da árvore composta e reprovar falhas reais
