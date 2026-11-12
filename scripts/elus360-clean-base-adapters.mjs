@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertSafePath } from './elus360-clean-base-prepare.mjs';
+import { classifyConflict } from './elus360-clean-base-classify.mjs';
 
 export const OFFICIAL_TARGET = '0b60c5abaace17922ae645399a6a6183a5f5c357';
 const digest = data => createHash('sha256').update(data).digest('hex');
@@ -175,6 +176,23 @@ export function adaptText(original, adapter) {
   return result;
 }
 
+/**
+ * Decisão operacional do ELUS360: exclusões do fork de documentação de skills
+ * deskcomm-* NÃO compõem uma personalização. Conservar o arquivo do upstream.
+ * Este reconhecimento NÃO vale para código, scripts/hooks, modes ou arquivos ELUS.
+ * Um item retido é conferido contra o blob Git do release oficial antes da escrita.
+ */
+export function keepOfficialDocumentation(item) {
+  if (!item || item.fork_status !== 'D' ||
+      !['both_changed','deletion_or_unsupported_mode'].includes(item.reason))
+    return false;
+  const path = assertSafePath(item.path);
+  if (!/^\.(?:agents|claude)\/skills\/deskcomm-[^/]+\/.+\.(?:md|ya?ml|json)$/.test(path) ||
+      /\/(?:scripts|hooks)\//.test(path))
+    return false;
+  return classifyConflict(item).category === 'upstream_docs_candidate';
+}
+
 export function planChanges({report, targetSha, sourceByPath, officialBlobByPath, adapters = ADAPTERS}) {
   if (report?.schema_version !== 1 || report?.stage !== 'PREPARED_NOT_VALIDATED' ||
       report.upstream_target_sha !== OFFICIAL_TARGET || targetSha !== OFFICIAL_TARGET ||
@@ -199,8 +217,16 @@ export function planChanges({report, targetSha, sourceByPath, officialBlobByPath
       official_blob: adapter.officialBlob, content,
       sha256: digest(content)});
   }
-  const remaining = report.review.filter(r => !changed.some(c => c.path === r.path));
-  return {changed, remaining};
+  const adaptedPaths = new Set(changed.map(c=>c.path));
+  // Prioridade da base oficial: não há delta ELUS a reaplicar em docs apagados.
+  const officialKept = report.review.filter(item =>
+    !adaptedPaths.has(item.path) && keepOfficialDocumentation(item));
+  const keptPaths = new Set(officialKept.map(item=>item.path));
+  const remaining = report.review.filter(item =>
+    !adaptedPaths.has(item.path) && !keptPaths.has(item.path));
+  if(adaptedPaths.size + keptPaths.size + remaining.length !== report.review.length)
+    throw new Error('ELUS_OVERLAY_DECISION_COVERAGE_MISMATCH');
+  return {changed, officialKept, remaining};
 }
 
 function parseFlags(argv) {
@@ -240,6 +266,26 @@ export function run(argv) {
   }
   // Preflight integral, SEM ESCRITA, antes de modificar qualquer arquivo.
   const plan=planChanges({report,targetSha:actualHead,sourceByPath,officialBlobByPath});
+  // O upstream já está no worktree: validar identidade, modo não-executável e
+  // ausência de alterações em cada doc que decidimos conservar.
+  const rawTree=git(['-C',candidate,'ls-tree','-rz','HEAD','--','.agents/skills','.claude/skills']);
+  const officialDocs = new Map();
+  for(const record of rawTree.split('\0').filter(Boolean)) {
+    const m=/^(\d{6}) blob ([a-f0-9]{40})\t(.+)$/.exec(record);
+    if(m)officialDocs.set(m[3],{mode:m[1],sha:m[2]});
+  }
+  const officialKept=[];
+  for(const item of plan.officialKept) {
+    const expected=officialDocs.get(item.path);
+    if(!expected || expected.mode!=='100644' || report.staged.includes(item.path))
+      throw new Error('ELUS_OFFICIAL_DOCUMENT_NOT_SAFE: '+item.path);
+    const bytes=readFileSync(join(candidate,item.path));
+    const actual=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
+    if(actual!==expected.sha)
+      throw new Error('ELUS_OFFICIAL_DOCUMENT_MODIFIED: '+item.path);
+    officialKept.push({path:item.path,official_blob:expected.sha,
+      decision:'keep_official_document_no_elus_overlay'});
+  }
   for(const c of plan.changed) writeFileSync(join(candidate,c.path),c.content);
   git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path)]);
   const patch=execFileSync('git',['-C',candidate,'diff','--cached','--binary'],{maxBuffer:128*1024*1024});
@@ -249,10 +295,13 @@ export function run(argv) {
     upstream_target_sha:actualHead, fork_sha:report.fork_sha,
     source_report_sha256:digest(readFileSync(reportPath)),
     adapted:plan.changed.map(({content,...metadata})=>metadata),
-    counts:{safe_overlay:report.counts.staged, adaptations:plan.changed.length, unresolved:plan.remaining.length},
+    official_kept:officialKept,
+    counts:{safe_overlay:report.counts.staged, adaptations:plan.changed.length,
+      official_kept:officialKept.length, unresolved:plan.remaining.length},
     unresolved:plan.remaining,
     candidate_patch:{sha256:digest(patch),bytes:patch.length},
-    gates:{source_blobs_pinned:true, authorization:'NOT_RUN',typecheck:'NOT_RUN',build:'NOT_RUN',
+    gates:{source_blobs_pinned:true, official_documents_verified:true,
+      authorization:'NOT_RUN',typecheck:'NOT_RUN',build:'NOT_RUN',
       tenant_isolation:'NOT_RUN',db_upgrade:'NOT_RUN',functional_e2e:'NOT_RUN',merge_deploy:'FORBIDDEN'}
   };
   writeFileSync(join(reports,'elus360-composed.patch'),patch);
