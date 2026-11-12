@@ -48,4 +48,17 @@ Uma instalação de ELUS360 executa o **Deskcomm oficial atualizado** com o over
 
 **Execução iniciada na PR #37:** o reconciliador existente agora registra **dois tipos de decisão** em `official_kept`: `keep_official_document_no_elus_overlay` (108 documentos não executáveis) e `keep_official_devtool_excluded_from_runtime` (22 scripts/hook de skills, sem acioná-los). Mantém SHA do blob oficial, recusa path/status/categoria não previstos, modo incompatível e bytes diferentes dos blobs do release. Não altera conteúdos desses 130 arquivos. O `unresolved` deve cair de 141 para **11**, SE o próximo artifact comprovar todas as condições — **não declarar a previsão como verificação**.
 
+## T04 — confronto inicial do kit (proveniência de três árvores)
+
+Comparados os blobs **v1.102.0 (base) × fork ELUS main × v1.108.0 (oficial)**, sem alterar o kit e sem executar instalador:
+
+| Arquivo | Blob oficial v1.108.0 | Diferença real a integrar |
+| --- | --- | --- |
+| `hostgator-setup-kit/_common.sh` | `a857565a31c25c1577ced017047646949af9189e` | Oficial aceita AMD64 e ARM64 e mantém caminho de build local de instalação existente; ELUS exige **somente Linux AMD64** e **zero build na VPS**. Portar as guardas ELUS por interface/função, sem recolocar helper antigo inteiro |
+| `hostgator-setup-kit/update.sh` | `6c91760b21c6d05264e1562a89559b404c11d1ca` | Oficial atualizou tratamento de backup e travas; ELUS acrescenta origem confiável `OARANHA/elus360`, validação de release e imagens. **Integrar pré-condições ELUS antes de qualquer side effect**, mantendo o procedimento de backup oficial |
+| `hostgator-setup-kit/README.md` | `51170761b7e17f8386611e60c608c8ee3310756a` | Manual oficial cita ARM64 e build local; publicar **instruções ELUS AMD64** próprias, não transportar manual antigo nem documentar arquitetura não suportada |
+| `hostgator-setup-kit/test-validators.sh` | `d6f886b8b5b777773710b9c8f3fa3cdb3a6d8cd5` | É a suíte do upstream, não nossa funcionalidade. **Não portar a versão antiga nem abrir frente de testes**. Sua divergência não é razão para reconstruir o instalador |
+
+**Decisão:** próximo código de produto a portar é o contrato de proveniência/AMD64/sem build do instalador. A implementação fica pendente: nem o instalador composto nem uma instalação/atualização real foram validados. A documentação acima é análise dos arquivos reais, não homologação.
+
 **Próximo trabalho obrigatório:** concentrar T03–T05 nos **11** caminhos reais, com prioridade para `hostgator-setup-kit/update.sh` e `_common.sh` e para a compatibilidade de banco. Não criar testes ou workflows para a aplicação original.
