@@ -269,6 +269,14 @@ export function keepOfficialDeveloperScript(item) {
   return classifyConflict(item).category==='upstream_scripts_security_review';
 }
 
+// Os validadores de shell são testes do Deskcomm, não runtime ELUS.
+ // Conservar o script oficial: não trazer fixtures antigas do fork.
+export function keepOfficialUpstreamValidator(item) {
+  return item?.path==='hostgator-setup-kit/test-validators.sh' &&
+    item?.reason==='both_changed' && item?.fork_status==='M' &&
+    item?.upstream_status==='M';
+}
+
 export function planChanges({report, targetSha, sourceByPath, officialBlobByPath, adapters = ADAPTERS}) {
   if (report?.schema_version !== 1 || report?.stage !== 'PREPARED_NOT_VALIDATED' ||
       report.upstream_target_sha !== OFFICIAL_TARGET || targetSha !== OFFICIAL_TARGET ||
@@ -297,7 +305,8 @@ export function planChanges({report, targetSha, sourceByPath, officialBlobByPath
   // Prioridade da base oficial: não há delta ELUS a reaplicar em docs apagados.
   const officialKept = report.review.filter(item =>
     !adaptedPaths.has(item.path) &&
-    (keepOfficialDocumentation(item) || keepOfficialDeveloperScript(item)));
+    (keepOfficialDocumentation(item) || keepOfficialDeveloperScript(item) ||
+     keepOfficialUpstreamValidator(item)));
   const keptPaths = new Set(officialKept.map(item=>item.path));
   const remaining = report.review.filter(item =>
     !adaptedPaths.has(item.path) && !keptPaths.has(item.path));
@@ -345,7 +354,8 @@ export function run(argv) {
   const plan=planChanges({report,targetSha:actualHead,sourceByPath,officialBlobByPath});
   // O upstream já está no worktree: validar identidade, modo não-executável e
   // ausência de alterações em cada doc que decidimos conservar.
-  const rawTree=git(['-C',candidate,'ls-tree','-rz','HEAD','--','.agents/skills','.claude/skills']);
+  const rawTree=git(['-C',candidate,'ls-tree','-rz','HEAD','--',
+    '.agents/skills','.claude/skills','hostgator-setup-kit/test-validators.sh']);
   const officialDocs = new Map();
   for(const record of rawTree.split('\0').filter(Boolean)) {
     const m=/^(\d{6}) blob ([a-f0-9]{40})\t(.+)$/.exec(record);
@@ -359,8 +369,10 @@ export function run(argv) {
   const devtoolExclusionsOk=dockerRules.has('.agents') && dockerRules.has('.claude');
   for(const item of plan.officialKept) {
     const developerTool=keepOfficialDeveloperScript(item);
+    const officialValidator=keepOfficialUpstreamValidator(item);
     const expected=officialDocs.get(item.path);
-    const allowedMode=developerTool ? ['100644','100755'].includes(expected?.mode)
+    const allowedMode=developerTool || officialValidator
+      ? ['100644','100755'].includes(expected?.mode)
       : expected?.mode==='100644';
     if(!expected || !allowedMode || report.staged.includes(item.path) ||
         (developerTool && !devtoolExclusionsOk))
@@ -371,6 +383,7 @@ export function run(argv) {
       throw new Error('ELUS_OFFICIAL_DOCUMENT_MODIFIED: '+item.path);
     officialKept.push({path:item.path,official_blob:expected.sha,
       decision:developerTool ? 'keep_official_devtool_excluded_from_runtime'
+        : officialValidator ? 'keep_official_upstream_test_without_elus_modifications'
         : 'keep_official_document_no_elus_overlay'});
 
   }
