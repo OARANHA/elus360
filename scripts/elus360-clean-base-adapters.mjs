@@ -150,7 +150,7 @@ export function adaptText(original, adapter) {
   return result;
 }
 
-export function planChanges({report, targetSha, sourceByPath, officialBlobByPath}) {
+export function planChanges({report, targetSha, sourceByPath, officialBlobByPath, adapters = ADAPTERS}) {
   if (report?.schema_version !== 1 || report?.stage !== 'PREPARED_NOT_VALIDATED' ||
       report.upstream_target_sha !== OFFICIAL_TARGET || targetSha !== OFFICIAL_TARGET ||
       !Array.isArray(report.review) || report.review.length !== report.counts?.conflicts) 
@@ -162,7 +162,7 @@ export function planChanges({report, targetSha, sourceByPath, officialBlobByPath
     originalReview.set(path, item);
   }
   const changed = [];
-  for (const adapter of ADAPTERS) {
+  for (const adapter of adapters) {
     const item = originalReview.get(adapter.path);
     if (!item || item.reason !== 'both_changed') throw new Error('ADAPTER_OUTSIDE_REVIEW: '+adapter.path);
     if (officialBlobByPath[adapter.path] !== adapter.officialBlob)
