@@ -236,6 +236,9 @@ jobs:
           if(statuses.types==='success' && (!typeReport ||
               typeReport.stage!=='TYPES_SHARDED_PASSED' ||
               typeReport.root_coverage_complete!==true ||
+              typeReport.shared_type_context_in_every_test_shard!==true ||
+              !Array.isArray(typeReport.shared_test_type_context) ||
+              typeReport.shared_test_type_context.length!==1 ||
               !Array.isArray(typeReport.shards) || typeReport.shards.length<2 ||
               typeReport.shards.some(x=>x.status!=='passed'))) {
             failed.push('types_incomplete_coverage');
