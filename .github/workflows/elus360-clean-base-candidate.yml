@@ -118,6 +118,32 @@ jobs:
             --source-report "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-report.json" \
             --reports "$RUNNER_TEMP/elus360-clean-reports"
 
+      - name: Provar que a composição não apagou os recursos novos do AgentForm oficial
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const form=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'app/app/ai/agents/[id]/_components/AgentForm.tsx'),'utf8');
+          // Não confundir teste estático com E2E; TypeScript/build seguem obrigatórios.
+          const invariantes=[
+            'autonomiaTecnica?: Readonly<AutonomiaIa>',
+            'modeloPadrao?: string',
+            'credencialPadrao?: string | null',
+            'permitirModeloTecnico={autonomia.operator_model}',
+            'data-testid="elus-ia-gerenciada"',
+            'RolagemDeChegada',
+            'VozDoAgente',
+            'FraseDoAviso',
+            'EscolhaQuandoHaCompromisso',
+            'data-testid="aviso-vender-sem-funil"',
+          ];
+          const ausentes=invariantes.filter(x=>!form.includes(x));
+          if(ausentes.length)throw new Error('ELUS_FORM_COMPOSITION_INCOMPLETE: '+ausentes.join(', '));
+          console.log('ELUS_FORM_COMPOSITION_STATIC_OK: '+invariantes.length);
+          NODE
+
       - name: Instalar dependências do código oficial composto (runner efêmero)
         id: composed_install
         continue-on-error: true
