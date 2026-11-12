@@ -9,6 +9,7 @@ import { resolve, isAbsolute, relative, sep } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
+import { createHash } from "node:crypto";
 import { auditPath, contractSignals, checksForSignals, heuristicSignalProvenance } from "./elus-upstream-contract-risk.mjs";
 import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals, protectedImportProvenance, nearestUnsafeRiskEvidence } from "./elus-upstream-dependency-risk.mjs";
 import { diagnoseAstPrecision } from "./elus-upstream-precision-diagnostics.mjs";
@@ -388,18 +389,33 @@ export function prepare(base, target, fork, out, {deltaFirst=false}={}) {
   if (git(["status","--porcelain"])) throw Error("WORKTREE_NOT_CLEAN");
   git(["worktree","add","--detach",dir,fork]);
   try {
-    if (safe.length) {
-      const patch = git(["diff","--binary","--no-renames",base,target,"--",...safe],{binary:true});
-      if (patch.length) {
-        git(["apply","--check","--binary","-"],{cwd:dir,input:patch,binary:true});
-        git(["apply","--binary","-"],{cwd:dir,input:patch,binary:true});
-      }
+    // O diff do worktree nao inclui arquivos NOVOS sem git add. Portanto,
+    // publique o mesmo patch BASE->TARGET que foi aplicado, nao git diff do
+    // worktree. Nao adicione arquivos ao indice e nao crie commit.
+    const patch=safe.length?
+      git(["diff","--binary","--no-renames",base,target,"--",...safe],{binary:true}):
+      Buffer.alloc(0);
+    const actual=safe.length?
+      git(["diff","--name-only","-z","--no-renames",base,target,"--",...safe],{binary:true})
+        .toString("utf8").split("\0").filter(Boolean):[];
+    const expectedPaths=new Set(safe);
+    if(actual.length!==expectedPaths.size ||
+      actual.some(path=>!expectedPaths.has(path))) throw Error("PREPARE_PATCH_PATH_MISMATCH");
+    if(patch.length) {
+      git(["apply","--check","--binary","-"],{cwd:dir,input:patch,binary:true});
+      git(["apply","--binary","-"],{cwd:dir,input:patch,binary:true});
     }
+    const patchSha256=createHash("sha256").update(patch).digest("hex");
     mkdirSync(resolve(dir,".elus-upstream"),{recursive:true});
+    writeFileSync(resolve(dir,".elus-upstream","direct-candidate.patch"),patch);
     writeFileSync(resolve(dir,".elus-upstream","report.json"),JSON.stringify({
-      ...report, preparedFiles:safe, note:"Worktree detached, sem commit. Delta-first prepara candidatos independentes; CI, revisao e aprovacao obrigatorios antes de merge/deploy."
+      ...report, preparedFiles:safe, preparedPatchSha256:patchSha256,
+      preparedPatchBytes:patch.length,preparedPatchPaths:actual.length,
+      note:"Worktree detached, sem commit. Patch inclui adicoes, alteracoes e binarios; nao autoriza merge, CI funcional ou deploy."
     },null,2)+"\n");
-    return {output:dir, preparedFiles:safe.length, reviewRequired:report.gate!=="candidate_analysis_ready",totals:report.totals};
+    return {output:dir, preparedFiles:safe.length,
+      preparedPatchSha256:patchSha256,preparedPatchBytes:patch.length,
+      reviewRequired:report.gate!=="candidate_analysis_ready",totals:report.totals};
   } catch(e) {
     throw Error("PREPARE_INCOMPLETE_AT:"+dir+":"+String(e.message).slice(0,120));
   }

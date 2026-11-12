@@ -104,3 +104,13 @@ precisa de seu próprio CI para ser considerado testado.
 Modo `--delta-first`: usa comparação de blob Git **e modo** entre base oficial, destino oficial e ELUS360 para selecionar `stage_direct_candidate`. Mantém o status histórico do reconciliador, análise AST, sinais de risco e bloqueios próprios. Arquivos alterados pelo fork, exclusões, modes não regulares, schema, distribuição, namespace ELUS, consumidores personalizados e imports novos para customizações não são preparados automaticamente. Os demais são preparados somente em **worktree detached descartável**, não em `main`.
 
 O patch `elus-upstream-direct-candidate.patch` é um **candidato**, não um patch homologado. O grafo incompleto continua reportado; os testes completos de integração/segurança/banco/E2E, revisão e aprovação para merge/deploy permanecem obrigatórios. Sem `--delta-first`, o modo conservador original continua disponível e com os testes existentes.
+
+## Auditoria de integridade do artefato — 12/11/2026
+
+No run 43125821883 (artifact 13903595706), o modo delta-first declarou **1.147** caminhos preparados e **204** exigindo revisão. O patch publicado `elus-upstream-direct-candidate.patch` continha somente **645** caminhos: **502 arquivos adicionados no upstream** estavam no worktree, porém **não** foram exportados, pois o workflow usava `git diff` sem `git add` em arquivos novos. Essa divergência impedia usar o patch como candidato completo.
+
+Correção nesta PR: o `prepare` guarda o **patch binário exato BASE→TARGET por caminhos seguros** em `.elus-upstream/direct-candidate.patch`, valida o conjunto de caminhos pelo `git diff --name-only -z`, registra SHA-256, bytes e quantidade; o workflow copia este patch em vez de executar `git diff` no worktree e valida digest. Os testes passam a exigir também o arquivo novo no patch.
+
+O run anterior também usou o commit temporário de merge da PR `8dfe759c89d1773713d49cb74dffdd57edf3f754` como `fork`, e não o HEAD real `9874471a5db177f4d58ddd2fe27852ea4c557045`. O workflow agora utiliza `github.event.pull_request.head.sha` ou `github.sha` em dispatch e comprova o objeto Git antes da análise. Números da próxima rodada poderão diferir pela correção de proveniência.
+
+**Gate:** correção de artefato ainda precisa de CI no novo SHA. O patch é candidato de atualização, não homologação de runtime; dependências AST incompletas e validação de migrations, testes de segurança e regressão permanecem pendentes para integração.

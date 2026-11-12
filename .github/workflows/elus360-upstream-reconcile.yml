@@ -68,6 +68,7 @@ jobs:
           TARGET_TAG: ${{ inputs.target_tag || 'v1.107.0' }}
           BASE_EXPECTED: ${{ inputs.base_sha || '4b5815721710c9b1e99078322593838fda1ee740' }}
           TARGET_EXPECTED: ${{ inputs.target_sha || 'f1d53aaccfd3552f75be0c641c1d72ee8b22257f' }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           fail() { echo "::error::ELUS_UPSTREAM_NO_GO: $1"; exit 3; }
@@ -88,7 +89,11 @@ jobs:
           test -z "$(git status --porcelain)" || fail "checkout sujo"
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "target=$target" >> "$GITHUB_OUTPUT"
-          echo "fork=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # actions/checkout em pull_request faz checkout do MERGE efemero.
+          # Analise o SHA imutavel da branch, nao refs/pull/N/merge.
+          [[ "$PR_HEAD" =~ ^[a-f0-9]{40}$ ]] || fail "head do fork nao pinado"
+          git cat-file -e "$PR_HEAD^{commit}" || fail "head do fork nao esta no checkout"
+          echo "fork=$PR_HEAD" >> "$GITHUB_OUTPUT"
 
       - name: Executar plan completo e prepare isolado (sem push/merge/DDL/deploy)
         shell: bash
@@ -100,7 +105,19 @@ jobs:
           set -euo pipefail
           node scripts/elus-upstream-reconcile.mjs plan --base "$BASE" --target "$TARGET" --fork "$FORK" --delta-first > "$RUNNER_TEMP/elus-upstream-plan.json"
           node scripts/elus-upstream-reconcile.mjs prepare --base "$BASE" --target "$TARGET" --fork "$FORK" --out "$RUNNER_TEMP/elus-upstream-candidate" --delta-first > "$RUNNER_TEMP/elus-upstream-prepare.json"
-          git -C "$RUNNER_TEMP/elus-upstream-candidate" diff --binary --no-ext-diff > "$RUNNER_TEMP/elus-upstream-direct-candidate.patch"
+          # Exportar EXATAMENTE o patch aplicado (inclui novos arquivos
+          # nao rastreados, omitidos por git diff do worktree).
+          cp "$RUNNER_TEMP/elus-upstream-candidate/.elus-upstream/direct-candidate.patch" "$RUNNER_TEMP/elus-upstream-direct-candidate.patch"
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import {createHash} from "node:crypto";
+            const root=process.env.RUNNER_TEMP;
+            const p=JSON.parse(fs.readFileSync(root+"/elus-upstream-prepare.json","utf8"));
+            const patch=fs.readFileSync(root+"/elus-upstream-direct-candidate.patch");
+            if(p.preparedPatchBytes!==patch.length ||
+               p.preparedPatchSha256!==createHash("sha256").update(patch).digest("hex"))
+              throw Error("PATCH_INTEGRITY_MISMATCH");
+          '
           node --input-type=module -e '
             import fs from "node:fs";
             const path=process.env.RUNNER_TEMP;
