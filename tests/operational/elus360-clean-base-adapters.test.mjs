@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { ADAPTERS, OFFICIAL_TARGET, adaptText, planChanges } from '../../scripts/elus360-clean-base-adapters.mjs';
 
 // Testes compactos usam seis adaptadores de baixa complexidade;
-// AgentForm e dicionário exigem provas de integridade no worktree oficial.
-const FIXTURE_ADAPTERS = ADAPTERS.filter((adapter) => !['agent_form_managed','i18n_elus_entries'].includes(adapter.kind));
+// AgentForm, dicionário e teste do preâmbulo exigem o conteúdo upstream real.
+const FIXTURE_ADAPTERS = ADAPTERS.filter((adapter) => !['agent_form_managed','i18n_elus_entries','ci_timeout_same_step'].includes(adapter.kind));
 
 function sourceFixture() {
   const byPath={};
@@ -24,7 +24,7 @@ function sourceFixture() {
   return {report,sourceByPath:byPath,officialBlobByPath};
 }
 test('seis adaptadores só aceitam blob oficial fixado e conflito explícito',()=>{
-  assert.equal(ADAPTERS.length,8);
+  assert.equal(ADAPTERS.length,9);
   assert.equal(FIXTURE_ADAPTERS.length,6);
   const f=sourceFixture();
   const planned=planChanges({...f,targetSha:OFFICIAL_TARGET,adapters:FIXTURE_ADAPTERS});
@@ -90,4 +90,21 @@ test('Dicionário ELUS insere 48 entradas sem suprimir o catálogo da v1.108',()
   assert.match(applied,/Inteligência artificial ELUS360/);
   assert.match(applied,/Traduz, ou devolve o próprio texto/);
   assert.throws(()=>adaptText(original+needle,adapter),/ADAPTER_ANCHOR_MISMATCH/);
+});
+
+test('reconciliador mantém timeout oficial de 45min e não aceita timeout aninhado no CI',()=>{
+  const adapter=ADAPTERS.find(x=>x.kind==='ci_timeout_same_step');
+  assert.ok(adapter);
+  assert.equal(adapter.officialBlob,'82a077ad8897ccf96a6dae09f88b1e8688aab655');
+  assert.equal(adapter.edits.length,4);
+  const additions=adapter.edits.map(([,v])=>v).join('\n');
+  assert.ok(additions.includes('temTimeoutDoMesmoPasso'));
+  assert.ok(additions.includes('timeoutNoRecuoDaAction'));
+  assert.ok(additions.includes('aninhado'));
+  assert.ok(additions.includes('no mesmo passo'));
+  for(const [original,updated] of adapter.edits) {
+    assert.notEqual(original,updated);
+    assert.equal(adaptText(original,{path:adapter.path,edits:[[original,updated]]}),updated);
+  }
+  assert.equal(adapter.edits.some(([,v])=>v.includes('minutos: 30,')),false);
 });
