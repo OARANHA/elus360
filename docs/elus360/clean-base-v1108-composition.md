@@ -67,3 +67,15 @@ O workflow de preparação já tinha passado no HEAD anterior, **mas isso não c
 **Limite declarado**: a partição mantém todos os arquivos e checa seus tipos, mas não executa um único programa TypeScript gigante. Declarações globais `.d.ts` são compartilhadas; integração real e verificação de produção continuam como gates independentes. Não declarar equivalência perfeita entre todos os cruzamentos possíveis de programas TypeScript separados sem evidência adicional.
 
 **Release**: ainda `NO_GO_PENDING_ADAPTERS_DB_AUTH_E2E` e CI do SHA corrente não foi consultada. Não remover o gate de build nem aprovar com 142 conflitos restantes.
+
+## Ajuste do contexto Vitest compartilhado — RED após shards (12/11/2026)
+
+**Evidência:** run `43215996766`, job `131175271916`, SHA `c843cd087635f8749b3048591cd926e2df9f334d`. A partição de produção passou com memória abaixo de 4 GiB, e `next build` concluiu com TypeScript GREEN. A partição `tests-08` falhou com `TS2339` para matchers DOM como `toBeInTheDocument`, `toHaveAttribute` e `toHaveTextContent`, em vários testes `.tsx`. Assim, o OOM do processo gigante foi evitado, mas faltava uma declaração de tipos distribuída pelo Vitest.
+
+**Contrato encontrado no upstream real:** `vitest.config.ts` declara `setupFiles: ["./tests/setup/vitest.setup.ts"]`. Esse setup faz `import "@testing-library/jest-dom/vitest";` e amplia os tipos de `Assertion` utilizados por `expect(...)`. Não é um arquivo `.d.ts` e, portanto, não entrava na lista de declarações compartilhadas pelo particionador.
+
+**Correção na branch:** `scripts/elus360-composed-typecheck.mjs` descobre o setup pelo arquivo de configuração Vitest da árvore composta, exige exatamente um caminho, verifica que ele pertence ao conjunto de arquivos do `tsconfig.typecheck.json`, é externo ao conjunto de produção, e realmente importa `@testing-library/jest-dom/vitest`. Reaproveita a mesma raiz como `sharedTestRoots` em todos os shards de teste. Essa repetição é **somente de contexto de tipos**: cada arquivo original continua possuindo apenas um `owned`, e o gate recusa qualquer divergência, raiz indevida, duplicata ou setup sem o import.
+
+**Regressões:** `tests/operational/elus360-composed-typecheck.test.mjs` tem controles positivos e negativos para contexto distribuído, unicidade, vínculo com o setup real e ausência do import. O workflow exige `shared_type_context_in_every_test_shard=true` e `shared_test_type_context.length===1` no relatório, além de `TYPES_SHARDED_PASSED`, sem `continue` silencioso.
+
+**Status:** implementação não implica CI GREEN: o HEAD do ajuste precisa passar testes de regressão, verificação TypeScript completa e build antes de considerar os gates técnicos concluídos. Release permanece NO-GO por conflitos remanescentes, banco, segurança e E2E da versão composta.
