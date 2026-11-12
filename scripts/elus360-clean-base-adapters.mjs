@@ -143,7 +143,7 @@ export function run(argv) {
   const prepared = execFileSync('git',['-C',candidate,'diff','--cached','--no-ext-diff','--binary'],{maxBuffer:128*1024*1024});
   if (digest(prepared)!==report.patch?.sha256 || prepared.length!==report.patch?.bytes)
     throw new Error('PREPARED_PATCH_INTEGRITY_MISMATCH');
-  const staged=execFileSync('git',['-C',candidate,'diff','--cached','--name-only','-z']).toString('utf8').split('\\0').filter(Boolean).sort();
+  const staged=execFileSync('git',['-C',candidate,'diff','--cached','--name-only','-z']).toString('utf8').split('\0').filter(Boolean).sort();
   if (!Array.isArray(report.staged) || JSON.stringify(staged)!==JSON.stringify([...report.staged].sort()))
     throw new Error('PREPARED_PATHS_INTEGRITY_MISMATCH');
   // A árvore composta não pode ser a branch da PR nem a main; checkout detached.
