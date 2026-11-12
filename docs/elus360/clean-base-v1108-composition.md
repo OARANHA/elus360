@@ -4,7 +4,7 @@ Estado: **IMPLEMENTADO EM PR / VALIDAÇÃO DA ÁRVORE COMPOSTA PENDENTE**. Nenhu
 
 ## Trabalho realizado
 
-A PR deixa de apenas classificar o overlay e passa a produzir um **segundo artefato**: worktree com a árvore oficial limpa v1.108.0, o delta independente ELUS (393 caminhos **no artifact anterior**, número sujeito a revisão após os novos commits) e sete adaptadores explicitamente versionados e limitados por SHA de blob oficial. A etapa de composição preserva o patch original da preparação e cria `elus360-composed.patch` e `elus360-composed-report.json`. Divergência de SHA, patch original, lista de caminhos ou âncora causa falha antes de qualquer escrita de adaptadores.
+A PR deixa de apenas classificar o overlay e passa a produzir um **segundo artefato**: worktree com a árvore oficial limpa v1.108.0, o delta independente ELUS (393 caminhos **no artifact anterior**, número sujeito a revisão após os novos commits) e oito adaptadores explicitamente versionados e limitados por SHA de blob oficial. A etapa de composição preserva o patch original da preparação e cria `elus360-composed.patch` e `elus360-composed-report.json`. Divergência de SHA, patch original, lista de caminhos ou âncora causa falha antes de qualquer escrita de adaptadores.
 
 | Caminho | Composição pontual | Invariante upstream preservado |
 | --- | --- | --- |
@@ -15,8 +15,9 @@ A PR deixa de apenas classificar o overlay e passa a produzir um **segundo artef
 | `.env.example` | Chave Chutes e default de IA ELUS documentados | Parâmetros e avisos operacionais oficiais permanecem |
 | `package.json` | Script `test:operational` ELUS | Dependências, scripts oficiais e lockfile oficiais preservados |
 | `app/app/ai/agents/[id]/_components/AgentForm.tsx` | 25 adaptações de governança por autonomia técnica, defaults de modelo/credencial e visibilidade por concessão | Form oficial 1.927 linhas, voz, agenda, aviso de funil, aviso de handoff, rolagem de chegada |
+| `lib/i18n/dicionario.ts` | Adiciona **48 traduções exclusivas** do fork com verificação de colisões e blob pinado | Mantém as 1.079 linhas oficiais adicionadas e os módulos de cadências, contratação e linguagem do agente |
 
-**Gate do adaptador:** todos os sete caminhos devem constar como `both_changed` no inventário; blobs devem ser os sete SHA Git fixados; o patch original deve bater **bytes, SHA-256 e conjunto de caminhos** com o relatório da montagem. O worktree deve estar em HEAD detached da release oficial. Se qualquer pré-condição divergir, operação falha fechada.
+**Gate do adaptador:** todos os oito caminhos devem constar como `both_changed` no inventário; blobs devem ser os oito SHA Git fixados; o patch original deve bater **bytes, SHA-256 e conjunto de caminhos** com o relatório da montagem. O worktree deve estar em HEAD detached da release oficial. Se qualquer pré-condição divergir, operação falha fechada.
 
 ## Testar a aplicação composta — e não o fork antigo
 
@@ -33,13 +34,13 @@ O workflow de preparação já tinha passado no HEAD anterior, **mas isso não c
 
 - A execução real do workflow 43173103091 verificou **400 caminhos reaplicados + 6 adaptadores, 144 pendências**, 9/9 testes operacionais, 41/41 governança. TypeScript falhou por OOM; o build compilou mas reprovou por TS2322 (AgentForm ausente). Agora existe um sétimo adaptador para AgentForm; previsão de 143 pendências, **ainda não comprovada** no novo SHA. `lib/i18n/dicionario.ts`, `baseline.sql`, instalador e CI continuam em revisão.
 - `AgentForm.tsx` recebeu transposição semântica pontual (25 alterações com blob pinado, não substituição integral). Falta comprovar TypeScript, build e comportamento de UI no novo worktree. A governança no servidor é uma validação independente, não substituída pela visibilidade do formulário.
-- `lib/i18n/dicionario.ts` exige diff íntegro (a API de conteúdo retornou string vazia apesar de blobs diferentes); não forçar mudança sem evidência.
+- `lib/i18n/dicionario.ts` foi recuperado integralmente via GitHub Git Blob API (o caminho `fetch_file` retornava vazio por tamanho). O oitavo adaptador adiciona apenas 48 chaves exclusivas ELUS, sem colisão com 12.388 chaves diretas verificadas no oficial. Conflito resolvido em script, pendente de teste no worktree.
 - `supabase/baseline.sql` e migrations: sem upgrade seguro com dados e sem regressão RLS não há release.
 - `hostgator-setup-kit/_common.sh` e `update.sh`: segurança de origem, AMD64 e rollback ELUS devem coexistir com os reparos oficiais. Não fazer builds na VPS.
 - CI da árvore composta **não substitui E2E real do produto instalado** nem ensaio de instalação limpa/upgrade com dados.
 - `COMPOSED_TECHNICAL_CHECKS_PASSED`, caso obtido, indica somente typecheck, build e unitários selecionados; release continua `NO_GO_PENDING_ADAPTERS_DB_AUTH_E2E`.
 
-**Próximo gate:** verificar CI do SHA exato por ocasião do retorno green/red; ler artefatos da árvore composta, corrigir falhas específicas e resolver os adaptadores restantes com testes de segurança de produto.
+**Próximo gate:** verificar CI do SHA exato por ocasião do retorno green/red; ler artefatos da árvore composta, corrigir falhas específicas e resolver os adaptadores restantes com testes de segurança de produto. Previsão atual após oito adaptadores: **142 conflitos não resolvidos**, ainda sem comprovação em artifact desta nova versão.
 
 ## Ciclo após o workflow #17 (12/11/2026)
 
@@ -47,3 +48,10 @@ O workflow de preparação já tinha passado no HEAD anterior, **mas isso não c
 - Remediação implementada: sétimo adaptador de `AgentForm` em `scripts/elus360-clean-base-adapters.mjs`, pinado no blob oficial `956e6ff33a369e2a9a7f5df3c8aae81125b49992`, 25 substituições/adições precisas. Verificada em simulação de transformação que preserva as linhas e referências oficiais de `RolagemDeChegada`, `VozDoAgente`, `FraseDoAviso`, `EscolhaQuandoHaCompromisso` e `aviso-vender-sem-funil`.
 - Regra específica de memória: `NODE_OPTIONS=--max-old-space-size=4096` somente nos passos TypeScript e build no runner GitHub; não relaxa tests, timeouts, regras de negócio ou segurança.
 - **CI deste novo lote ainda não verificado; não declarar aprovação.** Artifacts e resultados são por SHA exato.
+
+## Ciclo de i18n — oito adaptadores (12/11/2026)
+
+- Artefato **confirmado do workflow anterior**: run `43173103091`, ZIP `13923476564`, `elus360-clean-base-report.json` com 400 staged, 150 conflicts e `elus360-composed-report.json` com seis adaptações, 144 conflitos restantes. `PainelDoOperador.tsx` já estava em `staged` e não era conflito; não criar adaptador redundante.
+- `lib/i18n/dicionario.ts`: `fetch_file` retornou conteúdo vazio para blobs de 1,5–1,7 MB, mas `fetch_blob` devolveu conteúdo íntegro. Comparados base `35128d288f690aeed671c88d95f52753d2d14032`, fork `d53989b17bf5b86f74deff07d5ee94653296828f`, oficial `7884118824fb6fb17b420e9038e1ede60dbe33b6`. O fork acrescentou 48 entradas novas agrupadas em dois blocos (página pública e governança de IA), **nenhuma colidiu com chaves diretas oficiais**. Outras diferenças de tradução preexistentes permanecem na versão oficial, sem sobrescrita silenciosa.
+- O adaptador usa o OID `7884118824fb6fb17b420e9038e1ede60dbe33b6` e substituição ancorada exclusivamente no fechamento do dicionário. Proteções: pré-condição `both_changed`, blob oficial fixado, âncora única, teste de unicidade e contagem 48 e gate de composição que confere módulos oficiais importados, texto do idioma do agente e painel do Operador com permissão técnica.
+- Estes checks estáticos **não demonstram** TypeScript/build/E2E da nova candidata, nem liberam release. Status continua `NO_GO_PENDING_ADAPTERS_DB_AUTH_E2E`.
