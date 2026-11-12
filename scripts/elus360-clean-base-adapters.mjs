@@ -4,16 +4,19 @@
  * NUNCA modifica o checkout de origem: só o worktree detached montado pelo prepare.
  * É composição de código, NÃO valida autorização, schema nem aptidão para deploy.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve, isAbsolute } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { assertSafePath } from './elus360-clean-base-prepare.mjs';
 import { classifyConflict } from './elus360-clean-base-classify.mjs';
 
 export const OFFICIAL_TARGET = '0b60c5abaace17922ae645399a6a6183a5f5c357';
 const digest = data => createHash('sha256').update(data).digest('hex');
+const gitBlobSha = bytes => createHash('sha1')
+  .update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 const git = (argv, options={}) => execFileSync('git', argv, { encoding: 'utf8', maxBuffer: 128*1024*1024, ...options }).trim();
 
 /** Definições explícitas; o SHA é o blob do DeskcommCRM oficial v1.108.0. */
@@ -159,6 +162,64 @@ export const ADAPTERS = [
     ],
   },
 ];
+
+// Três vias do Git em vez de 30+ âncoras frágeis e reimplementação do updater.
+ // Base antiga = release oficial v1.102; nosso lado = fork ELUS; destino = Deskcomm v1.108.
+ // Somente kit de distribuição: demais arquivos seguem em adaptadores explícitos.
+export const DISTRIBUTION_MERGES = [
+  {
+    path:'hostgator-setup-kit/_common.sh',
+    officialBlob:'a857565a31c25c1577ced017047646949af9189e',
+    baseBlob:'9700caa5a1b665a1c7ca185ccee6f8e3d6b23d15',
+    forkBlob:'2579899a0e61c937b1a25f59e53b5529c321ca50',
+    kind:'distribution_common_three_way',
+  },
+  {
+    path:'hostgator-setup-kit/update.sh',
+    officialBlob:'6c91760b21c6d05264e1562a89559b404c11d1ca',
+    baseBlob:'6a229ef11d85207105e9db05b77ceab6026f39d3',
+    forkBlob:'7aab82d2c656948a008de64ce5e537b5e7b425c6',
+    kind:'distribution_update_three_way',
+  },
+];
+
+function mergeDistributionThreeWay({candidate,report,rule}) {
+  const path=assertSafePath(rule.path);
+  const record=report.review.find(x=>x.path===path);
+  if(!record || record.reason!=='both_changed' || record.fork_status!=='M')
+    throw new Error('ELUS_DISTRIBUTION_NOT_A_CONFLICT: '+path);
+  const ours=readFileSync(join(candidate,path));
+  if(gitBlobSha(ours)!==rule.officialBlob)
+    throw new Error('ELUS_DISTRIBUTION_OFFICIAL_BLOB_CHANGED: '+path);
+  const base=execFileSync('git',['-C',candidate,'show',report.upstream_base_sha+':'+path],
+    {maxBuffer:12*1024*1024});
+  const fork=execFileSync('git',['-C',candidate,'show',report.fork_sha+':'+path],
+    {maxBuffer:12*1024*1024});
+  if(gitBlobSha(base)!==rule.baseBlob || gitBlobSha(fork)!==rule.forkBlob)
+    throw new Error('ELUS_DISTRIBUTION_SOURCE_BLOB_CHANGED: '+path);
+  const scratch=mkdtempSync(join(tmpdir(),'elus360-three-way-'));
+  try {
+    const currentFile=join(scratch,'official'),baseFile=join(scratch,'base'),forkFile=join(scratch,'elus');
+    writeFileSync(currentFile,ours); writeFileSync(baseFile,base);writeFileSync(forkFile,fork);
+    const child=spawnSync('git',['merge-file','-p',currentFile,baseFile,forkFile],
+      {encoding:'utf8',maxBuffer:12*1024*1024});
+    if(child.error || child.status!==0 || child.signal)
+      throw new Error('ELUS_DISTRIBUTION_THREE_WAY_CONFLICT: '+path+
+        ' status='+child.status+' '+(child.error?.message||''));
+    const content=child.stdout;
+    if(!content || content===ours.toString('utf8'))
+      throw new Error('ELUS_DISTRIBUTION_MERGE_WITHOUT_ELUS_DELTA: '+path);
+    const mandatory=rule.kind==='distribution_common_three_way'
+      ? ['IMG_NS="ghcr.io/oaranha"','elus360_origem_confiavel()','ELUS_DISTRIBUTION_NO_GO','--no-build']
+      : ['elus360_origem_confiavel','ELUS_DISTRIBUTION_NO_GO','preflight_plataforma_atualizacao','BACKUP_ESPERA_LOCK=300'];
+    if(mandatory.some(x=>!content.includes(x)))
+      throw new Error('ELUS_DISTRIBUTION_REQUIRED_CONTRACT_MISSING: '+path);
+    return {path,kind:rule.kind,official_blob:rule.officialBlob,
+      base_blob:rule.baseBlob,fork_blob:rule.forkBlob,content,sha256:digest(content)};
+  } finally {
+    rmSync(scratch,{recursive:true,force:true});
+  }
+}
 
 function exactReplace(text, oldValue, nextValue, path) {
   const chunks = text.split(oldValue);
@@ -313,21 +374,34 @@ export function run(argv) {
         : 'keep_official_document_no_elus_overlay'});
 
   }
-  for(const c of plan.changed) writeFileSync(join(candidate,c.path),c.content);
-  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path)]);
+  // Pré-compor ambos os scripts antes de tocar no worktree candidato.
+  // Se o Git detectar conflito semântico/textual (exit != 0), falhar fechado.
+  const distributionMerged=DISTRIBUTION_MERGES.map(rule=>
+    mergeDistributionThreeWay({candidate,report,rule}));
+  const mergedPaths=new Set(distributionMerged.map(x=>x.path));
+  if(mergedPaths.size!==distributionMerged.length ||
+     distributionMerged.some(x=>plan.changed.some(y=>y.path===x.path) ||
+       plan.officialKept.some(y=>y.path===x.path)))
+    throw new Error('ELUS_DISTRIBUTION_DECISION_OVERLAP');
+  for(const c of [...plan.changed,...distributionMerged])
+    writeFileSync(join(candidate,c.path),c.content);
+  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path)]);
   const patch=execFileSync('git',['-C',candidate,'diff','--cached','--binary'],{maxBuffer:128*1024*1024});
   mkdirSync(reports,{recursive:true});
   const composed={
     schema_version:1, stage:'COMPOSED_NOT_VALIDATED',
     upstream_target_sha:actualHead, fork_sha:report.fork_sha,
     source_report_sha256:digest(readFileSync(reportPath)),
-    adapted:plan.changed.map(({content,...metadata})=>metadata),
+    adapted:[...plan.changed,...distributionMerged].map(({content,...metadata})=>metadata),
     official_kept:officialKept,
-    counts:{safe_overlay:report.counts.staged, adaptations:plan.changed.length,
-      official_kept:officialKept.length, unresolved:plan.remaining.length},
-    unresolved:plan.remaining,
+    counts:{safe_overlay:report.counts.staged,
+      adaptations:plan.changed.length+distributionMerged.length,
+      official_kept:officialKept.length,
+      unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)).length},
+    unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)),
     candidate_patch:{sha256:digest(patch),bytes:patch.length},
     gates:{source_blobs_pinned:true, official_documents_verified:true,
+      distribution_three_way_clean:true,
       devtools_excluded_from_runtime:devtoolExclusionsOk,
       authorization:'NOT_RUN',typecheck:'NOT_RUN',build:'NOT_RUN',
       tenant_isolation:'NOT_RUN',db_upgrade:'NOT_RUN',functional_e2e:'NOT_RUN',merge_deploy:'FORBIDDEN'}
