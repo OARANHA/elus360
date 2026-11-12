@@ -81,12 +81,25 @@ recuperar_apt_e2e() {
   fi
   # Um timeout depois de começar o download do browser é do CDN, não do APT
   # que já terminou. Não troca fonte nem mata processo para esse caso.
-  if grep -Eqi 'Downloading.*(Chrome|Chromium|FFMPEG|ffmpeg|Headless Shell).*https?://|Failed to download' "$log" ||
-     ! grep -Eq '^(Get|Hit|Ign|Err):[0-9]+ |^E: (Failed to fetch|Unable to fetch)' "$log"; then
+  # 2026-11-11: Ubuntu APT pode informar falha de DNS apenas como W:/Err:
+  # "Temporary failure resolving 'security.ubuntu.com'" (sem linha E: Failed to fetch).
+  # Essa falha é de transporte das fontes oficiais, não de pacote ou assinatura.
+  # Não aceitar nomes arbitrários nem erro de CDN como sinal de recuperação.
+  local dns_ubuntu=nao
+  if grep -Eqi "Temporary failure resolving '(azure\.archive\.ubuntu\.com|archive\.ubuntu\.com|security\.ubuntu\.com)'|Could not resolve host: (azure\.archive\.ubuntu\.com|archive\.ubuntu\.com|security\.ubuntu\.com)" "$log"; then
+    dns_ubuntu=sim
+  fi
+  # APT emite "W: Some index files failed to download" após falha de DNS.
+  # "Failed to download" sem contexto confundia esse aviso com CDN do browser:
+  # o segundo failover era recusado e o Chromium nunca chegava ao teste.
+  # A detecção de CDN exige o nome do navegador/ffmpeg ou sua URL explícita.
+  if grep -Eqi 'Downloading.*(Chrome|Chromium|FFMPEG|ffmpeg|Headless Shell).*https?://|^(Error: )?Failed to download (Chrome|Chromium|FFMPEG|ffmpeg|Headless Shell)' "$log" ||
+     { [ "$dns_ubuntu" != sim ] &&
+       ! grep -Eq '^(Get|Hit|Ign|Err):[0-9]+ |^E: (Failed to fetch|Unable to fetch)' "$log"; }; then
     echo '::error title=Preparo falhou fora do transporte APT::não há falha APT medida nesta tentativa; sem repetir nem trocar a fonte.'
     return 1
   fi
-  if [ "$codigo" -ne 124 ] && [ "$codigo" -ne 137 ] &&
+  if [ "$codigo" -ne 124 ] && [ "$codigo" -ne 137 ] && [ "$dns_ubuntu" != sim ] &&
      ! grep -Eq 'Failed to fetch (https?://(azure\.)?archive\.ubuntu\.com/ubuntu/|mirror\+file:/etc/apt/apt-mirrors\.txt)' "$log"; then
     echo '::error title=Preparo falhou fora do transporte APT::o erro permanece vermelho, sem nova tentativa.'
     return 1

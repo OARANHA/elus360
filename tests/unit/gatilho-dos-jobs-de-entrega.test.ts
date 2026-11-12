@@ -303,6 +303,10 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   "elus360-check.yml::validacao": { condicao: null, efeito: "Validação do código ELUS360." },
   "elus360-chutes-check.yml::validar": { condicao: null, efeito: "Integração Chutes." },
   "elus360-upstream-sync.yml::contrato-upstream": { condicao: null, efeito: "Reconciliação upstream sem promoção." },
+  "elus360-upstream-reconcile.yml::reconcile": {
+    condicao: null,
+    efeito: "Planeja a atualização oficial e prepara somente o patch seguro, sem aprovação de merge ou deploy; um job ignorado não comprova reconciliação.",
+  },
   "elus360-v1102-candidate.yml::sql-source-parity": { condicao: null, efeito: "Paridade SQL da candidata." },
   "elus360-v1102-candidate.yml::typecheck": { condicao: null, efeito: "TypeScript global da candidata." },
   "elus360-v1102-candidate.yml::lint": { condicao: null, efeito: "Lint da candidata." },

@@ -72,7 +72,10 @@ jobs:
         run: pnpm checar:colisao-de-migration
 
   autonomy-postgres:
-    runs-on: ubuntu-latest
+    # 2026-11-11: ubuntu-latest selecionou 26.04/resolute e o APT falhou por
+    # DNS antes de qualquer teste SQL. Ubuntu 24.04 hospeda cliente PostgreSQL
+    # na imagem oficial; a suíte preserva banco descartável postgres:16.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       postgres:
@@ -90,8 +93,15 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - name: PostgreSQL client
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: PostgreSQL client já incluído no runner (sem dependência APT)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            echo "::error::GitHub Ubuntu 24.04 sem psql; não executar SQL sem cliente instalado"
+            exit 1
+          fi
+          psql --version
       - name: Migration, idempotência e papéis em banco descartável
         env:
           PGPASSWORD: ci_disposable_only

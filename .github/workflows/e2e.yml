@@ -228,9 +228,12 @@ jobs:
     # só para quem não a edita — a guarda que vale contra fork mora na máquina
     # (infra/executor-proprio/so-o-que-e-nosso.sh). Vigiado por
     # tests/unit/executor-proprio-so-roda-o-que-e-nosso.test.ts.
-    # ELUS360 candidate: E2E execution stays on isolated GitHub-hosted runners.
+    # ELUS360: pinned Ubuntu 24.04 LTS for Playwright Chromium + apt dependencies.
+    # On 2026-11-11, ubuntu-latest selected 'resolute' and 7/8 E2E legs failed
+    # on APT DNS before running tests (run 43032217291, two attempts).
+    # A pinned GitHub-hosted image avoids an unreviewed OS upgrade in the E2E.
     # Never schedule candidate QA on private/production self-hosted runners.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # O teto FICA EM 30, e essa foi uma correção de rumo desta branch.
     #
     # Eu tinha subido para 45, com o argumento de que o teto acumula dois papéis

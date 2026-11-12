@@ -1,0 +1,153 @@
+name: ELUS360 — upstream oficial, reconciliação e candidato
+on:
+  pull_request:
+    paths:
+      - "scripts/elus-upstream-reconcile.mjs"
+      - "scripts/elus-upstream-delta-policy.mjs"
+      - "scripts/elus-upstream-contract-risk.mjs"
+      - "scripts/elus-upstream-dependency-risk.mjs"
+      - "scripts/elus-upstream-precision-diagnostics.mjs"
+      - "tests/operational/elus-upstream-reconcile.test.mjs"
+      - "tests/operational/elus-upstream-delta-first.test.mjs"
+      - "scripts/elus-upstream-review-queue.mjs"
+      - "tests/operational/elus-upstream-review-queue.test.mjs"
+      - ".github/workflows/elus360-upstream-reconcile.yml"
+  workflow_dispatch:
+    inputs:
+      base_tag:
+        description: "Última base oficial Deskcomm integrada (vN.N.N)"
+        type: string
+        required: true
+        default: "v1.102.0"
+      target_tag:
+        description: "Release oficial Deskcomm desejada (vN.N.N)"
+        type: string
+        required: true
+        default: "v1.107.0"
+      base_sha:
+        description: "Commit completo da tag oficial da base"
+        type: string
+        required: true
+        default: "4b5815721710c9b1e99078322593838fda1ee740"
+      target_sha:
+        description: "Commit completo da tag oficial de destino"
+        type: string
+        required: true
+        default: "f1d53aaccfd3552f75be0c641c1d72ee8b22257f"
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    name: Reconciliação de origem pinada (sem escrita remota)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Dependência AST e regressões do reconciliador
+        run: |
+          set -euo pipefail
+          node --check scripts/elus-upstream-reconcile.mjs
+          node --check scripts/elus-upstream-delta-policy.mjs
+          node --test tests/operational/elus-upstream-delta-first.test.mjs
+          node --test tests/operational/elus-upstream-reconcile.test.mjs
+          node --test tests/operational/elus-upstream-review-queue.test.mjs
+
+      - name: Provar release publicada e SHAs oficiais, antes de analisar
+        id: refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_TAG: ${{ inputs.base_tag || 'v1.102.0' }}
+          TARGET_TAG: ${{ inputs.target_tag || 'v1.107.0' }}
+          BASE_EXPECTED: ${{ inputs.base_sha || '4b5815721710c9b1e99078322593838fda1ee740' }}
+          TARGET_EXPECTED: ${{ inputs.target_sha || 'f1d53aaccfd3552f75be0c641c1d72ee8b22257f' }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::ELUS_UPSTREAM_NO_GO: $1"; exit 3; }
+          [[ "$BASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail "base_tag inválida"
+          [[ "$TARGET_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail "target_tag inválida"
+          [[ "$BASE_EXPECTED" =~ ^[a-f0-9]{40}$ && "$TARGET_EXPECTED" =~ ^[a-f0-9]{40}$ ]] || fail "SHA não pinado"
+          test "$BASE_TAG" != "$TARGET_TAG" || fail "não há atualização"
+          for tag in "$BASE_TAG" "$TARGET_TAG"; do
+            release_ok="$(gh api "repos/melgarafael/DeskcommCRM/releases/tags/$tag" --jq '.draft == false and .prerelease == false and .published_at != null')" || fail "release não publicada"
+            test "$release_ok" = true || fail "release não oficial/prerelease"
+          done
+          git remote add elus-deskcomm-upstream https://github.com/melgarafael/DeskcommCRM.git
+          git fetch --no-tags elus-deskcomm-upstream             "refs/tags/$BASE_TAG:refs/elus-upstream/tags/$BASE_TAG"             "refs/tags/$TARGET_TAG:refs/elus-upstream/tags/$TARGET_TAG"
+          base="$(git rev-parse "refs/elus-upstream/tags/$BASE_TAG^{commit}")"
+          target="$(git rev-parse "refs/elus-upstream/tags/$TARGET_TAG^{commit}")"
+          test "$base" = "$BASE_EXPECTED" && test "$target" = "$TARGET_EXPECTED" || fail "tag oficial mudou de SHA"
+          git merge-base --is-ancestor "$base" "$target" || fail "release não é descendente da base"
+          test -z "$(git status --porcelain)" || fail "checkout sujo"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          # actions/checkout em pull_request faz checkout do MERGE efemero.
+          # Analise o SHA imutavel da branch, nao refs/pull/N/merge.
+          [[ "$PR_HEAD" =~ ^[a-f0-9]{40}$ ]] || fail "head do fork nao pinado"
+          git cat-file -e "$PR_HEAD^{commit}" || fail "head do fork nao esta no checkout"
+          echo "fork=$PR_HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: Executar plan completo e prepare isolado (sem push/merge/DDL/deploy)
+        shell: bash
+        env:
+          BASE: ${{ steps.refs.outputs.base }}
+          TARGET: ${{ steps.refs.outputs.target }}
+          FORK: ${{ steps.refs.outputs.fork }}
+        run: |
+          set -euo pipefail
+          node scripts/elus-upstream-reconcile.mjs plan --base "$BASE" --target "$TARGET" --fork "$FORK" --delta-first > "$RUNNER_TEMP/elus-upstream-plan.json"
+          node scripts/elus-upstream-reconcile.mjs prepare --base "$BASE" --target "$TARGET" --fork "$FORK" --out "$RUNNER_TEMP/elus-upstream-candidate" --delta-first > "$RUNNER_TEMP/elus-upstream-prepare.json"
+          # Exportar EXATAMENTE o patch aplicado (inclui novos arquivos
+          # nao rastreados, omitidos por git diff do worktree).
+          cp "$RUNNER_TEMP/elus-upstream-candidate/.elus-upstream/direct-candidate.patch" "$RUNNER_TEMP/elus-upstream-direct-candidate.patch"
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import {createHash} from "node:crypto";
+            const root=process.env.RUNNER_TEMP;
+            const p=JSON.parse(fs.readFileSync(root+"/elus-upstream-prepare.json","utf8"));
+            const patch=fs.readFileSync(root+"/elus-upstream-direct-candidate.patch");
+            if(p.preparedPatchBytes!==patch.length ||
+               p.preparedPatchSha256!==createHash("sha256").update(patch).digest("hex"))
+              throw Error("PATCH_INTEGRITY_MISMATCH");
+          '
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const path=process.env.RUNNER_TEMP;
+            const plan=JSON.parse(fs.readFileSync(path+"/elus-upstream-plan.json","utf8"));
+            const prepared=JSON.parse(fs.readFileSync(path+"/elus-upstream-prepare.json","utf8"));
+            const details=Object.entries(plan.totals).map(([key,value])=>"- "+key+": "+value).join("\n");
+            const summary=["## ELUS360 — reconciliação oficial", "Base: "+plan.refs.base, "Destino: "+plan.refs.target, "Fork: "+plan.refs.fork, "", "Gate: **"+plan.gate+"**", "Dependências completas: **"+plan.dependency_scan.complete+"**", "Candidatos diretos preparados: **"+prepared.preparedFiles+"**", "", details, "", "Somente candidato; revisão/PR/CI/merge/deploy ainda exigidos."].join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,summary+"\n");
+            fs.writeFileSync(path+"/elus-upstream-summary.md",summary+"\n");
+            if(plan.gate!=="candidate_analysis_ready") console.log("::warning::CONFLITOS_OU_CONTRATOS_REQUEREM_REVISAO: "+plan.gate);
+          '
+
+      - name: Gerar fila auditável e priorizada sem promover patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/elus-upstream-review-queue.mjs "$RUNNER_TEMP/elus-upstream-plan.json" "$RUNNER_TEMP/elus-upstream-review-queue.json" "$RUNNER_TEMP/elus-upstream-review-queue.md"
+          cat "$RUNNER_TEMP/elus-upstream-review-queue.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elus360-upstream-reconcile-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/elus-upstream-plan.json
+            ${{ runner.temp }}/elus-upstream-prepare.json
+            ${{ runner.temp }}/elus-upstream-summary.md
+            ${{ runner.temp }}/elus-upstream-review-queue.json
+            ${{ runner.temp }}/elus-upstream-review-queue.md
+            ${{ runner.temp }}/elus-upstream-direct-candidate.patch
+            ${{ runner.temp }}/elus-upstream-candidate/.elus-upstream/report.json

@@ -1,0 +1,433 @@
+#!/usr/bin/env node
+/**
+ * ELUS360 Upstream Sync — reconciliacao triadica somente leitura.
+ * Compara BASE_UPSTREAM, TARGET_UPSTREAM e HEAD_ELUS por blob Git.
+ * Plan: apenas leitura. Prepare: patch restrito em worktree descartavel. Nunca SQL, push ou deploy.
+ */
+import { spawnSync } from "node:child_process";
+import { resolve, isAbsolute, relative, sep } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { TextDecoder } from "node:util";
+import { createHash } from "node:crypto";
+import { auditPath, contractSignals, checksForSignals, heuristicSignalProvenance } from "./elus-upstream-contract-risk.mjs";
+import { dependencyGraph, transitiveProtectedDependents, protectedConsumers, uninventoriedAiSurfaces, changedModuleSignals, changedRiskCouplings, newUnsafeImportSignals, protectedImportProvenance, nearestUnsafeRiskEvidence } from "./elus-upstream-dependency-risk.mjs";
+import { diagnoseAstPrecision } from "./elus-upstream-precision-diagnostics.mjs";
+import { deltaDecision, localCustomizationConsumers } from "./elus-upstream-delta-policy.mjs";
+
+const SHA = /^[a-f0-9]{40}$/;
+const SAFE = /^(?:app\/|lib\/|components\/|workers\/|tests\/unit\/)/;
+const BLOCK = /^(?:lib\/elus360\/|components\/elus360\/|docs\/elus360\/|scripts\/elus-|tests\/(?:unit\/elus360-|operational\/elus-))/;
+const SQL = /^(?:supabase\/|scripts\/.*(?:migration|sql|upgrade|baseline))/i;
+const SENSITIVE = [
+  [/^(?:app\/api\/|app\/actions\/|lib\/auth\/|lib\/api\/|lib\/supabase\/)/, "auth_api_tenancy"],
+  [/^(?:lib\/ai\/|lib\/agent-engine\/|app\/app\/ai\/|app\/onboarding\/|lib\/instalacao\/)/, "ai_agent_contract"],
+  [/^(?:workers\/|lib\/event|app\/api\/v1\/cron\/)/, "worker_events"],
+  [/^(?:app\/app\/prospecting\/|lib\/prospecting\/)/, "prospecting"],
+];
+const UI_PROTECTED = /^(?:app\/layout\.tsx$|app\/design\/layout\.tsx$|app\/admin\/|app\/\(public\)\/|app\/auth\/|app\/app\/(?:settings|ai|admin)\/|components\/(?:auth|ai|elus|admin|settings)\/|lib\/(?:i18n|permissions|rbac|audit)\/)/;
+const INFRA = /^(?:\.github\/|Dockerfile|compose|hostgator-setup-kit\/|package\.json$|pnpm-lock\.yaml$|proxy\.ts$)/;
+function git(args, {allowFailure = false, cwd = process.cwd(), input, binary = false} = {}) {
+  const result = spawnSync("git", args, { cwd, encoding: binary ? null : "utf8", input, maxBuffer: 64 * 1024 * 1024, timeout: 30000 });
+  if (result.error || (result.status !== 0 && !allowFailure)) throw Error("GIT_FAILED:" + args[0]);
+  return result.status === 0 ? (binary ? result.stdout : result.stdout.trimEnd()) : null;
+}
+function oid(ref, path) {
+  if (!path || path.includes("\0") || path.includes("\n")) throw Error("UNSAFE_PATH");
+  return git(["rev-parse", "--verify", ref + ":" + path], {allowFailure: true})?.trim() ?? null;
+}
+function readSource(ref, path, id) {
+  if (!id) return "";
+  const size = Number(git(["cat-file", "-s", id]));
+  if (!Number.isSafeInteger(size) || size > 524288) return null;
+  const bytes = git(["show", ref + ":" + path], {binary:true});
+  try {return new TextDecoder("utf-8", {fatal:true}).decode(bytes);}
+  catch {return null;}
+}
+function modeOf(ref, path) {
+  const line = git(["ls-tree", ref, "--", path]);
+  return line ? line.split(" ", 1)[0] : null;
+}
+function impact(path) {
+  if (BLOCK.test(path)) return "elus_extension";
+  if (SQL.test(path)) return "database_schema";
+  if (INFRA.test(path)) return "delivery_infrastructure";
+  if (UI_PROTECTED.test(path)) return "client_visibility_or_admin_contract";
+  for (const [re, label] of SENSITIVE) if (re.test(path)) return label;
+  if (!SAFE.test(path)) return "unclassified";
+  return "application_code";
+}
+function statusFor(path, before, after, fork, signals = []) {
+  if (after === fork) return "already_integrated";
+  if (before === after) return "unchanged";
+  const domain = impact(path);
+  if (domain === "elus_extension" || domain === "database_schema" || domain === "delivery_infrastructure" || domain === "unclassified")
+    return "protected_requires_review";
+  if (!after) return "deletion_requires_review";
+  if (before !== fork) return "conflict_requires_review";
+  if (domain !== "application_code" || signals.length) return "contract_requires_review";
+  return "safe_to_prepare";
+}
+function parse(args) {
+  const mode = args[0] === "prepare" ? "prepare" : "plan";
+  const raw=args[0]==="prepare"||args[0]==="plan"?args.slice(1):args;
+  const deltaFirst=raw.at(-1)==="--delta-first";
+  const params=deltaFirst?raw.slice(0,-1):raw;
+  if ((mode === "plan" && params.length !== 6) || (mode === "prepare" && params.length !== 8) ||
+      params[0] !== "--base" || params[2] !== "--target" || params[4] !== "--fork" ||
+      (mode === "prepare" && params[6] !== "--out"))
+    throw Error("USAGE: [plan|prepare] --base SHA40 --target SHA40 --fork SHA40 [--out ABSOLUTE_NEW_PATH]");
+  const refs = [params[1], params[3], params[5]];
+  if (refs.some(x => !SHA.test(x))) throw Error("PIN_REQUIRED");
+  for (const ref of refs) git(["rev-parse", "--verify", ref + "^{commit}"]);
+  if (git(["merge-base", "--is-ancestor", refs[0], refs[1]], {allowFailure:true}) === null) {
+    // merge-base --is-ancestor prints nothing even on success: check status directly.
+    const check = spawnSync("git", ["merge-base", "--is-ancestor", refs[0], refs[1]], {cwd:process.cwd()});
+    if (check.status !== 0) throw Error("RELEASES_NOT_ANCESTRAL");
+  }
+  return {refs, mode, out: params[7],deltaFirst};
+}
+function inspectForkDependencies(fork,candidatePaths,unsafePaths=[],hardUnsafePaths=[],localPaths=[]) {
+  // A lack of candidates is NOT a successful AST graph scan.
+  const notRun=(reason,inventoryCount=0,unresolved=0,complete=false)=>({
+    dependents:new Map(),riskCouplings:new Map(),nearestHardRisk:new Map(),localConsumers:new Map(),seenCandidates:new Set(),
+    executed:false,not_run_reason:reason,complete,count:0,
+    inventory_count:inventoryCount,unresolved
+  });
+  if(!candidatePaths.length) return notRun("no_preliminary_candidates",0,0,null);
+  // One Git tree read and one batch object read (rather than three processes per source).
+  const tree=git(["ls-tree","-r","-z",fork,"--","app/","lib/","components/","workers/","hooks/","types/","curso/","proxy.ts","instrumentation.ts","instrumentation-client.ts","sentry.edge.config.ts","sentry.server.config.ts"],{binary:true});
+  const entries=tree.toString("utf8").split("\0").filter(Boolean).map(line=>{
+    const tab=line.indexOf("\t"),metadata=line.slice(0,tab).split(" ");
+    return {path:line.slice(tab+1),mode:metadata[0],type:metadata[1],oid:metadata[2]};
+  }).filter(entry=>/\.(?:[cm]?[jt]s|[jt]sx)$/.test(entry.path) && !/\.test\.[jt]sx?$/.test(entry.path));
+  const resourcePaths=tree.toString("utf8").split("\0").filter(Boolean).map(line=>{const tab=line.indexOf("\t");return {meta:line.slice(0,tab),path:line.slice(tab+1)};}).filter(item=>item.meta.startsWith("100644 blob ") && /\.(?:css|scss|sass|json)$/.test(item.path)).map(item=>item.path);
+  if(entries.length>5000 || entries.some(e=>e.mode!=="100644"||e.type!=="blob"))
+    return notRun("source_inventory_limit_or_nonregular",entries.length,1);
+  if(!entries.length) return notRun("source_inventory_empty",0,1);
+  const sourcePaths=new Set(entries.map(entry=>entry.path));
+  const input=entries.map(e=>e.oid).join("\n")+"\n";
+  const blobs=git(["cat-file","--batch"],{input,binary:true});
+  if(blobs.length>48*1024*1024) return notRun("source_content_budget_exceeded",entries.length,1);
+  const sources=[];
+  let offset=0;
+  const decoder=new TextDecoder("utf-8",{fatal:true});
+  for(const entry of entries) {
+    const nl=blobs.indexOf(10,offset);
+    if(nl<0) return notRun("batch_object_header_invalid",entries.length,1);
+    const header=blobs.subarray(offset,nl).toString("ascii").split(" ");
+    const size=Number(header[2]);
+    if(header[0]!==entry.oid||header[1]!=="blob"||!Number.isSafeInteger(size)||size>2097152||
+       size<0||nl+1+size>=blobs.length||blobs[nl+1+size]!==10)
+      return notRun("batch_object_payload_invalid",entries.length,1);
+    try {sources.push({path:entry.path,content:decoder.decode(blobs.subarray(nl+1,nl+1+size))});}
+    catch {return notRun("source_utf8_invalid",entries.length,1);}
+    offset=nl+size+2;
+  }
+  if(offset!==blobs.length) return notRun("batch_object_trailing_data",entries.length,1);
+  const configId=oid(fork,"tsconfig.json");
+  const config=configId?readSource(fork,"tsconfig.json",configId):null;
+  const graph=dependencyGraph(sources,config??"",resourcePaths);
+  const seenCandidates=new Set(candidatePaths.filter(path=>sourcePaths.has(path)));
+  return {dependents:transitiveProtectedDependents(candidatePaths,sources,graph),
+    riskCouplings:changedRiskCouplings(candidatePaths,unsafePaths,graph),
+    nearestHardRisk:nearestUnsafeRiskEvidence([...seenCandidates],hardUnsafePaths,graph),
+    localConsumers:localCustomizationConsumers(candidatePaths,localPaths,graph),
+    seenCandidates,
+    executed:true,not_run_reason:null,inventory_count:entries.length,
+    complete:graph.complete,count:sources.length,unresolved:graph.unresolved.length,unresolved_reasons:[...new Set(graph.unresolved.map(x=>x.reason))].sort()};
+}
+function inventoryFor(fork) {
+  const path="docs/elus360/ai-governance-write-surfaces.json";
+  const id=oid(fork,path);
+  if(!id) return null;
+  try {
+    const raw=readSource(fork,path,id);
+    if(raw===null) return null;
+    const parsed=JSON.parse(raw);
+    return parsed && Array.isArray(parsed.surfaces) ? parsed : null;
+  } catch {return null;}
+}
+export function reconcile(base, target, fork, {deltaFirst=false}={}) {
+  for (const ref of [base,target,fork]) {
+    if (!SHA.test(ref)) throw Error("PIN_REQUIRED");
+    git(["rev-parse","--verify",ref+"^{commit}"]);
+  }
+  const change = git(["diff", "--name-only", "-z", "--no-renames", base, target]);
+  const paths = change ? change.split("\0").filter(Boolean) : [];
+  const forkDiff=deltaFirst?git(["diff","--name-only","-z","--no-renames",base,fork]):"";
+  const localPaths=forkDiff?forkDiff.split("\0").filter(Boolean):[];
+  const modes=deltaFirst?[base,target,fork].map(ref=>{
+    const tree=git(["ls-tree","-r","-z",ref],{binary:true}).toString("utf8");
+    return new Map(tree.split("\0").filter(Boolean).map(line=>{
+      const tab=line.indexOf("\t");
+      return [line.slice(tab+1),line.slice(0,line.indexOf(" "))];
+    }));
+  }):null;
+  const configBlob=oid(fork,"tsconfig.json");
+  const configuredTs=configBlob?readSource(fork,"tsconfig.json",configBlob):null;
+  const files = paths.map(path => {
+    const before = oid(base, path), after = oid(target, path), local = oid(fork, path);
+    const original = before === after || after === local ? "" : readSource(base,path,before);
+    const incoming = before === after || after === local ? "" : readSource(target,path,after);
+    const flags = before === after || after === local ? [] : [
+      ...auditPath(path, modeOf(target,path)),
+      ...contractSignals(path, original, incoming),
+      ...changedModuleSignals(path, original, incoming, configuredTs),
+    ];
+    const preliminary=statusFor(path,before,after,local,[]);
+    const candidateAnalysis=preliminary==="safe_to_prepare" ? {
+      // Diagnostic only. These fields never affect the production statusFor gate.
+      source_contract_scan: flags.includes("uninspectable_content")||flags.includes("semantic_analysis_incomplete") ? "incomplete" : "evaluated",
+      lexical_signal_provenance: heuristicSignalProvenance(original,incoming),
+      protected_import_provenance: protectedImportProvenance(path,original,incoming,configuredTs),
+      ast_precision: diagnoseAstPrecision(path,original,incoming),
+      fork_has_blob: local!==null,
+      source_is_test: /(?:test|spec)\.[cm]?[jt]sx?$/.test(path),
+      blocked_by_initial_signals: flags.length>0
+    } : null;
+    const decision=deltaFirst?deltaDecision({
+      path,baseOid:before,targetOid:after,forkOid:local,
+      baseMode:modes[0].get(path)??null,targetMode:modes[1].get(path)??null,
+      forkMode:modes[2].get(path)??null
+    }):null;
+    return {path, impact: impact(path), preliminary_status:preliminary,
+      status: statusFor(path, before, after, local, flags),
+      signals: flags, suggested_checks: checksForSignals(flags),
+      ...(decision?{delta_first:{decision,authorization:"candidate_only"}}:{}),
+      ...(candidateAnalysis?{candidate_analysis:candidateAnalysis}:{})};
+  });
+  // Reclassify source candidates whose NEW target imports reference another unsafe
+  // changed file: such an edge is absent from the fork-side dependency graph.
+  const batchUnsafe=files.filter(f=>!["safe_to_prepare","already_integrated","unchanged"].includes(f.status)).map(f=>f.path);
+  for(const file of files) {
+    if(file.status!=="safe_to_prepare") continue;
+    const beforeOid=oid(base,file.path),afterOid=oid(target,file.path);
+    const before=readSource(base,file.path,beforeOid),after=readSource(target,file.path,afterOid);
+    const additions=newUnsafeImportSignals(file.path,before,after,batchUnsafe,configuredTs);
+    if(additions.length) {
+      file.signals.push(...additions);
+      file.status="contract_requires_review";
+      file.suggested_checks=checksForSignals(file.signals);
+    }
+  }
+  const preliminaryCandidates=files.filter(f=>f.preliminary_status==="safe_to_prepare").map(f=>f.path);
+  const unsafe=files.filter(f=>!["safe_to_prepare","already_integrated","unchanged"].includes(f.status)).map(f=>f.path);
+  // Inspect the graph for ALL initially ordinary candidates, even when lexical
+  // or source AST signals already blocked them. This is evidence, not approval.
+  const hardUnsafe=files.filter(f=>f.preliminary_status!=="safe_to_prepare" &&
+    !["already_integrated","unchanged","safe_to_prepare"].includes(f.status)).map(f=>f.path);
+  const directPaths=deltaFirst?files.filter(f=>f.delta_first?.decision==="stage_direct_candidate").map(f=>f.path):[];
+  const scanPaths=deltaFirst?[...new Set([...preliminaryCandidates,...directPaths])]:preliminaryCandidates;
+  const dependencyScan=inspectForkDependencies(fork,scanPaths,unsafe,hardUnsafe,localPaths);
+  const uninventoried=new Set(uninventoriedAiSurfaces(paths,inventoryFor(fork)));
+  for(const file of files) {
+    const initialCandidate=file.preliminary_status==="safe_to_prepare";
+    const importers=initialCandidate?protectedConsumers(file.path,dependencyScan.dependents):[];
+    const coupled=initialCandidate?(dependencyScan.riskCouplings?.get(file.path)??[]):[];
+    const nearest=initialCandidate?(dependencyScan.nearestHardRisk?.get(file.path)??null):null;
+    if(initialCandidate) {
+      const inGraph=dependencyScan.seenCandidates?.has(file.path)??false;
+      const a=file.candidate_analysis;
+      const missingReason=inGraph?null: a.source_is_test?
+        (a.fork_has_blob?"existing_test_excluded":"new_upstream_test_excluded"):
+        !a.fork_has_blob?"new_upstream_source_not_in_fork":
+        !/^(?:app|lib|components|workers|hooks|types|curso)\//.test(file.path)?
+          "existing_source_out_of_scope":"existing_source_not_inspected";
+      a.fork_graph_absence_reason=missingReason;
+      a.dependency_graph={
+        executed:dependencyScan.executed,complete:dependencyScan.complete,
+        present_in_fork:inGraph,nearest_hard_risk:nearest,
+        protected_importers_count:importers.length,protected_importers_sample:importers.slice(0,12),
+        unsafe_changed_neighbors_count:coupled.length,unsafe_changed_neighbors_sample:coupled.slice(0,12)
+      };
+    }
+    // Keep the exact original fail-closed promotion checks for remaining safes.
+    if(file.status==="safe_to_prepare") {
+      file.protected_importers=importers;
+      if(importers.length) file.signals.push("protected_reverse_dependency");
+      if(coupled.length){file.signals.push("unsafe_changed_dependency_chain");file.unsafe_changed_neighbors=coupled;}
+      if(!dependencyScan.complete) file.signals.push("dependency_analysis_incomplete");
+    }
+    if(uninventoried.has(file.path)) file.signals.push("uninventoried_ai_surface");
+    if(file.signals.length && file.status==="safe_to_prepare") file.status="contract_requires_review";
+    file.signals=[...new Set(file.signals)];
+    file.suggested_checks=checksForSignals(file.signals);
+    if(initialCandidate) {
+      const a=file.candidate_analysis;
+      a.final_status=file.status;
+      a.blocking_signals=[...file.signals];
+      // Review priority is strictly advisory, and cannot override fail-closed.
+      // In particular, absent and uninspected graph evidence is NOT approval.
+      const lex=a.lexical_signal_provenance,imp=a.protected_import_provenance;
+      const precision=a.ast_precision,near=a.dependency_graph.nearest_hard_risk;
+      const hasNonHistoricalSignal=a.blocking_signals.some(s=>![
+        "tenant_isolation","authentication_authorization","managed_ai",
+        "agent_runtime","messaging_events","sensitive_import",
+        "protected_module_import_change","exported_contract_change",
+        "module_initialization_change","exported_module_internal_change"
+      ].includes(s));
+      const possibleReview=!a.source_is_test && precision.executed &&
+        lex.inspected && lex.introduced.length===0 &&
+        imp.inspected && imp.introduced.length===0 &&
+        precision.export_relation!=="export_declaration_shape_changed" &&
+        precision.export_relation!=="export_shape_inferred_or_unmodeled" &&
+        precision.initialization_relation!=="eager_effect_expression_changed" &&
+        !hasNonHistoricalSignal && (near===null||near.nearest_distance!==1);
+      a.review_bucket=possibleReview?"potential_compatibility_manual_review":
+        "requires_targeted_contract_review";
+      a.authorization="none";
+    }
+  }
+  if(deltaFirst)for(const file of files){
+    if(file.delta_first?.decision!=="stage_direct_candidate")continue;
+    const consumers=dependencyScan.localConsumers.get(file.path)??[];
+    if(consumers.length){
+      file.delta_first={decision:"review_customization_dependency",authorization:"none",
+        custom_consumers:consumers.slice(0,15)};
+      continue;
+    }
+    if(/\.[cm]?[jt]sx?$/.test(file.path)){
+      const original=readSource(base,file.path,oid(base,file.path));
+      const incoming=readSource(target,file.path,oid(target,file.path));
+      const introduced=newUnsafeImportSignals(file.path,original,incoming,localPaths,configuredTs);
+      if(introduced.length)file.delta_first={decision:"review_new_customization_import",
+        authorization:"none",signals:introduced};
+    }
+  }
+  const deltaTotals=deltaFirst?files.reduce((acc,f)=>{
+    const key=f.delta_first.decision;acc[key]=(acc[key]??0)+1;return acc;
+  },{}):null;
+  const counts = {};
+  for (const file of files) counts[file.status] = (counts[file.status] ?? 0) + 1;
+  const gated = files.filter(f => !["already_integrated", "unchanged", "safe_to_prepare"].includes(f.status));
+  const initialFiles=files.filter(f=>f.preliminary_status==="safe_to_prepare");
+  const candidateFinalStatuses={};
+  for(const file of initialFiles) candidateFinalStatuses[file.status]=(candidateFinalStatuses[file.status]??0)+1;
+  const absenceReasons={};const reviewBuckets={};const nearDistances={};
+  const astRelations={export:{},initialization:{}};
+  for(const file of initialFiles) {
+    const a=file.candidate_analysis;
+    const reason=a.fork_graph_absence_reason??"present_in_fork_graph";
+    absenceReasons[reason]=(absenceReasons[reason]??0)+1;
+    reviewBuckets[a.review_bucket]=(reviewBuckets[a.review_bucket]??0)+1;
+    const distance=a.dependency_graph.nearest_hard_risk?.classification??"no_hard_risk_evidence";
+    nearDistances[distance]=(nearDistances[distance]??0)+1;
+    if(file.signals.includes("exported_contract_change")) {
+      const relation=a.ast_precision.export_relation;
+      astRelations.export[relation]=(astRelations.export[relation]??0)+1;
+    }
+    if(file.signals.includes("module_initialization_change")) {
+      const relation=a.ast_precision.initialization_relation;
+      astRelations.initialization[relation]=(astRelations.initialization[relation]??0)+1;
+    }
+  }
+  const candidate_coverage={
+    preliminary_ordinary:initialFiles.length,
+    source_contract_scans_evaluated:initialFiles.filter(f=>f.candidate_analysis.source_contract_scan==="evaluated").length,
+    source_contract_scans_incomplete:initialFiles.filter(f=>f.candidate_analysis.source_contract_scan==="incomplete").length,
+    signal_blocked_before_graph:initialFiles.filter(f=>f.candidate_analysis.blocked_by_initial_signals).length,
+    graph_executed:dependencyScan.executed,
+    graph_source_files_scanned:dependencyScan.count,
+    graph_complete:dependencyScan.complete,
+    candidates_present_in_fork_graph:dependencyScan.seenCandidates?.size??0,
+    candidates_absent_in_fork_graph:initialFiles.length-(dependencyScan.seenCandidates?.size??0),
+    candidates_with_protected_importers:initialFiles.filter(f=>f.candidate_analysis.dependency_graph.protected_importers_count>0).length,
+    candidates_with_retained_protected_imports:initialFiles.filter(f=>f.candidate_analysis.protected_import_provenance.retained.length>0).length,
+    candidates_with_introduced_protected_imports:initialFiles.filter(f=>f.candidate_analysis.protected_import_provenance.introduced.length>0).length,
+    candidates_coupled_to_unsafe_changes:initialFiles.filter(f=>f.candidate_analysis.dependency_graph.unsafe_changed_neighbors_count>0).length,
+    final_statuses:candidateFinalStatuses,
+    fork_graph_absence_reasons:absenceReasons,
+    nearest_hard_risk_distances:nearDistances,
+    ast_precision_relations:astRelations,
+    manual_review_buckets:reviewBuckets,
+    authorization:"not_an_approval"
+  };
+  return {
+    schema_version: 1, tool: "elus-upstream-reconcile", mode: "read_only",
+    fork: "OARANHA/elus360", upstream: "melgarafael/DeskcommCRM",
+    refs: {base, target, fork}, totals: {changed: files.length, ...counts},
+    gate: gated.length ? "manual_review_required" : "candidate_analysis_ready",
+    dependency_scan: {scope:"typescript_ast_transitive_imports",
+      executed:dependencyScan.executed,not_run_reason:dependencyScan.not_run_reason??null,
+      preliminary_candidates:preliminaryCandidates.length,
+      inventory_sources:dependencyScan.inventory_count??0,
+      scanned:dependencyScan.count,complete:dependencyScan.complete,
+      unresolved_count:dependencyScan.unresolved,unresolved_reasons:dependencyScan.unresolved_reasons??[]},
+    candidate_coverage,
+    ...(deltaFirst?{delta_first:{
+      policy:"delta_first",stage:"candidate_only_no_merge",
+      fork_changed_paths:localPaths.length,changed_paths:files.length,
+      staged_candidate_paths:deltaTotals.stage_direct_candidate??0,
+      review_paths:files.filter(f=>f.delta_first.decision.startsWith("review_")).length,
+      decisions:deltaTotals,dependency_graph_complete:dependencyScan.complete,
+      authorization:"no_merge_no_deploy"
+    }}:{}),
+    uninventoried_ai_paths: [...uninventoried].sort(),
+    disclaimer: "Comparacao por blobs, nao prova equivalencia semantica. Nenhuma alteracao foi aplicada. Validar SHA oficial, testes e contratos antes da PR.",
+    files
+  };
+}
+
+/**
+ * Prepara SOMENTE patches de codigo ordinario classificados como seguros.
+ * Cria worktree detached num caminho novo absoluto; nao faz git add/commit/push.
+ * O checkout do fork e comparado por SHA pinado: nao modifica a branch atual.
+ */
+export function prepare(base, target, fork, out, {deltaFirst=false}={}) {
+  if (!out || !isAbsolute(out)) throw Error("ABSOLUTE_OUTPUT_REQUIRED");
+  const dir = resolve(out);
+  if (existsSync(dir)) throw Error("OUTPUT_ALREADY_EXISTS");
+  const top = resolve(git(["rev-parse", "--show-toplevel"]));
+  const nested = relative(top,dir);
+  if (!nested.startsWith(".."+sep) && nested !== ".." && !isAbsolute(nested))
+    throw Error("OUTPUT_MUST_BE_OUTSIDE_CHECKOUT");
+  const report = reconcile(base,target,fork,{deltaFirst});
+  const safe = report.files.filter(x=>deltaFirst?
+    x.delta_first?.decision==="stage_direct_candidate":
+    x.status==="safe_to_prepare").map(x=>x.path);
+  if (git(["status","--porcelain"])) throw Error("WORKTREE_NOT_CLEAN");
+  git(["worktree","add","--detach",dir,fork]);
+  try {
+    // O diff do worktree nao inclui arquivos NOVOS sem git add. Portanto,
+    // publique o mesmo patch BASE->TARGET que foi aplicado, nao git diff do
+    // worktree. Nao adicione arquivos ao indice e nao crie commit.
+    const patch=safe.length?
+      git(["diff","--binary","--no-renames",base,target,"--",...safe],{binary:true}):
+      Buffer.alloc(0);
+    const actual=safe.length?
+      git(["diff","--name-only","-z","--no-renames",base,target,"--",...safe],{binary:true})
+        .toString("utf8").split("\0").filter(Boolean):[];
+    const expectedPaths=new Set(safe);
+    if(actual.length!==expectedPaths.size ||
+      actual.some(path=>!expectedPaths.has(path))) throw Error("PREPARE_PATCH_PATH_MISMATCH");
+    if(patch.length) {
+      git(["apply","--check","--binary","-"],{cwd:dir,input:patch,binary:true});
+      git(["apply","--binary","-"],{cwd:dir,input:patch,binary:true});
+    }
+    const patchSha256=createHash("sha256").update(patch).digest("hex");
+    mkdirSync(resolve(dir,".elus-upstream"),{recursive:true});
+    writeFileSync(resolve(dir,".elus-upstream","direct-candidate.patch"),patch);
+    writeFileSync(resolve(dir,".elus-upstream","report.json"),JSON.stringify({
+      ...report, preparedFiles:safe, preparedPatchSha256:patchSha256,
+      preparedPatchBytes:patch.length,preparedPatchPaths:actual.length,
+      note:"Worktree detached, sem commit. Patch inclui adicoes, alteracoes e binarios; nao autoriza merge, CI funcional ou deploy."
+    },null,2)+"\n");
+    return {output:dir, preparedFiles:safe.length,
+      preparedPatchSha256:patchSha256,preparedPatchBytes:patch.length,
+      reviewRequired:report.gate!=="candidate_analysis_ready",totals:report.totals};
+  } catch(e) {
+    throw Error("PREPARE_INCOMPLETE_AT:"+dir+":"+String(e.message).slice(0,120));
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const {refs:[base,target,fork],mode,out,deltaFirst} = parse(process.argv.slice(2));
+    const result = mode === "prepare" ? prepare(base,target,fork,out,{deltaFirst}) : reconcile(base,target,fork,{deltaFirst});
+    process.stdout.write(JSON.stringify(result,null,2) + "\n");
+  } catch(e) {
+    process.stderr.write("ELUS_RECONCILE_NO_GO:" + String(e.message).slice(0,150) + "\n");
+    process.exitCode = 3;
+  }
+}
