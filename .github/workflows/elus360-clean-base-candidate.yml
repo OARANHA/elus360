@@ -5,9 +5,11 @@ on:
       - "scripts/elus360-clean-base-prepare.mjs"
       - "scripts/elus360-clean-base-classify.mjs"
       - "scripts/elus360-clean-base-adapters.mjs"
+      - "scripts/elus360-composed-typecheck.mjs"
       - "tests/operational/elus360-clean-base.test.mjs"
       - "tests/operational/elus360-clean-base-classify.test.mjs"
       - "tests/operational/elus360-clean-base-adapters.test.mjs"
+      - "tests/operational/elus360-composed-typecheck.test.mjs"
       - ".github/workflows/elus360-clean-base-candidate.yml"
       - "docs/elus360/clean-base-v1108.md"
       - "docs/elus360/clean-base-v1108-conflict-triage.md"
@@ -36,7 +38,8 @@ jobs:
           node --check scripts/elus360-clean-base-prepare.mjs
           node --check scripts/elus360-clean-base-classify.mjs
           node --check scripts/elus360-clean-base-adapters.mjs
-          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs tests/operational/elus360-clean-base-adapters.test.mjs
+          node --check scripts/elus360-composed-typecheck.mjs
+          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs tests/operational/elus360-clean-base-adapters.test.mjs tests/operational/elus360-composed-typecheck.test.mjs
       - name: Comprovar tags oficiais e SHA da candidata
         id: source
         shell: bash
@@ -170,15 +173,20 @@ jobs:
         if: ${{ steps.compose_adapters.outcome == 'success' }}
         run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" install --frozen-lockfile
 
-      - name: TypeScript de TODA a árvore composta v1.108.0
+      - name: TypeScript completo da árvore composta em shards verificáveis
         id: composed_types
         continue-on-error: true
         if: ${{ steps.composed_install.outcome == 'success' }}
         env:
-          # OOM real no job 131030826900 com heap padrão de ~2 GiB; limite explícito
-          # abaixo da RAM do runner ubuntu-24.04, sem afrouxar timeouts ou ignorar TS.
+          # TS 6.0.3: 4 GiB de heap insuficientes para o programa monolítico
+          # incluindo testes (run 43191496612). Cada shard usa novo processo.
+          # NÃO desabilitar strict, noEmit, testes ou erros do compilador.
           NODE_OPTIONS: "--max-old-space-size=4096"
-        run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" typecheck
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/scripts/elus360-composed-typecheck.mjs" \
+            --candidate "$RUNNER_TEMP/elus360-official-clean" \
+            --reports "$RUNNER_TEMP/elus360-clean-reports"
 
       - name: Regressões de IA, tenant e governança na árvore composta
         id: composed_units
@@ -221,6 +229,17 @@ jobs:
           const file=path.join(folder,'elus360-composed-report.json');
           const composition=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):null;
           const remaining=composition?.counts?.unresolved??null;
+          const typeFile=path.join(folder,'elus360-composed-typecheck.json');
+          const typeReport=fs.existsSync(typeFile)?JSON.parse(fs.readFileSync(typeFile,'utf8')):null;
+          // A conclusão só pode ser GREEN com cobertura integral do tsconfig.typecheck.
+          // Falha de relatório, arquivo omitido ou shard pendente é NO-GO.
+          if(statuses.types==='success' && (!typeReport ||
+              typeReport.stage!=='TYPES_SHARDED_PASSED' ||
+              typeReport.root_coverage_complete!==true ||
+              !Array.isArray(typeReport.shards) || typeReport.shards.length<2 ||
+              typeReport.shards.some(x=>x.status!=='passed'))) {
+            failed.push('types_incomplete_coverage');
+          }
           const record={schema_version:1,stage:failed.length?'COMPOSED_TEST_FAILED':'COMPOSED_TECHNICAL_CHECKS_PASSED',
             source_sha:composition?.fork_sha??null,upstream_target_sha:composition?.upstream_target_sha??null,
             statuses,failed_steps:failed,unresolved_conflicts:remaining,
@@ -250,3 +269,4 @@ jobs:
             ${{ runner.temp }}/elus360-clean-reports/elus360-composed-report.json
             ${{ runner.temp }}/elus360-clean-reports/elus360-composed.patch
             ${{ runner.temp }}/elus360-clean-reports/elus360-composed-validation.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-typecheck.json
