@@ -70,7 +70,7 @@ function parseConfig(ts,base,name) {
 // Vitest registra os matchers DOM por import em um setup .ts (não um .d.ts).
 // TypeScript em shards não executa setupFiles: deve incluí-lo como raiz de
 // contexto em TODOS os shards, ou Assertion perde toBeInTheDocument etc.
-function sharedVitestTypeRoots(candidate,all,production) {
+export function sharedVitestTypeRoots(candidate,all,production) {
   const source=readFileSync(join(candidate,'vitest.config.ts'),'utf8');
   const matches=[...source.matchAll(/setupFiles:\s*\[\s*["']\.\/([^"']+\.tsx?)["']\s*\]/g)];
   if(matches.length!==1)throw new Error('ELUS_TYPECHECK_VITEST_SETUP_UNVERIFIED');
