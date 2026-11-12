@@ -157,9 +157,9 @@ jobs:
               throw new Error('UPSTREAM_DICTIONARY_FEATURE_MISSING: '+official);
           }
           const inicio=dicionario.indexOf('  // ELUS360 v1.102.0');
-          const fim=dicionario.indexOf('};\\n\\n/**\\n * Traduz, ou devolve o próprio texto.',inicio);
+          const fim=dicionario.indexOf('};\n\n/**\n * Traduz, ou devolve o próprio texto.',inicio);
           if(inicio<0||fim<0)throw new Error('ELUS_DICTIONARY_ANCHORS_MISSING');
-          const entradas=[...dicionario.slice(inicio,fim).matchAll(/^  ("[^"]+"):\\s*\\{\\s*es:/gm)];
+          const entradas=[...dicionario.slice(inicio,fim).matchAll(/^  ("[^"]+"):\s*\{\s*es:/gm)];
           if(entradas.length!==48)throw new Error('ELUS_DICTIONARY_ENTRY_COUNT: '+entradas.length);
           console.log('ELUS_OPERATOR_AND_DICTIONARY_STATIC_OK: 48');
           NODE
