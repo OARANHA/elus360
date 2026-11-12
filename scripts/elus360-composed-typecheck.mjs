@@ -6,7 +6,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,11 +20,14 @@ function rootRelative(base, filename) {
   return part.replaceAll(sep,'/');
 }
 
-export function planTypecheck({fullRoots,productionRoots,declarations,shards=12,sizeOf=()=>1}) {
+export function planTypecheck({fullRoots,productionRoots,declarations,sharedTestRoots=[],shards=12,sizeOf=()=>1}) {
   if (!Number.isInteger(shards) || shards<2 || shards>32) throw new Error('ELUS_TYPECHECK_BAD_SHARD_COUNT');
   const full=new Set(fullRoots),prod=new Set(productionRoots),decl=new Set(declarations);
+  const shared=new Set(sharedTestRoots);
   if (!full.size || full.size!==fullRoots.length || !prod.size || prod.size!==productionRoots.length ||
-      [...prod].some(x=>!full.has(x)) || [...decl].some(x=>!full.has(x)||!x.endsWith('.d.ts')))
+      [...prod].some(x=>!full.has(x)) || [...decl].some(x=>!full.has(x)||!x.endsWith('.d.ts')) ||
+      shared.size!==sharedTestRoots.length ||
+      [...shared].some(x=>!full.has(x)||prod.has(x)||decl.has(x)||!x.endsWith('.ts')))
     throw new Error('ELUS_TYPECHECK_INVALID_ROOT_SETS');
   const extras=fullRoots.filter(x=>!prod.has(x) && !decl.has(x));
   if (!extras.length) throw new Error('ELUS_TYPECHECK_NO_EXTRA_TEST_ROOTS');
@@ -38,7 +41,7 @@ export function planTypecheck({fullRoots,productionRoots,declarations,shards=12,
   }
   const first=fullRoots.filter(x=>prod.has(x)||decl.has(x));
   const parts=[{name:'production',owned:first,files:first},
-    ...bins.map(bin=>({name:bin.name,owned:bin.owned,files:[...new Set([...decl,...bin.owned])]}))];
+    ...bins.map(bin=>({name:bin.name,owned:bin.owned,files:[...new Set([...decl,...shared,...bin.owned])]}))];
   const counted=new Map();
   for(const group of parts) for(const file of group.owned)
     counted.set(file,(counted.get(file)||0)+1);
@@ -64,6 +67,23 @@ function parseConfig(ts,base,name) {
   return roots;
 }
 
+// Vitest registra os matchers DOM por import em um setup .ts (não um .d.ts).
+// TypeScript em shards não executa setupFiles: deve incluí-lo como raiz de
+// contexto em TODOS os shards, ou Assertion perde toBeInTheDocument etc.
+function sharedVitestTypeRoots(candidate,all,production) {
+  const source=readFileSync(join(candidate,'vitest.config.ts'),'utf8');
+  const matches=[...source.matchAll(/setupFiles:\s*\[\s*["']\.\/([^"']+\.tsx?)["']\s*\]/g)];
+  if(matches.length!==1)throw new Error('ELUS_TYPECHECK_VITEST_SETUP_UNVERIFIED');
+  const relativePath=matches[0][1];
+  const root=rootRelative(candidate,join(candidate,relativePath));
+  if(!all.includes(root)||production.includes(root))
+    throw new Error('ELUS_TYPECHECK_VITEST_SETUP_NOT_EXTRA_ROOT: '+root);
+  const setup=readFileSync(join(candidate,root),'utf8');
+  if(!/import\s+["']@testing-library\/jest-dom\/vitest["']\s*;/.test(setup))
+    throw new Error('ELUS_TYPECHECK_JEST_DOM_TYPE_IMPORT_MISSING: '+root);
+  return [root];
+}
+
 function save(file,obj){writeFileSync(file,JSON.stringify(obj,null,2)+'\n');}
 
 export function run(args) {
@@ -77,7 +97,8 @@ export function run(args) {
   const all=parseConfig(ts,candidate,'tsconfig.typecheck.json');
   const prod=parseConfig(ts,candidate,'tsconfig.json');
   const declarations=all.filter(x=>x.endsWith('.d.ts'));
-  const parts=planTypecheck({fullRoots:all,productionRoots:prod,declarations,
+  const sharedTestRoots=sharedVitestTypeRoots(candidate,all,prod);
+  const parts=planTypecheck({fullRoots:all,productionRoots:prod,declarations,sharedTestRoots,
     shards:12,sizeOf:file=>statSync(join(candidate,file)).size});
   const target=join(candidate,'.elus-typecheck');
   if(existsSync(target))throw new Error('ELUS_TYPECHECK_REUSE_FORBIDDEN');
@@ -88,11 +109,15 @@ export function run(args) {
     original_roots:all.length,production_roots:prod.length,
     extra_test_roots:all.filter(x=>!prod.includes(x)).length,
     shared_declarations:declarations.length,
+    shared_test_type_context:sharedTestRoots,
+    shared_type_context_in_every_test_shard:parts.slice(1).every(p=>
+      sharedTestRoots.every(root=>p.files.includes(root))),
     roots_sha256:hash(all.join('\n')+'\n'),root_coverage_complete:true,shards:[]};
   for(const part of parts){
     const file='tsconfig.'+part.name+'.json',config='.elus-typecheck/'+file;
     // No change to strict, skipLibCheck, module resolution, flags or project defaults.
     // include:[] means the explicit files are the entire root-set of this shard.
+    // O setup é raiz de contexto repetida, mas tem um único owner na cobertura.
     save(join(target,file),{extends:'../tsconfig.typecheck.json',
       compilerOptions:{incremental:false,noEmit:true},
       files:part.files.map(x=>'../'+x),include:[]});
