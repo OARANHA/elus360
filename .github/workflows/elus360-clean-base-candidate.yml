@@ -27,9 +27,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - name: Preparar Node e pnpm pelo gate canônico do repositório
+        uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - name: Regressões locais do montador
         run: |
           set -euo pipefail
@@ -117,11 +117,6 @@ jobs:
             --candidate "$RUNNER_TEMP/elus360-official-clean" \
             --source-report "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-report.json" \
             --reports "$RUNNER_TEMP/elus360-clean-reports"
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: "9.15.9"
-          run_install: false
 
       - name: Instalar dependências do código oficial composto (runner efêmero)
         id: composed_install
