@@ -1,0 +1,104 @@
+name: ELUS360 — candidata sobre upstream limpo
+on:
+  pull_request:
+    paths:
+      - "scripts/elus360-clean-base-prepare.mjs"
+      - "tests/operational/elus360-clean-base.test.mjs"
+      - ".github/workflows/elus360-clean-base-candidate.yml"
+      - "docs/elus360/clean-base-v1108.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-clean-base:
+    name: Base oficial v1.108.0 + delta ELUS (sem publicação)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Regressões locais do montador
+        run: |
+          set -euo pipefail
+          node --check scripts/elus360-clean-base-prepare.mjs
+          node --test tests/operational/elus360-clean-base.test.mjs
+      - name: Comprovar tags oficiais e SHA da candidata
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORK_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::ELUS_CLEAN_BASE_NO_GO: $1"; exit 3; }
+          base_tag='v1.102.0'
+          target_tag='v1.108.0'
+          base_expected='4b5815721710c9b1e99078322593838fda1ee740'
+          target_expected='0b60c5abaace17922ae645399a6a6183a5f5c357'
+          for tag in "$base_tag" "$target_tag"; do
+            official="$(gh api "repos/melgarafael/DeskcommCRM/releases/tags/$tag" --jq '.draft == false and .prerelease == false and .published_at != null')" || fail "release $tag ausente"
+            test "$official" = true || fail "release $tag sem publicação comprovada"
+          done
+          git fetch --no-tags https://github.com/melgarafael/DeskcommCRM.git \
+            "refs/tags/$base_tag:refs/elus-clean/source" \
+            "refs/tags/$target_tag:refs/elus-clean/target"
+          base="$(git rev-parse 'refs/elus-clean/source^{commit}')"
+          target="$(git rev-parse 'refs/elus-clean/target^{commit}')"
+          test "$base" = "$base_expected" && test "$target" = "$target_expected" || fail 'SHA oficial divergente'
+          git merge-base --is-ancestor "$base" "$target" || fail 'release não descende da base'
+          [[ "$FORK_HEAD" =~ ^[a-f0-9]{40}$ ]] || fail 'fork HEAD não pinado'
+          if ! git cat-file -e "$FORK_HEAD^{commit}"; then
+            git fetch --no-tags origin "$FORK_HEAD"
+          fi
+          git cat-file -e "$FORK_HEAD^{commit}" || fail 'fork HEAD ausente'
+          test -z "$(git status --porcelain)" || fail 'checkout modificado'
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "fork=$FORK_HEAD" >> "$GITHUB_OUTPUT"
+      - name: Compor worktree oficial limpo e exportar diferenças reaplicáveis
+        env:
+          BASE: ${{ steps.source.outputs.base }}
+          TARGET: ${{ steps.source.outputs.target }}
+          FORK: ${{ steps.source.outputs.fork }}
+        run: |
+          set -euo pipefail
+          node scripts/elus360-clean-base-prepare.mjs \
+            --base "$BASE" --target "$TARGET" --fork "$FORK" \
+            --out "$RUNNER_TEMP/elus360-official-clean" \
+            --reports "$RUNNER_TEMP/elus360-clean-reports"
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const report = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'elus360-clean-reports/elus360-clean-base-report.json'), 'utf8'));
+          const c = report.counts;
+          const summary = [
+            '## ELUS360 — reconstrução sobre DeskcommCRM v1.108.0',
+            `Base oficial: ${report.upstream_target_sha}`,
+            `Fork de origem: ${report.fork_sha}`,
+            `Delta próprio: ${c.fork_delta} caminhos`,
+            `Aplicados em worktree descartável: ${c.staged}`,
+            `Colisões a resolver: ${c.conflicts}`,
+            `Já idênticos ao upstream: ${c.already_in_upstream}`,
+            `Caminhos reaplicados que exigem validação específica: ${c.staged_requiring_validation}`,
+            '',
+            '**CANDIDATA DE CÓDIGO NÃO HOMOLOGADA.** Nenhum merge, migration ou deploy executado.'
+          ].join('\n');
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
+          if (c.conflicts) console.log(`::warning::ELUS_OVERLAY_INCOMPLETE: ${c.conflicts} colisões precisam de integração explícita`);
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elus360-clean-base-v1108
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-report.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base.patch
