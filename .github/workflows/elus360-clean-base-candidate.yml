@@ -165,6 +165,14 @@ jobs:
           const entradas=[...dicionario.slice(inicio,fim).matchAll(/^  ("[^"]+"):\s*\{\s*es:/gm)];
           if(entradas.length!==48)throw new Error('ELUS_DICTIONARY_ENTRY_COUNT: '+entradas.length);
           console.log('ELUS_OPERATOR_AND_DICTIONARY_STATIC_OK: 48');
+          const preambulo=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts'),'utf8');
+          for(const rule of ['temTimeoutDoMesmoPasso','minutos: 45,','timeoutNoRecuoDaAction',
+            'a guarda encontra timeout no mesmo passo']) {
+            if(!preambulo.includes(rule))
+              throw new Error('ELUS_CI_TIMEOUT_GUARD_MISSING: '+rule);
+          }
+          console.log('ELUS_CI_TIMEOUT_GUARD_STATIC_OK: 4');
           NODE
 
       - name: Instalar dependências do código oficial composto (runner efêmero)
@@ -200,7 +208,8 @@ jobs:
             tests/unit/elus360-version-governance.test.ts \
             tests/unit/elus360-ia-gerenciada-guard.test.ts \
             lib/elus360/ai-managed/authorize-version-write.test.ts \
-            'app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts'
+            'app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts' \
+            tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts
 
       - name: Build de produção do código composto (SEM publicar imagem)
         id: composed_build
