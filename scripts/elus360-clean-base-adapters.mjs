@@ -138,6 +138,14 @@ export function run(argv) {
   const reportPath = resolve(flags.get('--source-report')), reports = resolve(flags.get('--reports'));
   const report = JSON.parse(readFileSync(reportPath,'utf8'));
   const actualHead = git(['-C',candidate,'rev-parse','HEAD']);
+  // Verificar byte a byte a preparação ANTES dos adaptadores: relatório e worktree
+  // devem representar o MESMO patch e conjunto de caminhos da release fixada.
+  const prepared = execFileSync('git',['-C',candidate,'diff','--cached','--no-ext-diff','--binary'],{maxBuffer:128*1024*1024});
+  if (digest(prepared)!==report.patch?.sha256 || prepared.length!==report.patch?.bytes)
+    throw new Error('PREPARED_PATCH_INTEGRITY_MISMATCH');
+  const staged=execFileSync('git',['-C',candidate,'diff','--cached','--name-only','-z']).toString('utf8').split('\\0').filter(Boolean).sort();
+  if (!Array.isArray(report.staged) || JSON.stringify(staged)!==JSON.stringify([...report.staged].sort()))
+    throw new Error('PREPARED_PATHS_INTEGRITY_MISMATCH');
   // A árvore composta não pode ser a branch da PR nem a main; checkout detached.
   if (git(['-C',candidate,'branch','--show-current']) !== '') 
     throw new Error('CANDIDATE_MUST_BE_DETACHED');
