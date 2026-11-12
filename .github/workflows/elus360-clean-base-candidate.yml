@@ -142,6 +142,26 @@ jobs:
           const ausentes=invariantes.filter(x=>!form.includes(x));
           if(ausentes.length)throw new Error('ELUS_FORM_COMPOSITION_INCOMPLETE: '+ausentes.join(', '));
           console.log('ELUS_FORM_COMPOSITION_STATIC_OK: '+invariantes.length);
+          const operador=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'app/app/ai/agents/[id]/_components/PainelDoOperador.tsx'),'utf8');
+          if(!operador.includes('permitirModeloTecnico?: boolean;') ||
+             !operador.includes('props.permitirModeloTecnico === true') ||
+             !operador.includes('useOperatorMetrics'))
+            throw new Error('ELUS_OPERATOR_PANEL_CONTRACT_MISSING');
+          // O PainelDoOperador é overlay independente, não um conflito.
+          const dicionario=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'lib/i18n/dicionario.ts'),'utf8');
+          for(const official of ['...TEXTOS_CONTRATACAO','...TEXTOS_CADENCIAS_ORIGINAIS',
+            '...TEXTOS_CADENCIAS','## Idioma da conversa']) {
+            if(!dicionario.includes(official))
+              throw new Error('UPSTREAM_DICTIONARY_FEATURE_MISSING: '+official);
+          }
+          const inicio=dicionario.indexOf('  // ELUS360 v1.102.0');
+          const fim=dicionario.indexOf('};\\n\\n/**\\n * Traduz, ou devolve o próprio texto.',inicio);
+          if(inicio<0||fim<0)throw new Error('ELUS_DICTIONARY_ANCHORS_MISSING');
+          const entradas=[...dicionario.slice(inicio,fim).matchAll(/^  ("[^"]+"):\\s*\\{\\s*es:/gm)];
+          if(entradas.length!==48)throw new Error('ELUS_DICTIONARY_ENTRY_COUNT: '+entradas.length);
+          console.log('ELUS_OPERATOR_AND_DICTIONARY_STATIC_OK: 48');
           NODE
 
       - name: Instalar dependências do código oficial composto (runner efêmero)
