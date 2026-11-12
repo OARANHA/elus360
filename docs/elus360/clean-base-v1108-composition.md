@@ -4,7 +4,7 @@ Estado: **IMPLEMENTADO EM PR / VALIDAÇÃO DA ÁRVORE COMPOSTA PENDENTE**. Nenhu
 
 ## Trabalho realizado
 
-A PR deixa de apenas classificar o overlay e passa a produzir um **segundo artefato**: worktree com a árvore oficial limpa v1.108.0, 393 caminhos independentes ELUS, e seis adaptadores explicitamente versionados e limitados por SHA de blob oficial. A etapa de composição preserva o patch original da preparação e cria `elus360-composed.patch` e `elus360-composed-report.json`. Divergência de SHA, patch original, lista de caminhos ou âncora causa falha antes de qualquer escrita de adaptadores.
+A PR deixa de apenas classificar o overlay e passa a produzir um **segundo artefato**: worktree com a árvore oficial limpa v1.108.0, o delta independente ELUS (393 caminhos **no artifact anterior**, número sujeito a revisão após os novos commits) e seis adaptadores explicitamente versionados e limitados por SHA de blob oficial. A etapa de composição preserva o patch original da preparação e cria `elus360-composed.patch` e `elus360-composed-report.json`. Divergência de SHA, patch original, lista de caminhos ou âncora causa falha antes de qualquer escrita de adaptadores.
 
 | Caminho | Composição pontual | Invariante upstream preservado |
 | --- | --- | --- |
