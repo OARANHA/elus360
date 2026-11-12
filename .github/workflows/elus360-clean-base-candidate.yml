@@ -3,7 +3,9 @@ on:
   pull_request:
     paths:
       - "scripts/elus360-clean-base-prepare.mjs"
+      - "scripts/elus360-clean-base-classify.mjs"
       - "tests/operational/elus360-clean-base.test.mjs"
+      - "tests/operational/elus360-clean-base-classify.test.mjs"
       - ".github/workflows/elus360-clean-base-candidate.yml"
       - "docs/elus360/clean-base-v1108.md"
   workflow_dispatch:
@@ -28,7 +30,8 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/elus360-clean-base-prepare.mjs
-          node --test tests/operational/elus360-clean-base.test.mjs
+          node --check scripts/elus360-clean-base-classify.mjs
+          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs
       - name: Comprovar tags oficiais e SHA da candidata
         id: source
         shell: bash
@@ -93,6 +96,14 @@ jobs:
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
           if (c.conflicts) console.log(`::warning::ELUS_OVERLAY_INCOMPLETE: ${c.conflicts} colisões precisam de integração explícita`);
           NODE
+      - name: Classificar todos os conflitos sem aprovar caminhos
+        run: |
+          set -euo pipefail
+          node scripts/elus360-clean-base-classify.mjs \
+            "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-report.json" \
+            "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.json" \
+            "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.md"
+          cat "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.md" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -102,3 +113,5 @@ jobs:
           path: |
             ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-report.json
             ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base.patch
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-classification.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-classification.md
