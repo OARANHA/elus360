@@ -44,7 +44,10 @@ Uma instalação de ELUS360 executa o **Deskcomm oficial atualizado** com o over
 | T00 | CONCLUÍDA | Artifact `13952685554` e leitura dos scripts reais |
 | T01 | IMPLEMENTADO EM PR | `scripts/elus360-clean-base-adapters.mjs` agora marca docs de skills do Deskcomm como `official_kept` e confere SHA Git e modo 100644 da release antes de preservá-los; 108 itens esperados a partir do último artifact; novo artifact pendente |
 | T02 | IMPLEMENTADO EM PR | 22 scripts/hooks de skills Deskcomm excluídos do runtime conforme `.dockerignore` oficial; guarda exige as regras `.agents` e `.claude` antes de reconhecer a decisão; nenhum hook é instalado ou executado pelo reconciliador. Auditoria de uso manual/externo é independente |
-| T03–T07 | PENDENTES | 11 colisões substantivas previstas após T01/T02, mas confirmação depende do artifact do novo HEAD |
+| T03 | PENDENTE | Docs de autoridade (4) e workflows (2) ainda precisam de decisão ELUS vs upstream |
+| T04 | IMPLEMENTAÇÃO PARCIAL | `_common.sh` e `update.sh`: fusão de três vias com blobs pinados e falha fechada; `test-validators.sh` oficial mantido; `README.md` do kit pendente. Novo artifact precisa confirmar aplicação sem conflitos |
+| T05 | PENDENTE | `supabase/baseline.sql`: preservar histórico de migrations e dados, sem DDL em produção |
+| T06–T07 | PENDENTES | Verificação operacional do overlay ELUS e continuidade para próximo upstream |
 
 **Execução iniciada na PR #37:** o reconciliador existente agora registra **dois tipos de decisão** em `official_kept`: `keep_official_document_no_elus_overlay` (108 documentos não executáveis) e `keep_official_devtool_excluded_from_runtime` (22 scripts/hook de skills, sem acioná-los). Mantém SHA do blob oficial, recusa path/status/categoria não previstos, modo incompatível e bytes diferentes dos blobs do release. Não altera conteúdos desses 130 arquivos. O `unresolved` deve cair de 141 para **11**, SE o próximo artifact comprovar todas as condições — **não declarar a previsão como verificação**.
 
@@ -61,4 +64,12 @@ Comparados os blobs **v1.102.0 (base) × fork ELUS main × v1.108.0 (oficial)**,
 
 **Decisão:** próximo código de produto a portar é o contrato de proveniência/AMD64/sem build do instalador. A implementação fica pendente: nem o instalador composto nem uma instalação/atualização real foram validados. A documentação acima é análise dos arquivos reais, não homologação.
 
-**Próximo trabalho obrigatório:** concentrar T03–T05 nos **11** caminhos reais, com prioridade para `hostgator-setup-kit/update.sh` e `_common.sh` e para a compatibilidade de banco. Não criar testes ou workflows para a aplicação original.
+### T04 — adaptação implementada na PR, ainda não homologada
+
+O reconciliador utiliza **`git merge-file -p`** do próprio Git para compor os scripts `_common.sh` e `update.sh` a partir de três fontes **pinadas por blob**: Deskcomm v1.102.0 como base, o fork ELUS como customização e Deskcomm v1.108.0 como destino. Ambos são calculados em memória/arquivos temporários **antes** de escrever na árvore composta; merge com conflitos é recusado, sem substituição integral do upstream. Depois da composição, devem permanecer os contratos ELUS de origem Git confiável, imagens `ghcr.io/oaranha`, Linux AMD64, nenhuma compilação na VPS, e o backup oficial com `BACKUP_ESPERA_LOCK=300`. **A presença desses contratos é um cheque de composição, não uma homologação funcional.**
+
+`hostgator-setup-kit/test-validators.sh` é exclusivamente a bateria de testes herdada do Deskcomm. Decisão: manter o arquivo oficial no mesmo blob, **não reintegrar testes específicos do fork e não criar novos testes**.
+
+**Contagem prospectiva após as decisões T01/T02/T04:** 402 overlays independentes, **11 adaptações** (9 anteriores + 2 do kit), **131 itens `official_kept`** (108 docs + 22 devtools + 1 validador upstream), **8 itens `unresolved`**. Esses valores são derivados do artifact anterior e **precisam ser confirmados pelo próximo relatório de CI**; não representam integração funcional aprovada.
+
+**Próximo trabalho obrigatório:** decidir quais diferenças ELUS reais restam em `.github/workflows/{ci,e2e}.yml` e nos quatro documentos estruturais; integrar o `README` do kit com as regras AMD64 e tratar `supabase/baseline.sql` sem migrar dados reais. Depois comprovar somente fluxos exclusivos ELUS.
