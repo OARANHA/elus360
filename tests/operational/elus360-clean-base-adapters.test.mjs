@@ -5,7 +5,9 @@ import { ADAPTERS, OFFICIAL_TARGET, adaptText, planChanges } from '../../scripts
 function sourceFixture() {
   const byPath={};
   for(const adapter of ADAPTERS) {
-    byPath[adapter.path]=adapter.edits.map(([needle])=>needle).join('\n// UPSTREAM_FEATURE_PRESERVED\n')+'\n';
+    // O sentinela precisa existir mesmo quando o adaptador possui uma única âncora.
+    // Ele comprova que a substituição aditiva preserva linhas do upstream.
+    byPath[adapter.path]=adapter.edits.map(([needle])=>needle).join('\n')+'\n// UPSTREAM_FEATURE_PRESERVED\n';
   }
   const officialBlobByPath=Object.fromEntries(ADAPTERS.map(x=>[x.path,x.officialBlob]));
   const report={schema_version:1,stage:'PREPARED_NOT_VALIDATED',
