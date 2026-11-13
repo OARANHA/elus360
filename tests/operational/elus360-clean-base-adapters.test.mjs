@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADAPTERS, OFFICIAL_TARGET, adaptText, planChanges, composeOptionalBuildPolicy } from '../../scripts/elus360-clean-base-adapters.mjs';
+import { ADAPTERS, OFFICIAL_TARGET, ELUS_STRUCTURAL_DOCS, keepOfficialStructuralDocument, adaptText, planChanges, composeOptionalBuildPolicy } from '../../scripts/elus360-clean-base-adapters.mjs';
 
-// Testes compactos usam seis adaptadores de baixa complexidade;
+// Testes compactos incluem adaptadores de CI, E2E, instruções ELUS e demais casos;
 // AgentForm, dicionário e teste do preâmbulo exigem o conteúdo upstream real.
 const FIXTURE_ADAPTERS = ADAPTERS.filter((adapter) => !['agent_form_managed','i18n_elus_entries','ci_timeout_same_step'].includes(adapter.kind));
 
@@ -23,12 +23,12 @@ function sourceFixture() {
     ]};
   return {report,sourceByPath:byPath,officialBlobByPath};
 }
-test('seis adaptadores só aceitam blob oficial fixado e conflito explícito',()=>{
-  assert.equal(ADAPTERS.length,9);
-  assert.equal(FIXTURE_ADAPTERS.length,6);
+test('adaptadores declarados só aceitam blob oficial fixado e conflito explícito',()=>{
+  assert.equal(ADAPTERS.length,13);
+  assert.equal(FIXTURE_ADAPTERS.length,10);
   const f=sourceFixture();
   const planned=planChanges({...f,targetSha:OFFICIAL_TARGET,adapters:FIXTURE_ADAPTERS});
-  assert.equal(planned.changed.length,6);
+  assert.equal(planned.changed.length,10);
   assert.equal(planned.remaining.length,1);
   assert.match(planned.remaining[0].path,/AgentForm/);
   for(const item of planned.changed) {
@@ -167,4 +167,56 @@ test('distribuição: build local exige pedido expresso, preservando fonte ofici
   assert.doesNotMatch(result,/linux\/amd64 exclusivo/);
   assert.throws(()=>composeOptionalBuildPolicy(merged.replace('IMG_NS="'+fixtureNamespace+'"','IMG_NS="ghcr.io/other"'),official,fixtureNamespace),/PROVENANCE_MISSING/);
   assert.throws(()=>composeOptionalBuildPolicy(merged.replace('construir_aqui_e_subir()', 'funcao_renomeada()'),official,fixtureNamespace),/FUNCTION_ANCHOR/);
+});
+
+test('T03: CI e E2E do ELUS sobre workflows oficiais preservam isolamento e seeds',()=>{
+  const ci=ADAPTERS.find(a=>a.kind==='elus_ci_guard');
+  const e2e=ADAPTERS.find(a=>a.kind==='elus_e2e_identity');
+  assert.ok(ci && e2e);
+  assert.equal(ci.officialBlob,'feb805850e0c160e3d86eb4cb5c4fbca17411fe3');
+  assert.equal(e2e.officialBlob,'37aeecfd141afe326c8f984da72ca91dabf00e11');
+  const c=ci.edits.map(x=>x[1]).join('\n');
+  assert.match(c,/ELUS operational tests/);
+  assert.match(c,/run: pnpm test:operational/);
+  assert.match(c,/timeout-minutes: 45/,'manter timeout oficial do pg15/17');
+  assert.match(c,/runs-on: ubuntu-24\.04/);
+  assert.doesNotMatch(c,/deskcomm-proprio|CONFERENCIA_KIT_RELEASE: v1\.102/);
+  const e=e2e.edits.map(x=>x[1]).join('\n');
+  assert.match(e,/runs-on: ubuntu-latest/);
+  assert.match(e,/seed-e2e-system-update\.ts/);
+  assert.match(e,/matrix\.parte != 4/);
+  for(const adapter of [ci,e2e]){
+    for(const [before,after] of adapter.edits){
+      assert.equal(adaptText(before,{path:adapter.path,edits:[[before,after]]}),after);
+      assert.throws(()=>adaptText(before+'\n'+before,{path:adapter.path,edits:[[before,after]]}),/ADAPTER_ANCHOR_MISMATCH/);
+    }
+  }
+});
+test('T03: documentação estrutural mantém upstream apenas com caminhos e motivos pinados',()=>{
+  assert.deepEqual(Object.keys(ELUS_STRUCTURAL_DOCS).sort(),['AGENTS.md','CLAUDE.md','docs/index.md']);
+  for(const [path,blobs] of Object.entries(ELUS_STRUCTURAL_DOCS)){
+    assert.match(blobs.officialBlob,/^[a-f0-9]{40}$/);
+    assert.match(blobs.forkBlob,/^[a-f0-9]{40}$/);
+    const item={path,reason:'both_changed',fork_status:'M',upstream_status:'M'};
+    assert.equal(keepOfficialStructuralDocument(item),true);
+    assert.equal(keepOfficialStructuralDocument({...item,reason:'deletion_or_unsupported_mode'}),false);
+    assert.equal(keepOfficialStructuralDocument({...item,fork_status:'D'}),false);
+  }
+  assert.equal(keepOfficialStructuralDocument({path:'README.md',reason:'both_changed',fork_status:'M',upstream_status:'M'}),false);
+  const f=sourceFixture();
+  for(const path of Object.keys(ELUS_STRUCTURAL_DOCS))
+    f.report.review.push({path,reason:'both_changed',fork_status:'M',upstream_status:'M'});
+  f.report.counts.conflicts=f.report.review.length;
+  const planned=planChanges({...f,targetSha:OFFICIAL_TARGET,adapters:FIXTURE_ADAPTERS});
+  assert.equal(planned.officialKept.length,3);
+  assert.equal(planned.remaining.length,1);
+});
+test('T04: README do ELUS aponta para o fork sem substituir o manual oficial completo',()=>{
+  for(const kind of ['elus_install_guide','elus_repo_guide']){
+    const adapter=ADAPTERS.find(a=>a.kind===kind);
+    assert.ok(adapter);
+    const all=adapter.edits.map(([,to])=>to).join('\n');
+    assert.match(all,/OARANHA\/elus360/);
+    assert.match(all,/elus360-instalar/);
+  }
 });

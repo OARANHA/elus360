@@ -22,6 +22,46 @@ const git = (argv, options={}) => execFileSync('git', argv, { encoding: 'utf8', 
 /** Definições explícitas; o SHA é o blob do DeskcommCRM oficial v1.108.0. */
 export const ADAPTERS = [
   {
+    path: ".github/workflows/ci.yml",
+    officialBlob: "feb805850e0c160e3d86eb4cb5c4fbca17411fe3",
+    kind: "elus_ci_guard",
+    edits: [
+      ["  verify-parte:\n    # Guarda de travamento. O DETECTOR de crescimento é o passo `Orçamento de\n    # tempo` no fim de cada parte; a medição que justifica o número está em\n    # `TETOS`, em tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts.\n    timeout-minutes: 15\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    runs-on: ${{ vars.EXECUTOR_PROPRIO == 'ligado' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'deskcomm-proprio' || 'ubuntu-latest' }}", "  verify-parte:\n    # Guarda de travamento. O DETECTOR de crescimento é o passo `Orçamento de\n    # tempo` no fim de cada parte; a medição que justifica o número está em\n    # `TETOS`, em tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts.\n    timeout-minutes: 15\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    # ELUS360: runner publico isolado, nunca private VPS\n    runs-on: ubuntu-24.04"],
+      ["  invariants-majors:\n    # Eram 20 min quando a perna tinha UMA passada; agora ela tem duas\n    # (`test:db` + `test:db:update`) e o teto acompanha. O 30 é DECLARADO, não\n    # medido — não há Docker onde esta matriz foi escrita —, e existe para o\n    # vermelho continuar falando de schema: mantido em 20, a perna morreria por\n    # relógio no meio da segunda passada.\n    timeout-minutes: 45\n    # 30 → 45 em 10/11/2026 (doc de decisão 302): cortada por relógio aos 30 min\n    # no pg15 e no pg17, também na `main`. Razão inteira em\n    # tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts (TETOS).\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    runs-on: ${{ vars.EXECUTOR_PROPRIO == 'ligado' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'deskcomm-proprio' || 'ubuntu-latest' }}", "  invariants-majors:\n    # Eram 20 min quando a perna tinha UMA passada; agora ela tem duas\n    # (`test:db` + `test:db:update`) e o teto acompanha. O 30 é DECLARADO, não\n    # medido — não há Docker onde esta matriz foi escrita —, e existe para o\n    # vermelho continuar falando de schema: mantido em 20, a perna morreria por\n    # relógio no meio da segunda passada.\n    timeout-minutes: 45\n    # 30 → 45 em 10/11/2026 (doc de decisão 302): cortada por relógio aos 30 min\n    # no pg15 e no pg17, também na `main`. Razão inteira em\n    # tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts (TETOS).\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    # ELUS360: runner publico isolado, nunca private VPS\n    runs-on: ubuntu-24.04"],
+      ["      - name: Cercas estruturais\n        if: matrix.parte == 7\n        run: pnpm cercas", "      # ELUS360: regressões locais específicas antes das cercas.\n      - name: ELUS operational tests (node:test)\n        if: matrix.parte == 7\n        run: pnpm test:operational\n\n      - name: Cercas estruturais\n        if: matrix.parte == 7\n        run: pnpm cercas"],
+      ["          NODE_OPTIONS: --max-old-space-size=8192", "          NODE_OPTIONS: --max-old-space-size=12288"],
+    ],
+  },
+  {
+    path: ".github/workflows/e2e.yml",
+    officialBlob: "37aeecfd141afe326c8f984da72ca91dabf00e11",
+    kind: "elus_e2e_identity",
+    edits: [
+      ["  e2e-parte:\n    needs: [e2e-alcance]\n    # Head superado não pede vaga no grupo (#2449): quem decide isso é o passo\n    # inicial do `e2e-alcance`, que compara o `head.sha` do evento com o head\n    # atual do PR. Pulando aqui (antes de o job existir para o Actions), o run\n    # velho nunca chega ao `concurrency:` — que é exatamente o ponto onde ele\n    # roubou a vaga do head novo no #2437.\n    if: needs.e2e-alcance.outputs.e2e == 'sim' && needs.e2e-alcance.outputs.head_velho != 'sim'\n    # Executor próprio para trabalho NOSSO (push na main, PR de branch deste\n    # repo) quando a variável de repositório EXECUTOR_PROPRIO vale `ligado`;\n    # máquinas do GitHub para todo o resto, fork inclusive. A expressão decide\n    # só para quem não a edita — a guarda que vale contra fork mora na máquina\n    # (infra/executor-proprio/so-o-que-e-nosso.sh). Vigiado por\n    # tests/unit/executor-proprio-so-roda-o-que-e-nosso.test.ts.\n    runs-on: ${{ vars.EXECUTOR_PROPRIO == 'ligado' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'deskcomm-proprio' || 'ubuntu-latest' }}", "  e2e-parte:\n    needs: [e2e-alcance]\n    # Head superado não pede vaga no grupo (#2449): quem decide isso é o passo\n    # inicial do `e2e-alcance`, que compara o `head.sha` do evento com o head\n    # atual do PR. Pulando aqui (antes de o job existir para o Actions), o run\n    # velho nunca chega ao `concurrency:` — que é exatamente o ponto onde ele\n    # roubou a vaga do head novo no #2437.\n    if: needs.e2e-alcance.outputs.e2e == 'sim' && needs.e2e-alcance.outputs.head_velho != 'sim'\n    # Executor próprio para trabalho NOSSO (push na main, PR de branch deste\n    # repo) quando a variável de repositório EXECUTOR_PROPRIO vale `ligado`;\n    # máquinas do GitHub para todo o resto, fork inclusive. A expressão decide\n    # só para quem não a edita — a guarda que vale contra fork mora na máquina\n    # (infra/executor-proprio/so-o-que-e-nosso.sh). Vigiado por\n    # tests/unit/executor-proprio-so-roda-o-que-e-nosso.test.ts.\n    # ELUS360: runner publico isolado, nunca private VPS\n    runs-on: ubuntu-latest"],
+      ["      - if: matrix.parte != 4\n        name: Semear credenciais de teste\n        run: |\n          cp .env.e2e .env.local\n          pnpm exec tsx scripts/seed-e2e-credentials.ts", "      - if: matrix.parte != 4\n        name: Semear credenciais de teste\n        run: |\n          cp .env.e2e .env.local\n          pnpm exec tsx scripts/seed-e2e-credentials.ts\n\n      # ELUS360: somente no ambiente isolado do E2E; guarda de superadmin.\n      - if: matrix.parte != 4\n        name: Preparar identidade de superadmin descartável\n        run: pnpm exec tsx scripts/seed-e2e-system-update.ts"],
+    ],
+  },
+  {
+    path: "hostgator-setup-kit/README.md",
+    officialBlob: "51170761b7e17f8386611e60c608c8ee3310756a",
+    kind: "elus_install_guide",
+    edits: [
+      ["2. Clone o repositório (`git clone --depth 1 https://github.com/melgarafael/DeskcommCRM.git deskcommcrm`)", "2. Clone o repositório (`git clone --depth 1 https://github.com/OARANHA/elus360.git elus360`)"],
+      ["3. Diga: *\"instala o DeskcommCRM pra mim\"*. O guia `deskcomm-instalar` conduz tudo —", "3. Diga: *\"instala o ELUS360 pra mim\"*. O guia `elus360-instalar` conduz tudo —"],
+    ],
+  },
+  {
+    path: "README.md",
+    officialBlob: "7d38cb44846e6edf820472fc6febd9f7e9537921",
+    kind: "elus_repo_guide",
+    edits: [
+      ["curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash\n", "curl -fsSL https://raw.githubusercontent.com/OARANHA/elus360/main/scripts/instalar-guias.sh | bash\n"],
+      ["cada um tem o seu jeito — `/deskcomm-instalar` no Claude Code, no Cursor e no Antigravity;\n`$deskcomm-instalar` no Codex; no OpenCode, peça pelo nome, em linguagem natural.", "cada um tem o seu jeito — `/elus360-instalar` no Claude Code, no Cursor e no Antigravity;\n`$elus360-instalar` no Codex; no OpenCode, peça pelo nome, em linguagem natural."],
+      ["curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash -s -- --remover\n", "curl -fsSL https://raw.githubusercontent.com/OARANHA/elus360/main/scripts/instalar-guias.sh | bash -s -- --remover\n"],
+    ],
+  },
+
+  {
     path: 'app/app/ai/agents/_components/AgentsList.tsx',
     officialBlob: '0e369e8d944fd45c3d646c2bcc1a7d6dc9e49a57',
     kind: 'controlled_ui',
@@ -362,6 +402,19 @@ export function adaptText(original, adapter) {
  * Este reconhecimento NÃO vale para código, scripts/hooks, modes ou arquivos ELUS.
  * Um item retido é conferido contra o blob Git do release oficial antes da escrita.
  */
+
+/** Estrutura Deskcomm oficial pinada: política ELUS vive em docs/elus360. */
+export const ELUS_STRUCTURAL_DOCS = Object.freeze({
+  "AGENTS.md": { officialBlob: "e277161eabff352162a15efd23714cde9c757796", forkBlob: "18e1b4e76694ec9a736331a17d52b259f06d6f1a" },
+  "CLAUDE.md": { officialBlob: "58bdf20f39a04ff56878987dcf0ab770426aabc4", forkBlob: "8173283ad5c4d154ad601a725cd8488ba11ab589" },
+  "docs/index.md": { officialBlob: "e461d4b9b5b7659832c7df4330893eef97f1ed27", forkBlob: "3741cd933931fcfd0358187563a8f400e0ac1abd" },
+});
+export function keepOfficialStructuralDocument(item) {
+  return !!item && Object.hasOwn(ELUS_STRUCTURAL_DOCS,item.path) &&
+    item.reason === 'both_changed' && item.fork_status === 'M' &&
+    item.upstream_status === 'M';
+}
+
 export function keepOfficialDocumentation(item) {
   if (!item || item.fork_status !== 'D' ||
       !['both_changed','deletion_or_unsupported_mode'].includes(item.reason))
@@ -425,7 +478,7 @@ export function planChanges({report, targetSha, sourceByPath, officialBlobByPath
   const officialKept = report.review.filter(item =>
     !adaptedPaths.has(item.path) &&
     (keepOfficialDocumentation(item) || keepOfficialDeveloperScript(item) ||
-     keepOfficialUpstreamValidator(item)));
+     keepOfficialUpstreamValidator(item) || keepOfficialStructuralDocument(item)));
   const keptPaths = new Set(officialKept.map(item=>item.path));
   const remaining = report.review.filter(item =>
     !adaptedPaths.has(item.path) && !keptPaths.has(item.path));
@@ -510,7 +563,7 @@ export function run(argv) {
   // O upstream já está no worktree: validar identidade, modo não-executável e
   // ausência de alterações em cada doc que decidimos conservar.
   const rawTree=git(['-C',candidate,'ls-tree','-rz','HEAD','--',
-    '.agents/skills','.claude/skills','hostgator-setup-kit/test-validators.sh']);
+    '.agents/skills','.claude/skills','hostgator-setup-kit/test-validators.sh','AGENTS.md','CLAUDE.md','docs/index.md']);
   const officialDocs = new Map();
   for(const record of rawTree.split('\0').filter(Boolean)) {
     const m=/^(\d{6}) blob ([a-f0-9]{40})\t(.+)$/.exec(record);
@@ -525,7 +578,14 @@ export function run(argv) {
   for(const item of plan.officialKept) {
     const developerTool=keepOfficialDeveloperScript(item);
     const officialValidator=keepOfficialUpstreamValidator(item);
+    const structuralDoc=keepOfficialStructuralDocument(item);
     const expected=officialDocs.get(item.path);
+    if (structuralDoc) {
+      const policy=ELUS_STRUCTURAL_DOCS[item.path];
+      if (expected?.sha!==policy.officialBlob ||
+          git(['-C',candidate,'rev-parse',report.fork_sha+':'+item.path])!==policy.forkBlob)
+        throw new Error('ELUS_STRUCTURAL_DOCUMENT_BLOB_CHANGED: '+item.path);
+    }
     const allowedMode=developerTool || officialValidator
       ? ['100644','100755'].includes(expected?.mode)
       : expected?.mode==='100644';
@@ -539,6 +599,7 @@ export function run(argv) {
     officialKept.push({path:item.path,official_blob:expected.sha,
       decision:developerTool ? 'keep_official_devtool_excluded_from_runtime'
         : officialValidator ? 'keep_official_upstream_test_without_elus_modifications'
+        : structuralDoc ? 'keep_official_structural_document_with_elus_policy_in_docs_elus360'
         : 'keep_official_document_no_elus_overlay'});
 
   }

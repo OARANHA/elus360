@@ -238,7 +238,16 @@ jobs:
             tests/unit/elus360-ia-gerenciada-guard.test.ts \
             lib/elus360/ai-managed/authorize-version-write.test.ts \
             'app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts' \
-            tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts
+            tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts \
+            tests/unit/branding.test.ts \
+            tests/unit/elus360-ia-gerenciada-policy.test.ts \
+            tests/unit/elus360-ia-incluida-welcome.test.ts \
+            tests/unit/elus360-chutes-fontes-independentes.test.ts \
+            tests/unit/elus360-create-agent-bypass.test.ts \
+            tests/unit/elus360-executores-nao-se-misturam.test.ts \
+            tests/unit/agent-version-columns-drift.test.ts \
+            'app/api/v1/admin/tenants/[id]/ai-default/route.test.ts' \
+            'app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts'
 
       - name: Build de produção do código composto (SEM publicar imagem)
         id: composed_build
