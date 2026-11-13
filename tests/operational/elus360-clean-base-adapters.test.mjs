@@ -126,6 +126,16 @@ test('distribuição: build local exige pedido expresso, preservando fonte ofici
     'preflight_plataforma_atualizacao() {',
     '  preflight_imagens_crm "$1" "$2" || return 1',
     '}',
+    'veredito_das_imagens_da_release() {',
+    '  local versao="${1:-}" img total=0 achadas=0',
+    '  versao="${versao#v}"',
+    '  for img in "$IMG_APP" "$IMG_WORKER" "$IMG_SCHEDULER" "$IMG_VOICE_AGENT"; do',
+    '    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1; then',
+    '      achadas=$((achadas + 1))',
+    '    fi',
+    '  done',
+    '  printf prontas',
+    '}',
     'build_local_pedido() {',
     '  test "${DESKCOMM_BUILD_LOCAL:-}" = 1',
     '}',
@@ -151,6 +161,9 @@ test('distribuição: build local exige pedido expresso, preservando fonte ofici
   assert.match(result,/construir_aqui_e_subir\(\) \{\n  if ! build_local_pedido; then/);
   assert.match(result,/ghcr\.io\/oaranha/);
   assert.match(result,/preflight_imagens_crm/);
+  assert.match(result,/plataforma=linux\/arm64/);
+  assert.match(result,/manifesto_tem_plataforma/);
+  assert.doesNotMatch(result,/linux\/amd64 exclusivo/);
   assert.throws(()=>composeOptionalBuildPolicy(merged.replace('IMG_NS="ghcr.io/oaranha"','IMG_NS="ghcr.io/other"'),official),/PROVENANCE_MISSING/);
   assert.throws(()=>composeOptionalBuildPolicy(merged.replace('construir_aqui_e_subir()', 'funcao_renomeada()'),official),/FUNCTION_ANCHOR/);
 });
