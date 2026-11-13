@@ -106,3 +106,9 @@ Foi feita verificação isolada do transformador contra fixture de funções: tr
 - **E2E upstream:** no HEAD anterior `0d67e98b`, o job `e2e-parte (3)` (131660671366) falhou no teste oficial `tests/e2e/busca-na-conversa.spec.ts:243`: mensagem marcada, mas sem anel visual identificado no `box-shadow`. Não há prova de causalidade com overlay ELUS. Não alterar o componente oficial como efeito colateral da integração.
 - **Namespace ELUS:** os dois arquivos do reconciliador que causavam `namespace-das-imagens` RED foram corrigidos em `fb6a15d` e `bf575e9`; testes JS isolados positivos/negativos passaram. **Não inferir CI GREEN** desse diagnóstico.
 - Próximos gates: conferir resultados do HEAD exato quando disponíveis, auditar relatório SQL, e continuar a composição segura dos entrypoints do instalador sem construir na VPS nem migrar banco real.
+
+### T05 — gate de auditoria SQL corrigido após CI RED (13/11/2026)
+
+O HEAD `fb699bb` da PR #37 teve **6/7 workflows GREEN**. A candidata clean-base v1.108.0 (run `43367699276`, job `131695892479`) falhou no passo novo de auditoria SQL: `ELUS_SQL_AUDIT_NO_GO: CAMINHO_SQL_NAO_ESPERADO: supabase/migrations/MANIFEST.md`. O arquivo é um manifesto histórico, não uma migration. A mensagem final genérica do workflow foi consequência desse passo, não prova independente de falha do instalador.
+
+Correção específica: `835d324b` classifica apenas `supabase/migrations/MANIFEST.md` como documentação e o ignora ao montar o conjunto SQL; caminhos desconhecidos continuam falhando fechados. `fb36f77e` acrescenta teste dirigido para esta exceção, SQL válido e caminhos inesperados. Verificação isolada da classificação passou (5 casos), **sem afirmar novo CI GREEN**. Auditoria, código do Deskcomm e banco operacional permanecem sem execução de DDL. Próximo gate: avaliar o relatório SQL gerado pelo workflow do novo HEAD, sem polling, resolver divergências realmente encontradas e preservar a base oficial.
