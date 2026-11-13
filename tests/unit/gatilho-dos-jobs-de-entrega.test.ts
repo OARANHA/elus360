@@ -306,6 +306,13 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
     condicao: null,
     efeito: "Prepara a candidata sobre release Deskcomm oficial pinada em runner descartável; sem executar, o overlay não tem inventário de conflitos nem prova de procedência.",
   },
+  "elus360-clean-base-candidate.yml::staging-elus-e2e": {
+    condicao: null,
+    efeito:
+      "Homologa a arvore oficial v1.108 + overlay ELUS usando Supabase local, Auth real e Playwright em runner publico. " +
+      "Skip na candidata deixa login, marca, administracao de tenants e MFA sem prova de integracao; " +
+      "nenhuma verificacao local autoriza escrita no banco operacional.",
+  },
   "elus360-clean-base-sql-t05b.yml::sql-disposable": {
     condicao: "github.repository == 'OARANHA/elus360' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 37)",
     efeito:

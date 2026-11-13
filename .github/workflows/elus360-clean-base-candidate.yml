@@ -415,3 +415,165 @@ jobs:
             ${{ runner.temp }}/elus360-clean-reports/elus360-composed.patch
             ${{ runner.temp }}/elus360-clean-reports/elus360-composed-validation.json
             ${{ runner.temp }}/elus360-clean-reports/elus360-composed-typecheck.json
+
+  staging-elus-e2e:
+    name: ELUS v1.108 — aceite funcional em Supabase local
+    needs: [prepare-clean-base]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    # Sem secrets, ambiente externo, runner privado ou conexao com projeto remoto.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: elus360-v1108-composed-staging-source
+          path: ${{ runner.temp }}/elus-staging-delivery
+
+      - name: Conferir origem, conteudo e integridade antes de extrair
+        env:
+          EXPECTED_FORK: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_OFFICIAL: 0b60c5abaace17922ae645399a6a6183a5f5c357
+        shell: bash
+        run: |
+          set -euo pipefail
+          DELIVERED="$RUNNER_TEMP/elus-staging-delivery"
+          export DELIVERED
+          (cd "$DELIVERED" && sha256sum -c elus360-v1108-composed-staging-source.sha256)
+          python3 - <<'PY'
+          import json, os, tarfile
+          from pathlib import Path
+          delivery=Path(os.environ['DELIVERED'])
+          manifest=json.loads((delivery/'elus360-composed-staging-manifest.json').read_text())
+          assert manifest['stage']=='COMPOSED_STAGING_SOURCE_ONLY'
+          assert manifest['release_status']=='NO_GO_PENDING_FUNCTIONAL_E2E_STAGING_AND_INSTALLER_ACCEPTANCE'
+          assert manifest['fork_sha']==os.environ['EXPECTED_FORK']
+          assert manifest['official_sha']==os.environ['EXPECTED_OFFICIAL']
+          assert len(manifest['git_tree_sha'])==40
+          assert set(manifest['constraints'])=={'no_merge','no_deploy','no_production_data','no_private_env'}
+          archive=delivery/'elus360-v1108-composed-staging-source.tar.gz'
+          with tarfile.open(archive,'r:gz') as tar:
+            contents=tar.getmembers()
+            if len(contents)<10000: raise RuntimeError('ELUS_STAGING_SOURCE_INCOMPLETE')
+            for item in contents:
+              path=Path(item.name)
+              if item.name.startswith('/') or '..' in path.parts or not (item.isfile() or item.isdir()):
+                raise RuntimeError('ELUS_STAGING_SOURCE_UNSAFE_PATH')
+              if any(part in {'.git','.next','node_modules'} for part in path.parts):
+                raise RuntimeError('ELUS_STAGING_SOURCE_RUNTIME_FILE')
+              if any(part.startswith('.env') and not part.endswith('.example') for part in path.parts):
+                raise RuntimeError('ELUS_STAGING_SOURCE_PRIVATE_ENV')
+          print('ELUS_STAGING_MANIFEST_AND_PATHS_OK')
+          PY
+          mkdir -p "$RUNNER_TEMP/elus-staging-source"
+          tar -xzf "$DELIVERED/elus360-v1108-composed-staging-source.tar.gz" \
+            -C "$RUNNER_TEMP/elus-staging-source" --no-same-owner
+          test -f "$RUNNER_TEMP/elus-staging-source/playwright.config.ts"
+          test -f "$RUNNER_TEMP/elus-staging-source/supabase/baseline.sql"
+          echo "ELUS_STAGING_SOURCE=$RUNNER_TEMP/elus-staging-source" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.117.0
+
+      - name: Instalar dependencias da fonte composta
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          test "$(node -p "require('./package.json').packageManager")" = pnpm@9.15.9
+          pnpm install --frozen-lockfile
+
+      - name: Reservar portas locais antes do Supabase
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          portas=$(grep -oE '^[[:space:]]*(shadow_)?port[[:space:]]*=[[:space:]]*[0-9]+' supabase/config.toml |
+            grep -oE '[0-9]+$' | sort -un | paste -sd, -)
+          test -n "$portas"
+          sudo sysctl -w net.ipv4.ip_local_reserved_ports="$portas"
+
+      - name: Subir Supabase descartavel sem replay da cadeia historica
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          mkdir -p "$RUNNER_TEMP/elus-sql-original"
+          mv supabase/migrations "$RUNNER_TEMP/elus-sql-original/"
+          mkdir -p supabase/migrations
+          supabase start -x studio,postgres-meta
+
+      - name: Instalar baseline composto em banco local com Auth e RLS
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          DB='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+          create schema if not exists extensions;
+          create extension if not exists "uuid-ossp" with schema extensions;
+          create extension if not exists pgcrypto with schema extensions;
+          create extension if not exists vector with schema public;
+          create extension if not exists citext with schema public;
+          create extension if not exists pg_trgm with schema public;
+          SQL
+          psql "$DB" -v ON_ERROR_STOP=1 -q -f supabase/baseline.sql
+          psql "$DB" -v ON_ERROR_STOP=1 -q \
+            -c "insert into private.app_secrets (name, value) values ('nuvemshop_oauth_key', '$(openssl rand -hex 32)') on conflict (name) do nothing;"
+          ids="$(docker ps -q --filter name=supabase_realtime)"
+          test -n "$ids" || { echo 'ELUS_STAGING_NO_REALTIME'; exit 1; }
+          docker restart $ids >/dev/null
+          for n in $(seq 1 30); do
+            health="$(docker inspect -f '{{.State.Health.Status}}' $ids 2>/dev/null || true)"
+            test "$health" = healthy && break
+            sleep 2
+          done
+          test "$health" = healthy || { echo 'ELUS_STAGING_REALTIME_UNHEALTHY'; exit 1; }
+
+      - name: Gerar ambiente seguro e build de producao contra Supabase local
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          SENTRY_DSN: "off"
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          pnpm e2e:env
+          test -f .env.e2e
+          grep -Eq '^NEXT_PUBLIC_SUPABASE_URL=http://(127[.]0[.]0[.]1|localhost):[0-9]+' .env.e2e
+          grep -Eq '^SUPABASE_DB_URL=postgres(ql)?://[^@]+@(127[.]0[.]0[.]1|localhost):[0-9]+' .env.e2e
+          cp .env.e2e .env.local
+          pnpm e2e:build
+
+      - name: Instalar Chromium para as jornadas do ELUS
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Preparar identidades descartaveis e impedir promocao de admin de tenant
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          test -f .env.e2e && test -f .env.local
+          pnpm exec tsx scripts/seed-e2e-credentials.ts
+          pnpm exec tsx scripts/seed-e2e-system-update.ts
+
+      - name: Playwright real — marca, empresas, MFA e modelo de IA
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          SENTRY_DSN: "off"
+          CI: "true"
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          pnpm exec playwright test --workers=1 --reporter=list \
+            tests/e2e/marca-logo.spec.ts \
+            tests/e2e/admin-gestao-de-tenants.spec.ts \
+            tests/e2e/mfa-opcional.spec.ts \
+            tests/e2e/molde-de-ia-empresas-novas.spec.ts
+          echo 'ELUS_STAGING_FUNCTIONAL_E2E_PASSED'
+
