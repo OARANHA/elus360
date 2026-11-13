@@ -208,7 +208,7 @@ export function composeOptionalBuildPolicy(merged, official) {
     replace(name,locate(official,name));
   }
   const requested=`build_local_pedido() {
-  case "${DESKCOMM_BUILD_LOCAL:-}" in
+  case "\${DESKCOMM_BUILD_LOCAL:-}" in
     1|sim|s|yes) return 0 ;;
     *) return 1 ;;
   esac
