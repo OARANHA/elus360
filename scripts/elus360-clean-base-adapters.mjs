@@ -202,6 +202,25 @@ export function composeOptionalBuildPolicy(merged, official) {
     if(before===next)return;
     result=result.replace(before,next);
   }
+  // A antiga guarda ELUS era executada pelo source no início dos dois
+  // entrypoints e recusava ARM64 antes mesmo do preflight de imagens.
+  // Não importar do upstream o bypass para arquiteturas desconhecidas:
+  // preservamos apenas Linux amd64/arm64 e falhamos antes de efeitos colaterais.
+  replace('veredito_da_arquitetura', `veredito_da_arquitetura() {
+  case "\${1:-}" in
+    x86_64|amd64) printf 'amd64'; return 0 ;;
+    aarch64|arm64) printf 'arm64'; return 0 ;;
+    *) printf 'nao_suportada'; return 1 ;;
+  esac
+}`);
+  replace('verificar_arquitetura_do_kit', `verificar_arquitetura_do_kit() {
+  local arch sistema
+  arch="$(uname -m 2>/dev/null || printf desconhecida)"
+  sistema="$(uname -s 2>/dev/null || printf desconhecido)"
+  [ "$sistema" = Linux ] && arquitetura_suportada_pelo_kit "$arch" && return 0
+  printf 'ELUS_DISTRIBUTION_NO_GO: host %s/%s não suportado; exige Linux amd64 ou arm64.\\n' "$sistema" "$arch" >&2
+  return 3
+}`);
   // Recuperação circunscrita ao suporte oficial de arquiteturas e WAHA.
   for(const name of ['arquitetura_suportada_pelo_kit',
     'imagem_waha_padrao_para_host','preflight_plataforma_atualizacao']) {
