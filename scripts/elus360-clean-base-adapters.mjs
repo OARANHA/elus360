@@ -189,7 +189,9 @@ export const DISTRIBUTION_MERGES = [
  * explicitamente configurado pode acioná-la.
  * Os demais scripts de entrada continuam com seus próprios preflights.
  */
-export function composeOptionalBuildPolicy(merged, official) {
+export function composeOptionalBuildPolicy(merged, official, expectedNamespace) {
+  if(typeof expectedNamespace!=='string' || !/^ghcr\.io\/[a-z0-9_-]+$/.test(expectedNamespace))
+    throw new Error('ELUS_OPTIONAL_BUILD_NAMESPACE_NOT_PINNED');
   function locate(source,name) {
     const re=new RegExp('^'+name+'\\(\\) \\{[^\\n]*\\n[\\s\\S]*?^\\}', 'gm');
     const matches=[...source.matchAll(re)];
@@ -269,7 +271,7 @@ export function composeOptionalBuildPolicy(merged, official) {
 `);
   if(guarded===officialBuild)throw new Error('ELUS_BUILD_OPTIN_ANCHOR');
   replace('construir_aqui_e_subir',guarded);
-  if(!result.includes('IMG_NS="ghcr.io/oaranha"') ||
+  if(!result.includes('IMG_NS="'+expectedNamespace+'"') ||
      !result.includes('elus360_origem_confiavel()') ||
      !result.includes('--no-build'))
     throw new Error('ELUS_OPTIONAL_BUILD_PROVENANCE_MISSING');
@@ -305,7 +307,8 @@ function mergeDistributionThreeWay({candidate,report,rule}) {
     // compartilhado pode recuperar estas capacidades nesta etapa; install.sh
     // e update.sh têm gates adicionais e continuam sujeitos a homologação.
     if (rule.kind==='distribution_common_three_way')
-      content=composeOptionalBuildPolicy(content,ours.toString('utf8'));
+      content=composeOptionalBuildPolicy(content,ours.toString('utf8'),
+        /^IMG_NS="([^"]+)"$/m.exec(fork.toString('utf8'))?.[1]);
     if(!content || content===ours.toString('utf8'))
       throw new Error('ELUS_DISTRIBUTION_MERGE_WITHOUT_ELUS_DELTA: '+path);
     // O namespace tem fonte única no _common.sh original do ELUS (blob
