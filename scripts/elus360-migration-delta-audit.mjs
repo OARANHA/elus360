@@ -31,6 +31,14 @@ function git(repo, argv) {
   });
 }
 
+/** Escopo SQL explícito: manifesto histórico é documentação, não migration. */
+export function classifySqlPath(path) {
+  if (path === 'supabase/migrations/MANIFEST.md') return 'manifest_documentation';
+  if (path === 'supabase/baseline.sql' ||
+      /^supabase\/migrations\/[^/]+\.sql$/.test(path)) return 'sql';
+  throw new Error('CAMINHO_SQL_NAO_ESPERADO: ' + path);
+}
+
 function tree(repo, sha) {
   // OID e modo vêm do objeto Git, não do checkout ou do banco instalado.
   const raw = git(repo, ['ls-tree', '-r', '-z', sha, '--', 'supabase/migrations', 'supabase/baseline.sql']);
@@ -41,8 +49,7 @@ function tree(repo, sha) {
     const [, mode, type, oid, path] = match;
     if (type !== 'blob' || !['100644', '100755'].includes(mode))
       throw new Error('SQL_TIPO_GIT_NAO_SUPORTADO: ' + path);
-    if (!(path === 'supabase/baseline.sql' || /^supabase\/migrations\/[^/]+\.sql$/.test(path)))
-      throw new Error('CAMINHO_SQL_NAO_ESPERADO: ' + path);
+    if (classifySqlPath(path) === 'manifest_documentation') continue;
     entries.set(path, { oid, mode });
   }
   if (!entries.has('supabase/baseline.sql')) throw new Error('BASELINE_AUSENTE: ' + sha);
