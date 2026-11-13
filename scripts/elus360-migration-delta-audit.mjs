@@ -119,6 +119,10 @@ export function inspectTrees(base, fork, target) {
     stage: 'SQL_DELTA_AUDITED_NOT_APPLIED',
     local_delta_count: localDelta.length,
     upstream_delta_count: upstreamDelta.length,
+    // Evidência reproduzível por caminho/OID: nenhuma escrita em schema/banco.
+    // Não imprimir SQL bruto nem interpretar diferenças de baseline como migradas.
+    local_sql_changes: localDelta,
+    upstream_sql_changes: upstreamDelta,
     overlapping_paths: overlap,
     already_identical_paths: identical.map(x => x.path),
     migration_prefix_collisions: prefixCollisions,
