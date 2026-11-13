@@ -325,6 +325,14 @@ function mergeDistributionThreeWay({candidate,report,rule}) {
           'preflight_plataforma_atualizacao','BACKUP_ESPERA_LOCK=300'];
     if(mandatory.some(x=>!content.includes(x)))
       throw new Error('ELUS_DISTRIBUTION_REQUIRED_CONTRACT_MISSING: '+path);
+    // Validar os scripts em memória, antes de gravá-los na árvore candidata.
+    // Não executa install/update, Docker, backup, DDL ou chamadas externas.
+    const syntax=spawnSync('bash',['-n'],{
+      input:content,encoding:'utf8',maxBuffer:512*1024,timeout:10000,
+    });
+    if(syntax.error || syntax.signal || syntax.status!==0)
+      throw new Error('ELUS_DISTRIBUTION_BASH_SYNTAX_NO_GO: '+path+
+        ' status='+syntax.status+' '+(syntax.error?.message||syntax.stderr||''));
     return {path,kind:rule.kind,official_blob:rule.officialBlob,
       base_blob:rule.baseBlob,fork_blob:rule.forkBlob,content,sha256:digest(content)};
   } finally {
