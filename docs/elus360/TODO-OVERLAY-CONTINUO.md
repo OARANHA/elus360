@@ -90,3 +90,11 @@ O reconciliador utiliza **`git merge-file -p`** do próprio Git para compor os s
 - Teste específico acrescentado a `tests/operational/elus360-clean-base-adapters.test.mjs`, sujeito a CI do HEAD correspondente. As correções subsequentes de escape de JavaScript/Bash estão incluídas no HEAD citado.
 - **NÃO É SUPORTE ARM64 PRONTO:** `install.sh`, `update.sh`, preflight OCI/release e distribuição das quatro imagens ainda exigem revisão integrada. Os scripts de entrada continuam com restrições próprias, e esse adaptador não altera os gates de banco. O merge real e sua execução ainda não foram validados.
 - Gate seguinte: verificar a árvore composta e o teste do novo HEAD; integrar os entrypoints com recusa segura antes de efeitos colaterais, sem aceitar build implícito quando o registry falha.
+
+### T04 — plataforma OCI por host na composição (12/11/2026)
+
+Commits deste incremento: `1b8fb263` (guarda inicial), `744d51c3` (fixture específica), `4e82698c` (manifestos) e `97b78691` (regressão). `composeOptionalBuildPolicy` agora reconhece **somente Linux AMD64/ARM64** no preflight inicial, seleciona a WAHA oficial por host e exige que as quatro imagens estejam presentes **para a plataforma real** no manifesto OCI. Índices multiarch não são recusados por conter ARM64, mas uma imagem sem a arquitetura correta continua NO-GO. Build local permanece **opt-in explícito** por `DESKCOMM_BUILD_LOCAL=1`, sem fallback automático.
+
+Foi feita verificação isolada do transformador contra fixture de funções: transformação positiva e recusas de origem inválida/função ausente passaram; **não** executamos o merge real com `git merge-file`, shell do instalador, upgrade ou suíte da árvore composta. Os testes versionados permanecem dependentes do CI do HEAD.
+
+**Bloqueios que ainda faltam:** `install.sh` e `update.sh` têm mensagens e políticas próprias AMD64; `plataforma_oci_do_host`, preflight OCI, `trio_publicado`, rollback e caminhos explícitos de build precisam ser reconciliados de ponta a ponta. Uma implementação parcial no helper não autoriza instalação ARM64. Não alterar scripts de entrada por substituição geral, não relaxar release assinada/proveniência e não executar builds pesados por padrão.
