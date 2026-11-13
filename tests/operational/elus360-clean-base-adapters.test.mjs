@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADAPTERS, OFFICIAL_TARGET, adaptText, planChanges } from '../../scripts/elus360-clean-base-adapters.mjs';
+import { ADAPTERS, OFFICIAL_TARGET, adaptText, planChanges, composeOptionalBuildPolicy } from '../../scripts/elus360-clean-base-adapters.mjs';
 
 // Testes compactos usam seis adaptadores de baixa complexidade;
 // AgentForm, dicionário e teste do preâmbulo exigem o conteúdo upstream real.
@@ -107,4 +107,42 @@ test('reconciliador mantém timeout oficial de 45min e não aceita timeout aninh
     assert.equal(adaptText(original,{path:adapter.path,edits:[[original,updated]]}),updated);
   }
   assert.equal(adapter.edits.some(([,v])=>v.includes('minutos: 30,')),false);
+});
+
+test('distribuição: build local exige pedido expresso, preservando fonte oficial e origem ELUS',()=>{
+  const official=[
+    'arquitetura_suportada_pelo_kit() {',
+    '  case "${1:-}" in x86_64|amd64|aarch64|arm64) return 0 ;; *) return 1 ;; esac',
+    '}',
+    'imagem_waha_padrao_para_host() {',
+    '  case "$(uname -m)" in aarch64|arm64) printf arm-waha ;; *) printf x86-waha ;; esac',
+    '}',
+    'preflight_plataforma_atualizacao() {',
+    '  preflight_imagens_crm "$1" "$2" || return 1',
+    '}',
+    'build_local_pedido() {',
+    '  test "${DESKCOMM_BUILD_LOCAL:-}" = 1',
+    '}',
+    'build_local_permitido() {',
+    '  return 0',
+    '}',
+    'construir_aqui_e_subir() {',
+    '  dc -f "$COMPOSE_BUILD" build && dc -f "$COMPOSE_BUILD" up -d',
+    '}',
+    'IMG_NS="ghcr.io/oaranha"',
+    'elus360_origem_confiavel() { return 0; }',
+    '# --no-build',
+  ].join('\\n')+'\\n';
+  const merged=official
+    .replace('x86_64|amd64|aarch64|arm64','x86_64|amd64')
+    .replace('  return 0\\n}\\nconstruir_aqui_e_subir', '  return 1\\n}\\nconstruir_aqui_e_subir');
+  const result=composeOptionalBuildPolicy(merged,official);
+  assert.match(result,/x86_64\\|amd64\\|aarch64\\|arm64/);
+  assert.match(result,/DESKCOMM_BUILD_LOCAL:-/);
+  assert.match(result,/build_local_permitido\\(\\) \\{\\n  build_local_pedido\\n\\}/);
+  assert.match(result,/construir_aqui_e_subir\\(\\) \\{\\n  if ! build_local_pedido; then/);
+  assert.match(result,/ghcr\\.io\\/oaranha/);
+  assert.match(result,/preflight_imagens_crm/);
+  assert.throws(()=>composeOptionalBuildPolicy(merged.replace('IMG_NS="ghcr.io/oaranha"','IMG_NS="ghcr.io/other"'),official),/PROVENANCE_MISSING/);
+  assert.throws(()=>composeOptionalBuildPolicy(merged.replace('construir_aqui_e_subir()', 'funcao_renomeada()'),official),/FUNCTION_ANCHOR/);
 });
