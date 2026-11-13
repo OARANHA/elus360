@@ -132,16 +132,16 @@ test('distribuição: build local exige pedido expresso, preservando fonte ofici
     'IMG_NS="ghcr.io/oaranha"',
     'elus360_origem_confiavel() { return 0; }',
     '# --no-build',
-  ].join('\\n')+'\\n';
+  ].join('\n')+'\n';
   const merged=official
     .replace('x86_64|amd64|aarch64|arm64','x86_64|amd64')
-    .replace('  return 0\\n}\\nconstruir_aqui_e_subir', '  return 1\\n}\\nconstruir_aqui_e_subir');
+    .replace('  return 0\n}\nconstruir_aqui_e_subir', '  return 1\n}\nconstruir_aqui_e_subir');
   const result=composeOptionalBuildPolicy(merged,official);
-  assert.match(result,/x86_64\\|amd64\\|aarch64\\|arm64/);
+  assert.match(result,/x86_64\|amd64\|aarch64\|arm64/);
   assert.match(result,/DESKCOMM_BUILD_LOCAL:-/);
-  assert.match(result,/build_local_permitido\\(\\) \\{\\n  build_local_pedido\\n\\}/);
-  assert.match(result,/construir_aqui_e_subir\\(\\) \\{\\n  if ! build_local_pedido; then/);
-  assert.match(result,/ghcr\\.io\\/oaranha/);
+  assert.match(result,/build_local_permitido\(\) \{\n  build_local_pedido\n\}/);
+  assert.match(result,/construir_aqui_e_subir\(\) \{\n  if ! build_local_pedido; then/);
+  assert.match(result,/ghcr\.io\/oaranha/);
   assert.match(result,/preflight_imagens_crm/);
   assert.throws(()=>composeOptionalBuildPolicy(merged.replace('IMG_NS="ghcr.io/oaranha"','IMG_NS="ghcr.io/other"'),official),/PROVENANCE_MISSING/);
   assert.throws(()=>composeOptionalBuildPolicy(merged.replace('construir_aqui_e_subir()', 'funcao_renomeada()'),official),/FUNCTION_ANCHOR/);
