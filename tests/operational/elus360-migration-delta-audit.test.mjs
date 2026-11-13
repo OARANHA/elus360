@@ -35,6 +35,10 @@ test('mudanças diferentes no mesmo caminho e baseline não são aprovadas', () 
   const result = inspectTrees(base, fork, target);
   assert.deepEqual(result.overlapping_paths.map(x => x.path), [baseline, path]);
   assert.equal(result.baseline.same_bytes, false);
+  assert.deepEqual(result.local_sql_changes.map(x => x.path), [baseline, path]);
+  assert.deepEqual(result.upstream_sql_changes.map(x => x.path), [baseline, path]);
+  assert.equal(result.local_sql_changes[0].after_oid, 'two');
+  assert.equal(result.upstream_sql_changes[0].after_oid, 'three');
 });
 
 test('manifesto histórico não vira migration nem esconde SQL inesperado', () => {
