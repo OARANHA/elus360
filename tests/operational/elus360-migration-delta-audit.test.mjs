@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectTrees } from '../../scripts/elus360-migration-delta-audit.mjs';
+import { inspectTrees, classifySqlPath } from '../../scripts/elus360-migration-delta-audit.mjs';
 
 const sql = (oid) => ({ oid, mode: '100644' });
 const baseline = 'supabase/baseline.sql';
@@ -35,4 +35,12 @@ test('mudanças diferentes no mesmo caminho e baseline não são aprovadas', () 
   const result = inspectTrees(base, fork, target);
   assert.deepEqual(result.overlapping_paths.map(x => x.path), [baseline, path]);
   assert.equal(result.baseline.same_bytes, false);
+});
+
+test('manifesto histórico não vira migration nem esconde SQL inesperado', () => {
+  assert.equal(classifySqlPath('supabase/migrations/MANIFEST.md'), 'manifest_documentation');
+  assert.equal(classifySqlPath('supabase/migrations/20261112120000_example.sql'), 'sql');
+  assert.equal(classifySqlPath('supabase/baseline.sql'), 'sql');
+  assert.throws(() => classifySqlPath('supabase/migrations/README.md'), /CAMINHO_SQL_NAO_ESPERADO/);
+  assert.throws(() => classifySqlPath('supabase/migrations/nested/migration.sql'), /CAMINHO_SQL_NAO_ESPERADO/);
 });
