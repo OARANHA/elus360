@@ -305,6 +305,100 @@ jobs:
           else if(remaining)console.log('::warning::ELUS_RELEASE_NO_GO: '+remaining+' conflitos ainda exigem revisão');
           NODE
 
+      # Somente o index Git da arvore composta: nao inclui segredos gerados,
+      # .next, node_modules nem arquivos locais. Staging, nunca release.
+      - name: Exportar fonte composta para homologacao isolada
+        id: staging_source
+        if: ${{ steps.compose_adapters.outcome == 'success' && steps.composed_install.outcome == 'success' && steps.composed_types.outcome == 'success' && steps.composed_units.outcome == 'success' && steps.composed_build.outcome == 'success' }}
+        shell: bash
+        env:
+          EXPECTED_FORK: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_OFFICIAL: 0b60c5abaace17922ae645399a6a6183a5f5c357
+        run: |
+          set -euo pipefail
+          CANDIDATE="$RUNNER_TEMP/elus360-official-clean"
+          REPORTS="$RUNNER_TEMP/elus360-clean-reports"
+          export CANDIDATE REPORTS
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          const fail=(reason)=>{throw new Error('ELUS_STAGING_EXPORT_NO_GO: '+reason)};
+          const sha=/^[a-f0-9]{40}$/;
+          const fork=process.env.EXPECTED_FORK, target=process.env.EXPECTED_OFFICIAL;
+          if (!sha.test(fork) || !sha.test(target)) fail('SHA_INVALIDO');
+          const reportDir=process.env.REPORTS, cwd=process.env.CANDIDATE;
+          const composed=JSON.parse(fs.readFileSync(path.join(reportDir,'elus360-composed-report.json'),'utf8'));
+          const validation=JSON.parse(fs.readFileSync(path.join(reportDir,'elus360-composed-validation.json'),'utf8'));
+          if(composed.schema_version!==1 || validation.schema_version!==1 ||
+              composed.fork_sha!==fork || validation.source_sha!==fork ||
+              composed.upstream_target_sha!==target || validation.upstream_target_sha!==target ||
+              composed.counts?.unresolved!==0 || composed.unresolved?.length!==0 ||
+              validation.unresolved_conflicts!==0 ||
+              validation.stage!=='COMPOSED_TECHNICAL_CHECKS_PASSED' ||
+              validation.failed_steps?.length!==0 ||
+              !['adapters','install','types','unit','build'].every(x=>validation.statuses?.[x]==='success'))
+            fail('COMPOSICAO_NAO_ACEITA_PARA_STAGING');
+          const git=(args)=>execFileSync('git',['-C',cwd,...args],{encoding:'utf8'}).trim();
+          if(git(['rev-parse','HEAD'])!==target || git(['branch','--show-current'])!=='')
+            fail('WORKTREE_NAO_E_UPSTREAM_DESTACADO');
+          const files=execFileSync('git',['-C',cwd,'ls-files','--cached','-z'])
+            .toString('utf8').split('\0').filter(Boolean);
+          if(files.length<1000)fail('ARVORE_INCOMPLETA');
+          const unsafe=files.filter(p=>p.startsWith('/') || p.split('/').includes('..') ||
+            p.split('/').some(name=>name==='.git' || name==='node_modules' || name==='.next' ||
+              (name.startsWith('.env') && !name.endsWith('.example'))));
+          if(unsafe.length)fail('CAMINHO_SENSIVEL_OU_INSEGURO: '+unsafe.length);
+          const patch=execFileSync('git',['-C',cwd,'diff','--cached','--binary'],
+            {maxBuffer:128*1024*1024});
+          if(createHash('sha256').update(patch).digest('hex')!==composed.candidate_patch?.sha256 ||
+             patch.length!==composed.candidate_patch?.bytes)
+            fail('INDEX_NAO_CORRESPONDE_AO_ARTIFACT');
+          const tree=git(['write-tree']);
+          if(!sha.test(tree))fail('TREE_SHA_INVALIDO');
+          fs.writeFileSync(path.join(reportDir,'elus360-composed-staging-tree.txt'),tree+'\n');
+          console.log('ELUS_COMPOSED_STAGING_INDEX_VERIFIED: '+tree+' / '+files.length+' caminhos');
+          NODE
+          TREE="$(cat "$REPORTS/elus360-composed-staging-tree.txt")"
+          ARCHIVE="$REPORTS/elus360-v1108-composed-staging-source.tar.gz"
+          git -C "$CANDIDATE" archive --format=tar --mtime='@0' "$TREE" | gzip -n > "$ARCHIVE"
+          test -s "$ARCHIVE"
+          gzip -t "$ARCHIVE"
+          (cd "$REPORTS" && sha256sum "elus360-v1108-composed-staging-source.tar.gz" > "elus360-v1108-composed-staging-source.sha256")
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const dir=process.env.REPORTS;
+          const digest=fs.readFileSync(path.join(dir,'elus360-v1108-composed-staging-source.sha256'),'utf8').trim().split(/\s+/)[0];
+          const tree=fs.readFileSync(path.join(dir,'elus360-composed-staging-tree.txt'),'utf8').trim();
+          const status={
+            schema_version:1, stage:'COMPOSED_STAGING_SOURCE_ONLY',
+            fork_sha:process.env.EXPECTED_FORK,official_sha:process.env.EXPECTED_OFFICIAL,
+            git_tree_sha:tree,archive_sha256:digest,
+            release_status:'NO_GO_PENDING_FUNCTIONAL_E2E_STAGING_AND_INSTALLER_ACCEPTANCE',
+            constraints:['no_merge','no_deploy','no_production_data','no_private_env']
+          };
+          fs.writeFileSync(path.join(dir,'elus360-composed-staging-manifest.json'),
+            JSON.stringify(status,null,2)+'\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            '\n### Fonte composta integral para staging\n'+
+            '- Git tree: '+tree+'\n- SHA256: '+digest+
+            '\n- Fonte validada; nao e release, imagem ou deploy.\n');
+          console.log('ELUS_COMPOSED_STAGING_ARCHIVE_READY: '+digest);
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        if: steps.staging_source.outcome == 'success'
+        with:
+          name: elus360-v1108-composed-staging-source
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/elus360-clean-reports/elus360-v1108-composed-staging-source.tar.gz
+            ${{ runner.temp }}/elus360-clean-reports/elus360-v1108-composed-staging-source.sha256
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-staging-manifest.json
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
