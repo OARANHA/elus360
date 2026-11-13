@@ -1,0 +1,45 @@
+# Ensaio separado; nenhum segredo/URL externo de banco; sem merge/deploy.
+name: ELUS360 — T05-B PostgreSQL descartável
+on:
+  pull_request:
+    paths:
+      - 'scripts/elus360-v1108-t05b-disposable.sh'
+      - '.github/workflows/elus360-clean-base-sql-t05b.yml'
+      - 'supabase/migrations/**_990[0-3]_elus_*.sql'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sql-disposable:
+    if: github.repository == 'OARANHA/elus360' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 37)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validar SHA e sintaxe
+        shell: bash
+        env:
+          EXPECTED: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          bash -n scripts/elus360-v1108-t05b-disposable.sh
+          test -z "$(git status --porcelain)"
+      - name: Aplicar baseline oficial e migrations ELUS em Postgres descartável
+        shell: bash
+        run: bash scripts/elus360-v1108-t05b-disposable.sh
+      - name: Declarar limites de interpretação
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### T05-B — evidência do banco descartável
+          - Teste retorna RED quando o baseline oficial, migrations ou assertivas falham.
+          - Escopo: instalação limpa, upgrade com registro sintético, restore, grants, RLS de dois tenants, revogação e molde Chutes.
+          - A frase PASS só é válida com job concluído e exit code 0.
+          - Sem Supabase/Auth real, MFA HTTP, prova de concorrência, canário, merge ou deploy.
+          EOF
