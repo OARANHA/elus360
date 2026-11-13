@@ -434,6 +434,42 @@ export function planChanges({report, targetSha, sourceByPath, officialBlobByPath
   return {changed, officialKept, remaining};
 }
 
+
+const ELUS_SQL_BASELINE_OID='e82bf528e36dce1c3f118c645c7e76fe2f93230b';
+const ELUS_SQL_CHAIN=[
+  ['supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql','b4fd132fdd482c017a823f2baf013b20b2850c2d'],
+  ['supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql','b91a939129f637db5f8bbc74019ac9694d335a93'],
+  ['supabase/migrations/20261106160000_9902_elus_molde_chutes_pt409.sql','f718675d50b4ae1dc81373b15139acda4767ec13'],
+  ['supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql','7d6af15a5306912fe3b1fe595ff277a56a7afbb6'],
+];
+/** Apenas arquivo candidato; nunca executa SQL no banco operacional. */
+function composeElusSql({candidate,report}) {
+  const path='supabase/baseline.sql';
+  const issue=report.review.find(x=>x.path===path);
+  if(!issue || issue.reason!=='both_changed' || issue.fork_status!=='M' ||
+     issue.upstream_status!=='M' || report.staged.includes(path))
+    throw new Error('ELUS_SQL_BASELINE_UNEXPECTED_STATE');
+  const original=readFileSync(join(candidate,path));
+  if(gitBlobSha(original)!==ELUS_SQL_BASELINE_OID)
+    throw new Error('ELUS_SQL_OFFICIAL_BLOB_CHANGED');
+  const parts=[original];
+  for(const [name,oid] of ELUS_SQL_CHAIN){
+    if(!report.staged.includes(name))throw new Error('ELUS_SQL_MIGRATION_NOT_STAGED: '+name);
+    const bytes=readFileSync(join(candidate,name));
+    if(gitBlobSha(bytes)!==oid || !bytes.toString('utf8').startsWith('-- manifest:'))
+      throw new Error('ELUS_SQL_MIGRATION_BLOB_CHANGED: '+name);
+    if(/^\s*\\(?:connect|c|include|i|ir|q|quit|copy|!)/im.test(bytes.toString('utf8')))
+      throw new Error('ELUS_SQL_META_COMMAND_FORBIDDEN: '+name);
+    parts.push(Buffer.from('\n-- ELUS360_FORWARD_BEGIN '+name+'\n'),bytes,
+      Buffer.from('\n-- ELUS360_FORWARD_END '+name+'\n'));
+  }
+  const content=Buffer.concat(parts);
+  return {path,kind:'official_baseline_plus_pinned_elus_migrations',
+    official_blob:ELUS_SQL_BASELINE_OID,
+    migrations:ELUS_SQL_CHAIN.map(([path,blob])=>({path,blob})),
+    sha256:digest(content),content};
+}
+
 function parseFlags(argv) {
   if (argv.length!==6) throw new Error('USO: --candidate /abs/worktree --source-report /abs/report.json --reports /abs/destino');
   const f = new Map();
@@ -510,24 +546,25 @@ export function run(argv) {
   // Se o Git detectar conflito semântico/textual (exit != 0), falhar fechado.
   const distributionMerged=DISTRIBUTION_MERGES.map(rule=>
     mergeDistributionThreeWay({candidate,report,rule}));
-  const mergedPaths=new Set(distributionMerged.map(x=>x.path));
-  if(mergedPaths.size!==distributionMerged.length ||
+  const sqlBaseline=composeElusSql({candidate,report});
+  const mergedPaths=new Set([...distributionMerged.map(x=>x.path),sqlBaseline.path]);
+  if(mergedPaths.size!==distributionMerged.length+1 ||
      distributionMerged.some(x=>plan.changed.some(y=>y.path===x.path) ||
        plan.officialKept.some(y=>y.path===x.path)))
     throw new Error('ELUS_DISTRIBUTION_DECISION_OVERLAP');
-  for(const c of [...plan.changed,...distributionMerged])
+  for(const c of [...plan.changed,...distributionMerged,sqlBaseline])
     writeFileSync(join(candidate,c.path),c.content);
-  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path)]);
+  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path),sqlBaseline.path]);
   const patch=execFileSync('git',['-C',candidate,'diff','--cached','--binary'],{maxBuffer:128*1024*1024});
   mkdirSync(reports,{recursive:true});
   const composed={
     schema_version:1, stage:'COMPOSED_NOT_VALIDATED',
     upstream_target_sha:actualHead, fork_sha:report.fork_sha,
     source_report_sha256:digest(readFileSync(reportPath)),
-    adapted:[...plan.changed,...distributionMerged].map(({content,...metadata})=>metadata),
+    adapted:[...plan.changed,...distributionMerged,sqlBaseline].map(({content,...metadata})=>metadata),
     official_kept:officialKept,
     counts:{safe_overlay:report.counts.staged,
-      adaptations:plan.changed.length+distributionMerged.length,
+      adaptations:plan.changed.length+distributionMerged.length+1,
       official_kept:officialKept.length,
       unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)).length},
     unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)),

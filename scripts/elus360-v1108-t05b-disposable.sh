@@ -28,6 +28,21 @@ for path in "${MIGRATIONS[@]}"; do
   test -s "$path" || fail "missing $path"
   sha256sum "$path" | awk '{print "ELUS_MIGRATION_SHA256=" $1}'
 done
+# Gerar o MESMO baseline composto testado como arquivo de instalacao.
+cp "$TMP/v1108.sql" "$TMP/v1108-elus.sql"
+for path in "${MIGRATIONS[@]}"; do
+  case "$path" in
+    *9900*) expected=b4fd132fdd482c017a823f2baf013b20b2850c2d ;;
+    *9901*) expected=b91a939129f637db5f8bbc74019ac9694d335a93 ;;
+    *9902*) expected=f718675d50b4ae1dc81373b15139acda4767ec13 ;;
+    *9903*) expected=7d6af15a5306912fe3b1fe595ff277a56a7afbb6 ;;
+    *) fail "unexpected migration: $path" ;;
+  esac
+  test "$(git hash-object "$path")" = "$expected" || fail "SHA mismatch: $path"
+  printf '\n-- ELUS360_FORWARD_BEGIN %s\n' "$path" >> "$TMP/v1108-elus.sql"
+  cat "$path" >> "$TMP/v1108-elus.sql"
+  printf '\n-- ELUS360_FORWARD_END %s\n' "$path" >> "$TMP/v1108-elus.sql"
+done
 docker run --name "$DB" -d --network none -e POSTGRES_PASSWORD=disposable-only pgvector/pgvector:pg17 >/dev/null
 ready=0
 for _ in $(seq 1 45); do
@@ -53,7 +68,8 @@ SQL
 apply() { local db="$1" path="$2"; echo "T05B_APPLY database=$db source=$(basename "$path")"; psql_db "$db" < "$path"; }
 overlay() { local db="$1"; for path in "${MIGRATIONS[@]}"; do apply "$db" "$path"; done; }
 init_db elus_fresh
-apply elus_fresh "$TMP/v1108.sql"
+apply elus_fresh "$TMP/v1108-elus.sql"
+# Reexecutar as migrations prova idempotência após instalação.
 overlay elus_fresh
 init_db elus_upgrade
 apply elus_upgrade "$TMP/v1102.sql"
@@ -63,7 +79,8 @@ values ('dddddddd-0000-4000-8000-000000000001','t05b-before-upgrade','T05B befor
 SQL
 docker exec "$DB" pg_dump -U postgres -Fc -d elus_upgrade > "$TMP/pre-upgrade.dump"
 test -s "$TMP/pre-upgrade.dump" || fail 'snapshot empty'
-apply elus_upgrade "$TMP/v1108.sql"
+apply elus_upgrade "$TMP/v1108-elus.sql"
+# Reexecutar com dados pré-existentes prova idempotência de upgrade.
 overlay elus_upgrade
 docker exec "$DB" createdb -U postgres elus_restore
 docker exec -i "$DB" pg_restore -U postgres -d elus_restore --no-owner < "$TMP/pre-upgrade.dump"
