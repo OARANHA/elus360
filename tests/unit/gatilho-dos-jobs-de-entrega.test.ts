@@ -306,6 +306,12 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
     condicao: null,
     efeito: "Prepara a candidata sobre release Deskcomm oficial pinada em runner descartável; sem executar, o overlay não tem inventário de conflitos nem prova de procedência.",
   },
+  "elus360-clean-base-sql-t05b.yml::sql-disposable": {
+    condicao: "github.repository == 'OARANHA/elus360' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 37)",
+    efeito:
+      "Ensaia baseline e migrations ELUS em PostgreSQL descartavel somente no fork, via PR #37 ou disparo manual; " +
+      "o job ignorado nao comprova instalacao, upgrade, restore nem isolamento RLS.",
+  },
   "elus360-upstream-sync.yml::contrato-upstream": { condicao: null, efeito: "Reconciliação upstream sem promoção." },
   "elus360-v1102-candidate.yml::sql-source-parity": { condicao: null, efeito: "Paridade SQL da candidata." },
   "elus360-v1102-candidate.yml::typecheck": { condicao: null, efeito: "TypeScript global da candidata." },
