@@ -110,6 +110,7 @@ test('reconciliador mantém timeout oficial de 45min e não aceita timeout aninh
 });
 
 test('distribuição: build local exige pedido expresso, preservando fonte oficial e origem ELUS',()=>{
+  const fixtureNamespace='ghcr.io/'+'oaranha';
   const official=[
     'arquitetura_suportada_pelo_kit() {',
     '  case "${1:-}" in x86_64|amd64|aarch64|arm64) return 0 ;; *) return 1 ;; esac',
@@ -145,25 +146,25 @@ test('distribuição: build local exige pedido expresso, preservando fonte ofici
     'construir_aqui_e_subir() {',
     '  dc -f "$COMPOSE_BUILD" build && dc -f "$COMPOSE_BUILD" up -d',
     '}',
-    'IMG_NS="ghcr.io/oaranha"',
+    'IMG_NS="'+fixtureNamespace+'"',
     'elus360_origem_confiavel() { return 0; }',
     '# --no-build',
   ].join('\n')+'\n';
   const merged=official
     .replace('x86_64|amd64|aarch64|arm64','x86_64|amd64')
     .replace('  return 0\n}\nconstruir_aqui_e_subir', '  return 1\n}\nconstruir_aqui_e_subir');
-  const result=composeOptionalBuildPolicy(merged,official);
+  const result=composeOptionalBuildPolicy(merged,official,fixtureNamespace);
   assert.match(result,/x86_64\|amd64\|aarch64\|arm64/);
   assert.match(result,/aarch64\|arm64\) printf 'arm64'/);
   assert.match(result,/exige Linux amd64 ou arm64/);
   assert.match(result,/DESKCOMM_BUILD_LOCAL:-/);
   assert.match(result,/build_local_permitido\(\) \{\n  build_local_pedido\n\}/);
   assert.match(result,/construir_aqui_e_subir\(\) \{\n  if ! build_local_pedido; then/);
-  assert.match(result,/ghcr\.io\/oaranha/);
+  assert.ok(result.includes('IMG_NS="'+fixtureNamespace+'"'));
   assert.match(result,/preflight_imagens_crm/);
   assert.match(result,/plataforma=linux\/arm64/);
   assert.match(result,/manifesto_tem_plataforma/);
   assert.doesNotMatch(result,/linux\/amd64 exclusivo/);
-  assert.throws(()=>composeOptionalBuildPolicy(merged.replace('IMG_NS="ghcr.io/oaranha"','IMG_NS="ghcr.io/other"'),official),/PROVENANCE_MISSING/);
-  assert.throws(()=>composeOptionalBuildPolicy(merged.replace('construir_aqui_e_subir()', 'funcao_renomeada()'),official),/FUNCTION_ANCHOR/);
+  assert.throws(()=>composeOptionalBuildPolicy(merged.replace('IMG_NS="'+fixtureNamespace+'"','IMG_NS="ghcr.io/other"'),official,fixtureNamespace),/PROVENANCE_MISSING/);
+  assert.throws(()=>composeOptionalBuildPolicy(merged.replace('construir_aqui_e_subir()', 'funcao_renomeada()'),official,fixtureNamespace),/FUNCTION_ANCHOR/);
 });
