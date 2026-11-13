@@ -114,6 +114,12 @@ test('distribuição: build local exige pedido expresso, preservando fonte ofici
     'arquitetura_suportada_pelo_kit() {',
     '  case "${1:-}" in x86_64|amd64|aarch64|arm64) return 0 ;; *) return 1 ;; esac',
     '}',
+    'veredito_da_arquitetura() {',
+    '  case "\${1:-}" in x86_64|amd64) printf amd64 ;; *) printf nao_suportada ;; esac',
+    '}',
+    'verificar_arquitetura_do_kit() {',
+    '  arquitetura_suportada_pelo_kit "$(uname -m)"',
+    '}',
     'imagem_waha_padrao_para_host() {',
     '  case "$(uname -m)" in aarch64|arm64) printf arm-waha ;; *) printf x86-waha ;; esac',
     '}',
@@ -138,6 +144,8 @@ test('distribuição: build local exige pedido expresso, preservando fonte ofici
     .replace('  return 0\n}\nconstruir_aqui_e_subir', '  return 1\n}\nconstruir_aqui_e_subir');
   const result=composeOptionalBuildPolicy(merged,official);
   assert.match(result,/x86_64\|amd64\|aarch64\|arm64/);
+  assert.match(result,/aarch64\|arm64\) printf 'arm64'/);
+  assert.match(result,/exige Linux amd64 ou arm64/);
   assert.match(result,/DESKCOMM_BUILD_LOCAL:-/);
   assert.match(result,/build_local_permitido\(\) \{\n  build_local_pedido\n\}/);
   assert.match(result,/construir_aqui_e_subir\(\) \{\n  if ! build_local_pedido; then/);
