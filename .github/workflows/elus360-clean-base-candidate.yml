@@ -472,12 +472,13 @@ jobs:
           test -f "$RUNNER_TEMP/elus-staging-source/supabase/baseline.sql"
           echo "ELUS_STAGING_SOURCE=$RUNNER_TEMP/elus-staging-source" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6
+      # A action composta reside no checkout da PR (mesmo HEAD do artifact).
+      # Usa o cache e o teto de 5 minutos exigidos pela cerca preambulo-do-ci.
+      - uses: actions/checkout@v7
         with:
-          version: 9.15.9
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
       - uses: supabase/setup-cli@v3
         with:
           version: 2.117.0
