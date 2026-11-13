@@ -226,6 +226,30 @@ export function composeOptionalBuildPolicy(merged, official) {
     'imagem_waha_padrao_para_host','preflight_plataforma_atualizacao']) {
     replace(name,locate(official,name));
   }
+  // Aceitar imagens AMD64 ou ARM64 apenas com manifesto válido do host.
+  const officialImages=locate(official,'veredito_das_imagens_da_release');
+  const imageProbe='    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1; then';
+  const imageReplacement=[
+    '    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1 \\',
+    '       && manifesto_tem_plataforma "${img}:${versao}" "$plataforma" >/dev/null 2>&1; then',
+  ].join('\n');
+  if(officialImages.split(imageProbe).length!==2)
+    throw new Error('ELUS_PLATFORM_IMAGE_PROBE_CHANGED');
+  const architectureProbe=[
+    '  local plataforma',
+    '  case "$(uname -m 2>/dev/null || true)" in',
+    '    x86_64|amd64) plataforma=linux/amd64 ;;',
+    '    aarch64|arm64) plataforma=linux/arm64 ;;',
+    "    *) printf 'indisponivel'; return 0 ;;",
+    '  esac',
+  ].join('\n')+'\n';
+  const imagesWithPlatform=officialImages.replace(
+    '  versao="${versao#v}"\n',
+    '  versao="${versao#v}"\n'+architectureProbe
+  ).replace(imageProbe,imageReplacement);
+  if(imagesWithPlatform===officialImages || !imagesWithPlatform.includes('plataforma=linux/arm64'))
+    throw new Error('ELUS_PLATFORM_IMAGE_CHECK_MISSING');
+  replace('veredito_das_imagens_da_release', imagesWithPlatform);
   const requested=`build_local_pedido() {
   case "\${DESKCOMM_BUILD_LOCAL:-}" in
     1|sim|s|yes) return 0 ;;
