@@ -183,6 +183,56 @@ export const DISTRIBUTION_MERGES = [
   },
 ];
 
+/**
+ * Política opcional, sem fallback implícito em falha de registry.
+ * A implementação oficial do build é reutilizada; somente o opt-in
+ * explicitamente configurado pode acioná-la.
+ * Os demais scripts de entrada continuam com seus próprios preflights.
+ */
+export function composeOptionalBuildPolicy(merged, official) {
+  function locate(source,name) {
+    const re=new RegExp('^'+name+'\\(\\) \\{[^\\n]*\\n[\\s\\S]*?^\\}', 'gm');
+    const matches=[...source.matchAll(re)];
+    if(matches.length!==1)throw new Error('ELUS_OPTIONAL_BUILD_FUNCTION_ANCHOR: '+name);
+    return matches[0][0];
+  }
+  let result=merged;
+  function replace(name, next) {
+    const before=locate(result,name);
+    if(before===next)return;
+    result=result.replace(before,next);
+  }
+  // Recuperação circunscrita ao suporte oficial de arquiteturas e WAHA.
+  for(const name of ['arquitetura_suportada_pelo_kit',
+    'imagem_waha_padrao_para_host','preflight_plataforma_atualizacao']) {
+    replace(name,locate(official,name));
+  }
+  const requested=\`build_local_pedido() {
+  case "\${DESKCOMM_BUILD_LOCAL:-}" in
+    1|sim|s|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}\`;
+  replace('build_local_pedido',requested);
+  replace('build_local_permitido',\`build_local_permitido() {
+  build_local_pedido
+}\`);
+  const officialBuild=locate(official,'construir_aqui_e_subir');
+  const guarded=officialBuild.replace(/^construir_aqui_e_subir\\(\\) \\{[^\\n]*\\n/,
+    head=>head+\`  if ! build_local_pedido; then
+    c_red "ELUS_DISTRIBUTION_NO_GO: build local exige DESKCOMM_BUILD_LOCAL=1 explícito."
+    return 3
+  fi
+\`);
+  if(guarded===officialBuild)throw new Error('ELUS_BUILD_OPTIN_ANCHOR');
+  replace('construir_aqui_e_subir',guarded);
+  if(!result.includes('IMG_NS="ghcr.io/oaranha"') ||
+     !result.includes('elus360_origem_confiavel()') ||
+     !result.includes('--no-build'))
+    throw new Error('ELUS_OPTIONAL_BUILD_PROVENANCE_MISSING');
+  return result;
+}
+
 function mergeDistributionThreeWay({candidate,report,rule}) {
   const path=assertSafePath(rule.path);
   const record=report.review.find(x=>x.path===path);
@@ -206,7 +256,13 @@ function mergeDistributionThreeWay({candidate,report,rule}) {
     if(child.error || child.status!==0 || child.signal)
       throw new Error('ELUS_DISTRIBUTION_THREE_WAY_CONFLICT: '+path+
         ' status='+child.status+' '+(child.error?.message||''));
-    const content=child.stdout;
+    let content=child.stdout;
+    // A revogação da política AMD64/no-build não deve reverter as
+    // verificações ELUS de provenance, rollback ou namespace. Só o helper
+    // compartilhado pode recuperar estas capacidades nesta etapa; install.sh
+    // e update.sh têm gates adicionais e continuam sujeitos a homologação.
+    if (rule.kind==='distribution_common_three_way')
+      content=composeOptionalBuildPolicy(content,ours.toString('utf8'));
     if(!content || content===ours.toString('utf8'))
       throw new Error('ELUS_DISTRIBUTION_MERGE_WITHOUT_ELUS_DELTA: '+path);
     // O namespace tem fonte única no _common.sh original do ELUS (blob
