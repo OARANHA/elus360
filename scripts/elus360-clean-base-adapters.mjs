@@ -207,23 +207,23 @@ export function composeOptionalBuildPolicy(merged, official) {
     'imagem_waha_padrao_para_host','preflight_plataforma_atualizacao']) {
     replace(name,locate(official,name));
   }
-  const requested=\`build_local_pedido() {
-  case "\${DESKCOMM_BUILD_LOCAL:-}" in
+  const requested=`build_local_pedido() {
+  case "${DESKCOMM_BUILD_LOCAL:-}" in
     1|sim|s|yes) return 0 ;;
     *) return 1 ;;
   esac
-}\`;
+}`;
   replace('build_local_pedido',requested);
-  replace('build_local_permitido',\`build_local_permitido() {
+  replace('build_local_permitido',`build_local_permitido() {
   build_local_pedido
-}\`);
+}`);
   const officialBuild=locate(official,'construir_aqui_e_subir');
-  const guarded=officialBuild.replace(/^construir_aqui_e_subir\\(\\) \\{[^\\n]*\\n/,
-    head=>head+\`  if ! build_local_pedido; then
+  const guarded=officialBuild.replace(/^construir_aqui_e_subir\(\) \{[^\n]*\n/,
+    head=>head+`  if ! build_local_pedido; then
     c_red "ELUS_DISTRIBUTION_NO_GO: build local exige DESKCOMM_BUILD_LOCAL=1 explícito."
     return 3
   fi
-\`);
+`);
   if(guarded===officialBuild)throw new Error('ELUS_BUILD_OPTIN_ANCHOR');
   replace('construir_aqui_e_subir',guarded);
   if(!result.includes('IMG_NS="ghcr.io/oaranha"') ||
