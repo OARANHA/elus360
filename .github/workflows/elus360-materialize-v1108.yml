@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           main="$(gh api repos/OARANHA/elus360/branches/main --jq '.commit.sha')"
           test "$main" = '56a60670c446caaa1ecbd0c643531e4f7b14fb55' || { echo '::error::main avançou'; exit 3; }
-          test "$(git rev-parse HEAD^)" = "$main"
+          test "$(git rev-parse HEAD^)" = 'bf0f3d0e642270625b3dae87768ce1c62e9b742d'
           test -z "$(git status --porcelain)"
       - uses: actions/download-artifact@v4
         with:
@@ -93,11 +93,21 @@ jobs:
           test "$tree" = d657f92ef2a53c6ad3f2e92fe8d5639df73b0a2d || {
             echo "::error::ELUS_SOURCE_NO_GO: árvore não é a candidata validada: $tree"; exit 3;
           }
+          # O GITHUB_TOKEN do runner NÃO tem workflows:write.
+          # Primeiro conferir o Git tree integral da candidata, e só depois
+          # restaurar workflows da branch anterior para publicar os demais arquivos.
+          # Os workflows da candidata serão aplicados pelo conector GitHub, via
+          # Git tree SHA pinada, em um commit separado sem rebuild.
+          git restore --source=HEAD --staged --worktree -- .github/workflows
+          git clean -fd -- .github/workflows
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(elus360): materializar a fonte v1.108.0 validada' -m 'PR37 head 7f9e9df; official 0b60c5a; git tree d657f92; archive d2ece116; artifact run 43572124498. Somente candidata para PR, não autoriza release.'
-          test "$(git rev-parse 'HEAD^{tree}')" = "$tree"
+          git commit -m 'feat(elus360): preparar fonte v1.108.0 (workflows em commit separado)' -m 'PR37 head 7f9e9df; official 0b60c5a; git tree d657f92; archive d2ece116; artifact run 43572124498. Somente candidata para PR, não autoriza release.'
+          test "$(git rev-parse 'HEAD^{tree}')" != "$tree" || {
+            echo '::error::Workflows deveriam ser restaurados antes de publicar'; exit 3;
+          }
           test -z "$(git ls-remote --heads origin "$TARGET")" || { echo '::error::branch alvo já existe'; exit 3; }
           git push origin "HEAD:refs/heads/$TARGET"
           echo "ELUS_SOURCE_PUSHED branch=$TARGET sha=$(git rev-parse HEAD) tree=$tree" >> "$GITHUB_STEP_SUMMARY"
-          echo 'Abrir PR usando esta branch, CI do SHA novo e somente então liberar release.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Workflows aguardam segundo commit com SHA da candidata; não abrir PR/publicar antes da reconciliação.' >> "$GITHUB_STEP_SUMMARY"
