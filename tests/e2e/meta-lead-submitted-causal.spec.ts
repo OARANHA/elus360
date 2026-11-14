@@ -732,7 +732,10 @@ test.describe("LeadSubmitted causal pelo webhook WAHA", () => {
     const chave = page.getByRole("switch", { name: "Enviar LeadSubmitted por clique CTWA à Meta" });
     await expect(chave).toBeChecked();
     await page.getByRole("link", { name: "Histórico de envios", exact: true }).click();
-    const historico = page.getByTestId("historico-de-cliques-ctwa");
+    // A navegação pode manter uma segunda árvore fora de <main>; testar somente
+    // o conteúdo ativo evita strict mode violation sem mascarar duplicação ativa.
+    const historico = page.getByRole("main").getByTestId("historico-de-cliques-ctwa");
+    await expect(historico).toHaveCount(1);
     await expect(historico).toBeVisible();
     const linha = historico.locator("li").filter({ hasText: eventId });
     await expect(linha).toHaveCount(1);

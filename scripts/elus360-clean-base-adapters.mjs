@@ -1,0 +1,770 @@
+#!/usr/bin/env node
+/**
+ * Adaptadores ELUS360 para a árvore OFICIAL v1.108.0, com blob pinado e falha fechada.
+ * NUNCA modifica o checkout de origem: só o worktree detached montado pelo prepare.
+ * É composição de código, NÃO valida autorização, schema nem aptidão para deploy.
+ */
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, resolve, isAbsolute } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { assertSafePath } from './elus360-clean-base-prepare.mjs';
+import { classifyConflict } from './elus360-clean-base-classify.mjs';
+
+export const OFFICIAL_TARGET = '0b60c5abaace17922ae645399a6a6183a5f5c357';
+const digest = data => createHash('sha256').update(data).digest('hex');
+const gitBlobSha = bytes => createHash('sha1')
+  .update('blob '+bytes.length+'\0').update(bytes).digest('hex');
+const git = (argv, options={}) => execFileSync('git', argv, { encoding: 'utf8', maxBuffer: 128*1024*1024, ...options }).trim();
+
+/** Definições explícitas; o SHA é o blob do DeskcommCRM oficial v1.108.0. */
+export const ADAPTERS = [
+  {
+    path: ".github/workflows/ci.yml",
+    officialBlob: "feb805850e0c160e3d86eb4cb5c4fbca17411fe3",
+    kind: "elus_ci_guard",
+    edits: [
+      ["  verify-parte:\n    # Guarda de travamento. O DETECTOR de crescimento é o passo `Orçamento de\n    # tempo` no fim de cada parte; a medição que justifica o número está em\n    # `TETOS`, em tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts.\n    timeout-minutes: 15\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    runs-on: ${{ vars.EXECUTOR_PROPRIO == 'ligado' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'deskcomm-proprio' || 'ubuntu-latest' }}", "  verify-parte:\n    # Guarda de travamento. O DETECTOR de crescimento é o passo `Orçamento de\n    # tempo` no fim de cada parte; a medição que justifica o número está em\n    # `TETOS`, em tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts.\n    timeout-minutes: 15\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    # ELUS360: runner publico isolado, nunca private VPS\n    runs-on: ubuntu-24.04"],
+      ["  invariants-majors:\n    # Eram 20 min quando a perna tinha UMA passada; agora ela tem duas\n    # (`test:db` + `test:db:update`) e o teto acompanha. O 30 é DECLARADO, não\n    # medido — não há Docker onde esta matriz foi escrita —, e existe para o\n    # vermelho continuar falando de schema: mantido em 20, a perna morreria por\n    # relógio no meio da segunda passada.\n    timeout-minutes: 45\n    # 30 → 45 em 10/11/2026 (doc de decisão 302): cortada por relógio aos 30 min\n    # no pg15 e no pg17, também na `main`. Razão inteira em\n    # tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts (TETOS).\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    runs-on: ${{ vars.EXECUTOR_PROPRIO == 'ligado' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'deskcomm-proprio' || 'ubuntu-latest' }}", "  invariants-majors:\n    # Eram 20 min quando a perna tinha UMA passada; agora ela tem duas\n    # (`test:db` + `test:db:update`) e o teto acompanha. O 30 é DECLARADO, não\n    # medido — não há Docker onde esta matriz foi escrita —, e existe para o\n    # vermelho continuar falando de schema: mantido em 20, a perna morreria por\n    # relógio no meio da segunda passada.\n    timeout-minutes: 45\n    # 30 → 45 em 10/11/2026 (doc de decisão 302): cortada por relógio aos 30 min\n    # no pg15 e no pg17, também na `main`. Razão inteira em\n    # tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts (TETOS).\n    # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o\n    # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.\n    # ELUS360: runner publico isolado, nunca private VPS\n    runs-on: ubuntu-24.04"],
+      ["      - name: Cercas estruturais\n        if: matrix.parte == 7\n        run: pnpm cercas", "      # ELUS360: regressões locais específicas antes das cercas.\n      - name: ELUS operational tests (node:test)\n        if: matrix.parte == 7\n        run: pnpm test:operational\n\n      - name: Cercas estruturais\n        if: matrix.parte == 7\n        run: pnpm cercas"],
+      ["          NODE_OPTIONS: --max-old-space-size=8192", "          NODE_OPTIONS: --max-old-space-size=12288"],
+    ],
+  },
+  {
+    path: ".github/workflows/e2e.yml",
+    officialBlob: "37aeecfd141afe326c8f984da72ca91dabf00e11",
+    kind: "elus_e2e_identity",
+    edits: [
+      ["  e2e-parte:\n    needs: [e2e-alcance]\n    # Head superado não pede vaga no grupo (#2449): quem decide isso é o passo\n    # inicial do `e2e-alcance`, que compara o `head.sha` do evento com o head\n    # atual do PR. Pulando aqui (antes de o job existir para o Actions), o run\n    # velho nunca chega ao `concurrency:` — que é exatamente o ponto onde ele\n    # roubou a vaga do head novo no #2437.\n    if: needs.e2e-alcance.outputs.e2e == 'sim' && needs.e2e-alcance.outputs.head_velho != 'sim'\n    # Executor próprio para trabalho NOSSO (push na main, PR de branch deste\n    # repo) quando a variável de repositório EXECUTOR_PROPRIO vale `ligado`;\n    # máquinas do GitHub para todo o resto, fork inclusive. A expressão decide\n    # só para quem não a edita — a guarda que vale contra fork mora na máquina\n    # (infra/executor-proprio/so-o-que-e-nosso.sh). Vigiado por\n    # tests/unit/executor-proprio-so-roda-o-que-e-nosso.test.ts.\n    runs-on: ${{ vars.EXECUTOR_PROPRIO == 'ligado' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'deskcomm-proprio' || 'ubuntu-latest' }}", "  e2e-parte:\n    needs: [e2e-alcance]\n    # Head superado não pede vaga no grupo (#2449): quem decide isso é o passo\n    # inicial do `e2e-alcance`, que compara o `head.sha` do evento com o head\n    # atual do PR. Pulando aqui (antes de o job existir para o Actions), o run\n    # velho nunca chega ao `concurrency:` — que é exatamente o ponto onde ele\n    # roubou a vaga do head novo no #2437.\n    if: needs.e2e-alcance.outputs.e2e == 'sim' && needs.e2e-alcance.outputs.head_velho != 'sim'\n    # Executor próprio para trabalho NOSSO (push na main, PR de branch deste\n    # repo) quando a variável de repositório EXECUTOR_PROPRIO vale `ligado`;\n    # máquinas do GitHub para todo o resto, fork inclusive. A expressão decide\n    # só para quem não a edita — a guarda que vale contra fork mora na máquina\n    # (infra/executor-proprio/so-o-que-e-nosso.sh). Vigiado por\n    # tests/unit/executor-proprio-so-roda-o-que-e-nosso.test.ts.\n    # ELUS360: runner publico isolado, nunca private VPS\n    runs-on: ubuntu-latest"],
+      ["      - if: matrix.parte != 4\n        name: Semear credenciais de teste\n        run: |\n          cp .env.e2e .env.local\n          pnpm exec tsx scripts/seed-e2e-credentials.ts", "      - if: matrix.parte != 4\n        name: Semear credenciais de teste\n        run: |\n          cp .env.e2e .env.local\n          pnpm exec tsx scripts/seed-e2e-credentials.ts\n\n      # ELUS360: somente no ambiente isolado do E2E; guarda de superadmin.\n      - if: matrix.parte != 4\n        name: Preparar identidade de superadmin descartável\n        run: pnpm exec tsx scripts/seed-e2e-system-update.ts"],
+    ],
+  },
+  {
+    path: "hostgator-setup-kit/README.md",
+    officialBlob: "51170761b7e17f8386611e60c608c8ee3310756a",
+    kind: "elus_install_guide",
+    edits: [
+      ["2. Clone o repositório (`git clone --depth 1 https://github.com/melgarafael/DeskcommCRM.git deskcommcrm`)", "2. Clone o repositório (`git clone --depth 1 https://github.com/OARANHA/elus360.git elus360`)"],
+      ["3. Diga: *\"instala o DeskcommCRM pra mim\"*. O guia `deskcomm-instalar` conduz tudo —", "3. Diga: *\"instala o ELUS360 pra mim\"*. O guia `elus360-instalar` conduz tudo —"],
+    ],
+  },
+  {
+    path: "README.md",
+    officialBlob: "7d38cb44846e6edf820472fc6febd9f7e9537921",
+    kind: "elus_repo_guide",
+    edits: [
+      ["curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash\n", "curl -fsSL https://raw.githubusercontent.com/OARANHA/elus360/main/scripts/instalar-guias.sh | bash\n"],
+      ["cada um tem o seu jeito — `/deskcomm-instalar` no Claude Code, no Cursor e no Antigravity;\n`$deskcomm-instalar` no Codex; no OpenCode, peça pelo nome, em linguagem natural.", "cada um tem o seu jeito — `/elus360-instalar` no Claude Code, no Cursor e no Antigravity;\n`$elus360-instalar` no Codex; no OpenCode, peça pelo nome, em linguagem natural."],
+      ["curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/scripts/instalar-guias.sh | bash -s -- --remover\n", "curl -fsSL https://raw.githubusercontent.com/OARANHA/elus360/main/scripts/instalar-guias.sh | bash -s -- --remover\n"],
+    ],
+  },
+
+  {
+    path: 'app/app/ai/agents/_components/AgentsList.tsx',
+    officialBlob: '0e369e8d944fd45c3d646c2bcc1a7d6dc9e49a57',
+    kind: 'controlled_ui',
+    edits: [
+      ['  canWrite: boolean;\n}', '  canWrite: boolean;\n  mostrarModelo?: boolean;\n}'],
+      ['export function AgentsList({ initialData, canWrite }: Props) {',
+       'export function AgentsList({ initialData, canWrite, mostrarModelo = false }: Props) {'],
+      ['<AgentCard agent={agent} canWrite={canWrite} />',
+       '<AgentCard agent={agent} canWrite={canWrite} mostrarModelo={mostrarModelo} />'],
+    ],
+  },
+  {
+    path: 'lib/agent-engine/env.ts',
+    officialBlob: 'a416453186b478a20e8aece937ae51f6c78dc7e0',
+    kind: 'worker_env',
+    edits: [
+      ['  OPENROUTER_API_KEY: z.string().min(1).optional(),',
+       '  OPENROUTER_API_KEY: z.string().min(1).optional(),\n  // ELUS360: credencial opcional de plataforma; vazia nunca bloqueia boot.\n  CHUTES_API_KEY: z.string().min(1).optional(),'],
+    ],
+  },
+  {
+    path: 'lib/env.ts',
+    officialBlob: '6e3dd8230639aa5250d6413ce6e67a8464143558',
+    kind: 'app_env',
+    edits: [
+      ['  OPENROUTER_API_KEY: z.string().optional().default(""),',
+       '  OPENROUTER_API_KEY: z.string().optional().default(""),\n  // ELUS360: opcional, chave nunca deve ser registrada ou devolvida ao navegador.\n  CHUTES_API_KEY: z.string().optional().default(""),'],
+    ],
+  },
+  {
+    path: 'lib/audit/actions.ts',
+    officialBlob: '9dca646b31bb987c8ba9aae05684418fb53042ef',
+    kind: 'audit_actions',
+    edits: [
+      ['  "platform_admin.platform_admins_listed",',
+       '  "platform_admin.platform_admins_listed",\n  // ELUS360: mutações técnicas de IA gerenciada por tenant.\n  "platform_admin.ai_autonomy_updated",\n  "platform_admin.ai_default_updated",'],
+    ],
+  },
+  {
+    path: '.env.example',
+    officialBlob: 'e74d2cf665da729e5ca5042879d56ad64cb9c6df',
+    kind: 'documented_env',
+    edits: [
+      ['OPENROUTER_API_KEY=\n',
+       'OPENROUTER_API_KEY=\n# ELUS360: chave de plataforma opcional. Nunca registre uma chave real neste arquivo.\nCHUTES_API_KEY=\n# ELUS360: habilitar chutes somente após catálogo e governança validados.\nELUS_DEFAULT_AI_PROVIDER=\n'],
+    ],
+  },
+  {
+    path: 'package.json',
+    officialBlob: '7ac090cbde0c9de373c34b19e21c31454efd2518',
+    kind: 'package_scripts_only',
+    edits: [
+      ['    "test:unit": "vitest run",',
+       '    "test:unit": "vitest run",\n    "test:operational": "node --test tests/operational/*.test.mjs",'],
+    ],
+  },
+  {
+    path: 'app/app/ai/agents/[id]/_components/AgentForm.tsx',
+    officialBlob: '956e6ff33a369e2a9a7f5df3c8aae81125b49992',
+    kind: 'agent_form_managed',
+    // Somente governança do fork; voz, agenda, funis e rolagem permanecem upstream.
+    edits: [
+      ["import { PROVEDOR_POR_ASSINATURA, PROVEDORES } from \"@/lib/ai/pontos/provedores\";\n",
+       "import { PROVEDOR_POR_ASSINATURA, PROVEDORES } from \"@/lib/ai/pontos/provedores\";\nimport { AUTONOMIA_IA_PADRAO, type AutonomiaIa } from \"@/lib/elus360/ai-managed/policy\";\n"],
+      ["  provedorPadrao?: string;\n  /**\n",
+       "  provedorPadrao?: string;\n  modeloPadrao?: string;\n  credencialPadrao?: string | null;\n  /**\n"],
+      ["  organizationTimezone?: string;\n",
+       "  autonomiaTecnica?: Readonly<AutonomiaIa>;\n  organizationTimezone?: string;\n"],
+      ["  provedorPadrao?: string;\n  provedoresOferecidos?: readonly string[];\n",
+       "  provedorPadrao?: string;\n  modeloPadrao?: string;\n  credencialPadrao?: string | null;\n  provedoresOferecidos?: readonly string[];\n"],
+      ["  const { agent, version, t, provedorPadrao, provedoresOferecidos } = args;\n",
+       "  const { agent, version, t, provedorPadrao, modeloPadrao, credencialPadrao, provedoresOferecidos } = args;\n"],
+      ["    model: version?.model ?? \"\",\n",
+       "    model: version?.model ?? modeloPadrao ?? \"\",\n"],
+      ["    credential_id: version ? (version.credential_id ?? CHAVE_DA_INSTALACAO) : \"\",\n",
+       "    credential_id: version ? (version.credential_id ?? CHAVE_DA_INSTALACAO) : (credencialPadrao ?? CHAVE_DA_INSTALACAO),\n"],
+      ["  const readOnly = props.readOnly ?? false;\n",
+       "  const readOnly = props.readOnly ?? false;\n  const autonomia = props.autonomiaTecnica ?? AUTONOMIA_IA_PADRAO;\n  const podeVerConfiguracaoTecnica = autonomia.provider || autonomia.model || autonomia.credentials;\n"],
+      ["      provedoresOferecidos: props.provedoresOferecidos,\n",
+       "      modeloPadrao: props.modeloPadrao,\n      credencialPadrao: props.credencialPadrao,\n      provedoresOferecidos: props.provedoresOferecidos,\n"],
+      ["    if (!form.model) errors.model = t(\"Escolha o modelo de inteligência artificial.\");\n",
+       "    if (!form.model) errors.model = autonomia.model\n      ? t(\"Escolha o modelo de inteligência artificial.\")\n      : t(\"A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.\");\n"],
+      ["      errors.credential_id = t(\"Escolha a chave de acesso da empresa de inteligência artificial.\");\n",
+       "      errors.credential_id = autonomia.credentials\n        ? t(\"Escolha a chave de acesso da empresa de inteligência artificial.\")\n        : t(\"A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.\");\n"],
+      ["      errors.credential_id = `${t(\"Esta instalação não tem chave de\")} ${form.provider}. ${t(\"Escolha outra empresa de IA ou cadastre uma chave.\")}`;\n",
+       "      errors.credential_id = autonomia.credentials && autonomia.provider\n        ? `${t(\"Esta instalação não tem chave de\")} ${form.provider}. ${t(\"Escolha outra empresa de IA ou cadastre uma chave.\")}`\n        : t(\"A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.\");\n"],
+      ["        return `${t(\"Esta instalação não tem chave de\")} ${motivo.provedor}. ${t(\"Escolha outra empresa de IA ou cadastre uma chave.\")}`;\n",
+       "        return !podeVerConfiguracaoTecnica\n          ? t(\"A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.\")\n          : `${t(\"Esta instalação não tem chave de\")} ${motivo.provedor}. ${t(\"Escolha outra empresa de IA ou cadastre uma chave.\")}`;\n"],
+      ["        return t(\"Escolha a chave de acesso da empresa de inteligência artificial.\");\n",
+       "        return autonomia.credentials\n          ? t(\"Escolha a chave de acesso da empresa de inteligência artificial.\")\n          : t(\"A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.\");\n"],
+      ["        return `${t(\"Credencial\")} ${motivo.provedor} ${motivo.estado === \"invalid\" ? t(\"inválida\") : t(\"ainda não validada\")}.`;\n",
+       "        return !podeVerConfiguracaoTecnica\n          ? t(\"A IA ELUS360 desta empresa precisa ser validada pelo administrador da plataforma.\")\n          : `${t(\"Credencial\")} ${motivo.provedor} ${motivo.estado === \"invalid\" ? t(\"inválida\") : t(\"ainda não validada\")}.`;\n"],
+      ["          disabled={disabled}\n        />\n",
+       "          disabled={disabled}\n          permitirModeloTecnico={autonomia.operator_model}\n        />\n"],
+      ["          {/* Provider + credential + model */}\n          <Card className=\"space-y-3 p-4\">\n",
+       "          {/* Controles concedidos pelo Superadmin; segurança real permanece no backend. */}\n          {podeVerConfiguracaoTecnica ? <Card className=\"space-y-3 p-4\">\n"],
+      ["            <div className=\"space-y-1\">\n              <Label htmlFor=\"provider\">{t(\"Empresa de inteligência artificial\")}</Label>\n",
+       "            {autonomia.provider ? <div className=\"space-y-1\">\n              <Label htmlFor=\"provider\">{t(\"Empresa de inteligência artificial\")}</Label>\n"],
+      ["            </div>\n\n",
+       "            </div> : null}\n\n"],
+      ["            <ModelPicker\n",
+       "            {autonomia.model ? <ModelPicker\n"],
+      ["            />\n            {validation.model ? (\n",
+       "            /> : null}\n            {autonomia.model && validation.model ? (\n"],
+      ["            <CredentialPicker\n",
+       "            {autonomia.credentials ? <CredentialPicker\n"],
+      ["            />\n            {validation.credential_id ? (\n",
+       "            /> : null}\n            {autonomia.credentials && validation.credential_id ? (\n"],
+      ["            {cred && credSt && credSt !== \"validated\" ? (\n",
+       "            {autonomia.credentials && cred && credSt && credSt !== \"validated\" ? (\n"],
+      ["          </Card>\n\n          {/* WhatsApp session */}\n",
+       "          </Card> : <Card className=\"p-4\" data-testid=\"elus-ia-gerenciada\">\n            <h3 className=\"text-sm font-medium\">{t(\"Inteligência artificial ELUS360\")}</h3>\n            <p className=\"text-xs text-muted-foreground\">{t(\"Configurada e gerenciada pela plataforma.\")}</p>\n          </Card>}\n\n          {/* WhatsApp session */}\n"],
+    ],
+  },
+  {
+    path: 'lib/i18n/dicionario.ts',
+    officialBlob: '7884118824fb6fb17b420e9038e1ede60dbe33b6',
+    kind: 'i18n_elus_entries',
+    // 48 entradas exclusivas do fork; nunca restaurar o dicionário antigo.
+    // Blobs de origem: fork d53989b17bf5b86f74deff07d5ee94653296828f.
+    edits: [["};\n\n/**\n * Traduz, ou devolve o próprio texto.",
+      "  // ELUS360 v1.102.0 — traduções dos painéis de IA e da página pública.\n  \"IA ELUS360 gerenciada\": { es: \"IA ELUS360 gestionada\" },\n  \"Privacidade\": { es: \"Privacidad\" },\n  \"Acessar minha conta\": { es: \"Acceder a mi cuenta\" },\n  \"O CRM que\": { es: \"El CRM que\" },\n  \"trabalha por você.\": { es: \"trabaja por ti.\" },\n  \"Entrar na plataforma\": { es: \"Entrar a la plataforma\" },\n  \"Atendimento centralizado\": { es: \"Atención centralizada\" },\n  \"Conversas e histórico em um só lugar.\": { es: \"Conversaciones e historial en un solo lugar.\" },\n  \"Atendimento e qualificação com transferência para pessoas.\": { es: \"Atención y calificación con transferencia a personas.\" },\n  \"Acompanhe oportunidades e clientes.\": { es: \"Haz seguimiento de oportunidades y clientes.\" },\n  \"Agenda integrada\": { es: \"Agenda integrada\" },\n  \"Organize compromissos da operação.\": { es: \"Organiza las citas de la operación.\" },\n  \"Acesso ao Elus\": { es: \"Acceso a Elus\" },\n  \"Integrações com o Google\": { es: \"Integraciones con Google\" },\n  \"Informações legais\": { es: \"Información legal\" },\n  \"Não foi possível consultar as permissões.\": { es: \"No se pudieron consultar los permisos.\" },\n  \"Falha de conexão ao consultar permissões.\": { es: \"Error de conexión al consultar los permisos.\" },\n  \"Não foi possível atualizar as permissões.\": { es: \"No se pudieron actualizar los permisos.\" },\n  \"Permissões salvas para esta empresa.\": { es: \"Permisos guardados para esta empresa.\" },\n  \"Falha de conexão ao salvar.\": { es: \"Error de conexión al guardar.\" },\n  \"Autonomia técnica de IA\": { es: \"Autonomía técnica de IA\" },\n  \"A plataforma gerencia a IA por padrão. Libere apenas as escolhas técnicas que esta empresa pode modificar. Desligar uma permissão não exclui chaves ou versões já publicadas.\": { es: \"La plataforma gestiona la IA de forma predeterminada. Habilita únicamente las opciones técnicas que esta empresa puede modificar. Desactivar un permiso no elimina claves ni versiones ya publicadas.\" },\n  \"Carregando permissões…\": { es: \"Cargando permisos…\" },\n  \"Salvar permissões\": { es: \"Guardar permisos\" },\n  \"Falha ao consultar a IA da empresa.\": { es: \"Error al consultar la IA de la empresa.\" },\n  \"Falha de conexão.\": { es: \"Error de conexión.\" },\n  \"Padrão salvo. Agentes publicados e configurações próprias foram preservados.\": { es: \"Configuración predeterminada guardada. Se conservaron los agentes publicados y las configuraciones propias.\" },\n  \"IA fornecida pela plataforma\": { es: \"IA proporcionada por la plataforma\" },\n  \"Defina provedor, modelo e credencial padrão desta empresa. Agentes já publicados não serão alterados.\": { es: \"Define el proveedor, modelo y credencial predeterminados de esta empresa. Los agentes ya publicados no se modificarán.\" },\n  \"Organização selecionada:\": { es: \"Organización seleccionada:\" },\n  \"Consultando configuração…\": { es: \"Consultando configuración…\" },\n  \"Provedor padrão\": { es: \"Proveedor predeterminado\" },\n  \"Escolha o provedor\": { es: \"Elige el proveedor\" },\n  \"Escolha o modelo\": { es: \"Elige el modelo\" },\n  \"Identificador exato do modelo\": { es: \"Identificador exacto del modelo\" },\n  \"Credencial da organização\": { es: \"Credencial de la organización\" },\n  \"Escolha a credencial\": { es: \"Elige la credencial\" },\n  \"Chave da instalação (se disponível)\": { es: \"Clave de la instalación (si está disponible)\" },\n  \"Nenhuma credencial personalizada validada para esta empresa. Cadastre-a no fluxo de credenciais autorizado antes de ativar.\": { es: \"No hay ninguna credencial personalizada validada para esta empresa. Regístrala mediante el flujo autorizado de credenciales antes de activar.\" },\n  \"agentes publicados\": { es: \"agentes publicados\" },\n  \"configurações próprias preservadas\": { es: \"configuraciones propias conservadas\" },\n  \"Ativar padrão\": { es: \"Activar configuración predeterminada\" },\n  \"Empresa inválida.\": { es: \"Empresa no válida.\" },\n  // ELUS360: textos próprios da IA gerenciada e catálogo Chutes.ai.\n  \"A IA ELUS360 desta empresa precisa ser configurada pelo administrador da plataforma.\": { es: \"La IA ELUS360 de esta empresa debe ser configurada por el administrador de la plataforma.\" },\n  \"A IA ELUS360 desta empresa precisa ser validada pelo administrador da plataforma.\": { es: \"La IA ELUS360 de esta empresa debe ser validada por el administrador de la plataforma.\" },\n  \"Inteligência artificial ELUS360\": { es: \"Inteligencia artificial ELUS360\" },\n  \"Configurada e gerenciada pela plataforma.\": { es: \"Configurada y gestionada por la plataforma.\" },\n  \"IA incluída pela instalação ELUS 360 ou credencial própria da empresa, com catálogo OpenAI-compatível de modelos.\": { es: \"IA incluida en la instalación ELUS 360 o credencial propia de la empresa, con un catálogo de modelos compatible con OpenAI.\" },\n};\n\n/**\n * Traduz, ou devolve o próprio texto."]],
+  },
+  {
+    path: 'tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts',
+    officialBlob: '82a077ad8897ccf96a6dae09f88b1e8688aab655',
+    kind: 'ci_timeout_same_step',
+    // Conserva limite oficial de 45 min; porta a proteção ELUS de timeout irmão de uses.
+    edits: [
+      ["describe(\"o preâmbulo do CI não come o orçamento dos testes\", () => {\n",
+       "/**\n * Há dois formatos válidos de passo: '- uses: action' (CI histórico) e\n * '- name: ...' seguido de 'uses: action' (Academia). Em ambos, timeout-minutes\n * é irmão de uses como propriedade do PASSO, mas o recuo de uses difere.\n * Limitar ao mesmo item de lista impede aceitar timeout do passo vizinho\n * ou um valor aninhado em with:. O passo sem limite continua reprovado.\n */\nfunction temTimeoutDoMesmoPasso(linhas: string[], linhaUses: number): boolean {\n  const usa = linhas[linhaUses]!;\n  const recuoUsa = usa.length - usa.trimStart().length;\n  const inline = /^\\s*- uses:\\s*\\.\\/\\.github\\/actions\\/preparar-node\\s*$/.test(usa);\n  const recuoItem = recuoUsa - (inline ? 0 : 2);\n  if (recuoItem < 0) return false;\n  const marcador = \" \".repeat(recuoItem) + \"- \";\n  let inicio = linhaUses;\n  while (inicio >= 0 && !linhas[inicio]!.startsWith(marcador)) inicio--;\n  if (inicio < 0) return false;\n\n  let fim = linhas.length;\n  for (let j = inicio + 1; j < linhas.length; j++) {\n    const linha = linhas[j]!;\n    if (!linha.trim() || linha.trimStart().startsWith(\"#\")) continue;\n    const recuo = linha.length - linha.trimStart().length;\n    if (recuo < recuoItem || (recuo === recuoItem && linha.startsWith(marcador))) {\n      fim = j;\n      break;\n    }\n  }\n\n  // '- uses:' está no recuo do item; 'uses:' após '- name:' já tem +2.\n  // O timeout é sempre propriedade direta do item (+2), nunca de 'with:' (+4).\n  const timeoutNoRecuoDaAction = new RegExp(\"^ {\" + (recuoItem + 2) + \"}timeout-minutes:\\\\s*([1-9]\\\\d*)\\\\s*$\");\n  const corpo = linhas.slice(inicio, fim).filter((linha) => !linha.trimStart().startsWith(\"#\"));\n  return corpo.some((linha) => timeoutNoRecuoDaAction.test(linha));\n}\n\ndescribe(\"o preâmbulo do CI não come o orçamento dos testes\", () => {\n"],
+      ["  it(\"todo uso da action carrega o seu teto de tempo\", () => {\n",
+       "  it(\"a guarda encontra timeout no mesmo passo e rejeita timeout vizinho ou aninhado\", () => {\n    const valido = [\n      \"      - name: Preparar Node\",\n      \"        uses: ./.github/actions/preparar-node\",\n      \"        timeout-minutes: 5\",\n      \"      - name: Próximo\",\n      \"        run: echo teste\",\n    ];\n    expect(temTimeoutDoMesmoPasso(valido, 1)).toBe(true);\n    const antes = [valido[0]!, valido[2]!, valido[1]!, ...valido.slice(3)];\n    expect(temTimeoutDoMesmoPasso(antes, 2)).toBe(true);\n    const vizinho = [\n      \"      - name: Preparar Node\",\n      \"        uses: ./.github/actions/preparar-node\",\n      \"      - name: Próximo\",\n      \"        timeout-minutes: 5\",\n        \"        run: echo teste\",\n    ];\n    expect(temTimeoutDoMesmoPasso(vizinho, 1)).toBe(false);\n    const aninhado = [\n      \"      - name: Preparar Node\",\n      \"        uses: ./.github/actions/preparar-node\",\n      \"        with:\",\n      \"          timeout-minutes: 5\",\n      \"      - name: Próximo\",\n    ];\n    expect(temTimeoutDoMesmoPasso(aninhado, 1)).toBe(false);\n    expect(temTimeoutDoMesmoPasso(valido.filter((linha) => !linha.includes(\"timeout-minutes:\")), 1)).toBe(false);\n    expect(temTimeoutDoMesmoPasso(valido.map((linha) => linha.replace(\"timeout-minutes: 5\", \"timeout-minutes: 0\")), 1)).toBe(false);\n  });\n\n  it(\"aceita o CI histórico com - uses e rejeita timeout de outro item, aninhado ou zero\", () => {\n    const inline = [\n      \"      - uses: ./.github/actions/preparar-node\",\n      \"        # comentário de histórico, não quebra a propriedade irmã\",\n      \"        timeout-minutes: 5\",\n      \"      - uses: actions/checkout@v4\",\n    ];\n    expect(temTimeoutDoMesmoPasso(inline, 0)).toBe(true);\n\n    const semTimeout = inline.filter((linha) => !linha.includes(\"timeout-minutes:\"));\n    expect(temTimeoutDoMesmoPasso(semTimeout, 0)).toBe(false);\n\n    const noProximo = [\n      \"      - uses: ./.github/actions/preparar-node\",\n      \"      - name: Próximo passo\",\n      \"        timeout-minutes: 5\",\n    ];\n    expect(temTimeoutDoMesmoPasso(noProximo, 0)).toBe(false);\n\n    const emWith = [\n      \"      - uses: ./.github/actions/preparar-node\",\n      \"        with:\",\n      \"          timeout-minutes: 5\",\n    ];\n    expect(temTimeoutDoMesmoPasso(emWith, 0)).toBe(false);\n\n    const zero = inline.map((linha) => linha.replace(\"timeout-minutes: 5\", \"timeout-minutes: 0\"));\n    expect(temTimeoutDoMesmoPasso(zero, 0)).toBe(false);\n  });\n\n  it(\"todo uso da action carrega o seu teto de tempo\", () => {\n"],
+      ["        // O passo vai até a próxima linha que abre outro item de lista (`- `)\n        // no mesmo recuo, ou até o fim do arquivo.\n        const recuo = texto.length - texto.trimStart().length;\n        let fim = linhas.length;\n        for (let j = i + 1; j < linhas.length; j++) {\n          const l = linhas[j]!;\n          if (l.trim() === \"\") continue;\n          const r = l.length - l.trimStart().length;\n          if (r <= recuo) {\n            fim = j;\n            break;\n          }\n        }\n        const corpo = linhas.slice(i + 1, fim).filter((l) => !l.trimStart().startsWith(\"#\"));\n        if (!corpo.some((l) => /^\\s+timeout-minutes:\\s*\\d+\\s*$/.test(l))) {\n          semTeto.push(`${arquivo}:${i + 1}`);\n        }\n",
+       "        if (!temTimeoutDoMesmoPasso(linhas, i)) semTeto.push(arquivo + \":\" + (i + 1));\n"],
+      ["      \"uso sem timeout-minutes: sem o cinto, um dia de cache frio volta a consumir o orçamento dos testes\",\n",
+       "      \"uso sem timeout-minutes no mesmo passo: cache frio pode consumir o orçamento dos testes\",\n"],
+    ],
+  },
+];
+
+// Três vias do Git em vez de 30+ âncoras frágeis e reimplementação do updater.
+ // Base antiga = release oficial v1.102; nosso lado = fork ELUS; destino = Deskcomm v1.108.
+ // Somente kit de distribuição: demais arquivos seguem em adaptadores explícitos.
+export const DISTRIBUTION_MERGES = [
+  {
+    path:'hostgator-setup-kit/_common.sh',
+    officialBlob:'a857565a31c25c1577ced017047646949af9189e',
+    baseBlob:'9700caa5a1b665a1c7ca185ccee6f8e3d6b23d15',
+    forkBlob:'2579899a0e61c937b1a25f59e53b5529c321ca50',
+    kind:'distribution_common_three_way',
+  },
+  {
+    path:'hostgator-setup-kit/update.sh',
+    officialBlob:'6c91760b21c6d05264e1562a89559b404c11d1ca',
+    baseBlob:'6a229ef11d85207105e9db05b77ceab6026f39d3',
+    forkBlob:'7aab82d2c656948a008de64ce5e537b5e7b425c6',
+    kind:'distribution_update_three_way',
+  },
+];
+
+/**
+ * Política opcional, sem fallback implícito em falha de registry.
+ * A implementação oficial do build é reutilizada; somente o opt-in
+ * explicitamente configurado pode acioná-la.
+ * Os demais scripts de entrada continuam com seus próprios preflights.
+ */
+export function composeOptionalBuildPolicy(merged, official, expectedNamespace) {
+  if(typeof expectedNamespace!=='string' || !/^ghcr\.io\/[a-z0-9_-]+$/.test(expectedNamespace))
+    throw new Error('ELUS_OPTIONAL_BUILD_NAMESPACE_NOT_PINNED');
+  function locate(source,name) {
+    const re=new RegExp('^'+name+'\\(\\) \\{[^\\n]*\\n[\\s\\S]*?^\\}', 'gm');
+    const matches=[...source.matchAll(re)];
+    if(matches.length!==1)throw new Error('ELUS_OPTIONAL_BUILD_FUNCTION_ANCHOR: '+name);
+    return matches[0][0];
+  }
+  let result=merged;
+  function replace(name, next) {
+    const before=locate(result,name);
+    if(before===next)return;
+    result=result.replace(before,next);
+  }
+  // A antiga guarda ELUS era executada pelo source no início dos dois
+  // entrypoints e recusava ARM64 antes mesmo do preflight de imagens.
+  // Não importar do upstream o bypass para arquiteturas desconhecidas:
+  // preservamos apenas Linux amd64/arm64 e falhamos antes de efeitos colaterais.
+  replace('veredito_da_arquitetura', `veredito_da_arquitetura() {
+  case "\${1:-}" in
+    x86_64|amd64) printf 'amd64'; return 0 ;;
+    aarch64|arm64) printf 'arm64'; return 0 ;;
+    *) printf 'nao_suportada'; return 1 ;;
+  esac
+}`);
+  replace('verificar_arquitetura_do_kit', `verificar_arquitetura_do_kit() {
+  local arch sistema
+  arch="$(uname -m 2>/dev/null || printf desconhecida)"
+  sistema="$(uname -s 2>/dev/null || printf desconhecido)"
+  [ "$sistema" = Linux ] && arquitetura_suportada_pelo_kit "$arch" && return 0
+  printf 'ELUS_DISTRIBUTION_NO_GO: host %s/%s não suportado; exige Linux amd64 ou arm64.\\n' "$sistema" "$arch" >&2
+  return 3
+}`);
+  // Recuperação circunscrita ao suporte oficial de arquiteturas e WAHA.
+  for(const name of ['arquitetura_suportada_pelo_kit',
+    'imagem_waha_padrao_para_host','preflight_plataforma_atualizacao']) {
+    replace(name,locate(official,name));
+  }
+  // Aceitar imagens AMD64 ou ARM64 apenas com manifesto válido do host.
+  const officialImages=locate(official,'veredito_das_imagens_da_release');
+  const imageProbe='    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1; then';
+  const imageReplacement=[
+    '    if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1 \\',
+    '       && manifesto_tem_plataforma "${img}:${versao}" "$plataforma" >/dev/null 2>&1; then',
+  ].join('\n');
+  if(officialImages.split(imageProbe).length!==2)
+    throw new Error('ELUS_PLATFORM_IMAGE_PROBE_CHANGED');
+  const architectureProbe=[
+    '  local plataforma',
+    '  case "$(uname -m 2>/dev/null || true)" in',
+    '    x86_64|amd64) plataforma=linux/amd64 ;;',
+    '    aarch64|arm64) plataforma=linux/arm64 ;;',
+    "    *) printf 'indisponivel'; return 0 ;;",
+    '  esac',
+  ].join('\n')+'\n';
+  const imagesWithPlatform=officialImages.replace(
+    '  versao="${versao#v}"\n',
+    '  versao="${versao#v}"\n'+architectureProbe
+  ).replace(imageProbe,imageReplacement);
+  if(imagesWithPlatform===officialImages || !imagesWithPlatform.includes('plataforma=linux/arm64'))
+    throw new Error('ELUS_PLATFORM_IMAGE_CHECK_MISSING');
+  replace('veredito_das_imagens_da_release', imagesWithPlatform);
+  const requested=`build_local_pedido() {
+  case "\${DESKCOMM_BUILD_LOCAL:-}" in
+    1) return 0 ;;
+    *) return 1 ;;
+  esac
+}`;
+  replace('build_local_pedido',requested);
+  replace('build_local_permitido',`build_local_permitido() {
+  build_local_pedido
+}`);
+  const officialBuild=locate(official,'construir_aqui_e_subir');
+  const guarded=officialBuild.replace(/^construir_aqui_e_subir\(\) \{[^\n]*\n/,
+    head=>head+`  if ! build_local_pedido; then
+    c_red "ELUS_DISTRIBUTION_NO_GO: build local exige DESKCOMM_BUILD_LOCAL=1 explícito."
+    return 3
+  fi
+`);
+  if(guarded===officialBuild)throw new Error('ELUS_BUILD_OPTIN_ANCHOR');
+  replace('construir_aqui_e_subir',guarded);
+  if(!result.includes('IMG_NS="'+expectedNamespace+'"') ||
+     !result.includes('elus360_origem_confiavel()') ||
+     !result.includes('--no-build'))
+    throw new Error('ELUS_OPTIONAL_BUILD_PROVENANCE_MISSING');
+  return result;
+}
+
+
+/**
+ * T06-C: o fork antigo preserva origem, os quatro nomes de imagem ELUS
+ * e checagem OCI, mas recusa ARM64 em _manifestos.sh. Esta transformação
+ * cirurgica age somente na cópia composta e é pinada pelo blob do fork.
+ * Não declara suporte ARM64 quando um dos quatro manifestos não oferece
+ * a plataforma solicitada: falha antes de instalar, tocar em banco ou Docker.
+ */
+export function composeOptionalPlatformManifest(original) {
+  let output=original;
+  const changes=[
+    ['# <uname -m> [uname -s] -> somente linux/amd64',
+     '# <uname -m> [uname -s] -> linux/amd64 | linux/arm64 (apenas Linux)'],
+    ['use Linux AMD64 (x86_64)', 'use Linux AMD64 ou ARM64'],
+    ["    x86_64|amd64) printf '%s\\n' linux/amd64 ;;",
+     "    x86_64|amd64) printf '%s\\n' linux/amd64 ;;\n    aarch64|arm64) printf '%s\\n' linux/arm64 ;;"],
+    ['# Imagens ELUS são estritamente AMD64; WAHA upstream pode ser multiarch.',
+     '# OCI: quatro imagens ELUS e WAHA podem ser multiarch; destino deve existir uma vez.'],
+    ["    linux/amd64) ;;",
+     "    linux/amd64|linux/arm64) ;;"],
+    ["  grep -Fxq \"$plataforma\" <<<\"$plataformas\" && return 0",
+     "  [ \"$(grep -Fxc \"$plataforma\" <<<\"$plataformas\")\" = 1 ] && return 0"],
+    ["  [ \"$plataforma\" = linux/amd64 ] || { printf 'ELUS_DISTRIBUTION_NO_GO: plataforma OCI %s não suportada (somente linux/amd64).\\n' \"$plataforma\" >&2; return 1; }",
+     "  case \"$plataforma\" in linux/amd64|linux/arm64) ;; *) printf 'ELUS_DISTRIBUTION_NO_GO: plataforma OCI inválida (%s).\\n' \"$plataforma\" >&2; return 1 ;; esac"],
+    ['    manifesto_tem_plataforma "$ref" "$plataforma" exclusivo || return 1',
+     '    manifesto_tem_plataforma "$ref" "$plataforma" compativel || return 1'],
+  ];
+  for(const [oldText,newText] of changes) {
+    // A frase de arquitetura aparece nos dois diagnósticos distintos:
+    // sistema operacional e arquitetura. Ambos devem ser atualizados.
+    const expected=oldText==='use Linux AMD64 (x86_64)' ? 3 : 2;
+    if(output.split(oldText).length!==expected)
+      throw new Error('ELUS_PLATFORM_MANIFEST_ANCHOR_CHANGED: '+oldText.slice(0,55));
+    output=expected===3 ? output.replaceAll(oldText,newText) : output.replace(oldText,newText);
+  }
+  if(!output.includes('elus360-voice-agent') || !output.includes('ghcr_status "$img" "$tag"') ||
+     !output.includes('ELUS_DISTRIBUTION_NO_GO') || output===original)
+    throw new Error('ELUS_PLATFORM_MANIFEST_SOURCE_CONTRACT_MISSING');
+  return output;
+}
+function composePlatformManifestFromStaged({candidate,report}) {
+  const path='hostgator-setup-kit/_manifestos.sh', forkBlob='55b5517d5889d337d0c3da68527be5398fde10a4';
+  if(!report.staged.includes(path) ||
+      git(['-C',candidate,'rev-parse',report.fork_sha+':'+path])!==forkBlob)
+    throw new Error('ELUS_PLATFORM_MANIFEST_NOT_STAGED_OR_FORK_CHANGED');
+  const original=readFileSync(join(candidate,path),'utf8');
+  if(gitBlobSha(Buffer.from(original))!==forkBlob)
+    throw new Error('ELUS_PLATFORM_MANIFEST_BYTES_CHANGED');
+  const content=composeOptionalPlatformManifest(original);
+  const syntax=spawnSync('bash',['-n'],{input:content,encoding:'utf8',timeout:10000});
+  if(syntax.error || syntax.signal || syntax.status!==0)
+    throw new Error('ELUS_PLATFORM_MANIFEST_SYNTAX_FAILED: '+(syntax.stderr||''));
+  return {path,kind:'elus_optional_arm64_oci',fork_blob:forkBlob,content,sha256:digest(content)};
+}
+
+
+/** Adaptações de distribuição aplicadas apenas no worktree composto, com âncoras exatas. */
+function composeEntrypointPatches(original, patches, entrypoint) {
+  if(typeof original!=='string')throw new Error('ELUS_ENTRYPOINT_SOURCE_MISSING: '+entrypoint);
+  let result=original;
+  for(const [from,to] of patches){
+    if(result.split(from).length!==2)throw new Error('ELUS_ENTRYPOINT_CONTRACT_CHANGED: '+entrypoint);
+    result=result.replace(from,to);
+  }
+  return result;
+}
+export function composeOptionalInstallEntrypoint(original) {
+  return composeEntrypointPatches(original, [
+  [
+    "if ! trio_publicado \"$ELUS_RELEASE_NUMERICA\"; then",
+    "if ! build_local_pedido && ! trio_publicado \"$ELUS_RELEASE_NUMERICA\"; then"
+  ],
+  [
+    "# Pré-voo obrigatório AMD64: as quatro imagens ELUS360 e WAHA efetiva\n# devem oferecer linux/amd64 antes de criar Supabase, rede ou schema.\nPLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" || {\n  printf '%s\\n' 'ELUS_DISTRIBUTION_NO_GO: servidor fora de Linux AMD64.' >&2\n  exit 3\n}\nVERSAO_ALVO=\"${ELUS_RELEASE_PREVALIDADA#v}\"\nWAHA_EFETIVA=\"${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}\"\nif ! preflight_instalacao \"$VERSAO_ALVO\" \"$PLATAFORMA_HOST\" \"$WAHA_EFETIVA\"; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: quatro imagens e WAHA devem oferecer linux/amd64.\"\n  trap - EXIT\n  exit 3\nfi",
+    "# Pré-voo OCI no host antes de criar rede, Supabase ou schema.\nPLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" || {\n  printf '%s\\n' 'ELUS_DISTRIBUTION_NO_GO: exige Linux amd64 ou arm64.' >&2\n  exit 3\n}\nVERSAO_ALVO=\"${ELUS_RELEASE_PREVALIDADA#v}\"\nWAHA_EFETIVA=\"${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}\"\nif build_local_pedido; then\n  manifesto_tem_plataforma \"$WAHA_EFETIVA\" \"$PLATAFORMA_HOST\" || {\n    c_red \"ELUS_DISTRIBUTION_NO_GO: WAHA incompatível com $PLATAFORMA_HOST.\"\n    trap - EXIT\n    exit 3\n  }\nelif ! preflight_instalacao \"$VERSAO_ALVO\" \"$PLATAFORMA_HOST\" \"$WAHA_EFETIVA\"; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: imagens ELUS ou WAHA incompatíveis com $PLATAFORMA_HOST.\"\n  trap - EXIT\n  exit 3\nfi"
+  ],
+  [
+    "   || ! trio_publicado \"$VERSAO_ALVO\"; then",
+    "   || { ! build_local_pedido && ! trio_publicado \"$VERSAO_ALVO\"; }; then"
+  ],
+  [
+    "if ! dc pull; then\n  die \"ELUS_DISTRIBUTION_NO_GO: pull das imagens ELUS360 falhou; nenhum build local será executado.\"\nfi\nif ! dc up -d --no-build; then\n  die \"ELUS_DISTRIBUTION_NO_GO: falha ao subir imagens ELUS360 já publicadas (sem build local).\"\nfi",
+    "if build_local_pedido; then\n  construir_aqui_e_subir \"$VERSAO_ALVO\" ||\n    die \"ELUS_DISTRIBUTION_NO_GO: build explicitamente solicitado falhou.\"\nelse\n  if ! dc pull; then\n    die \"ELUS_DISTRIBUTION_NO_GO: pull incompleto; build automático proibido.\"\n  fi\n  if ! dc up -d --no-build; then\n    die \"ELUS_DISTRIBUTION_NO_GO: imagens publicadas não subiram; sem build automático.\"\n  fi\nfi"
+  ]
+], 'install.sh');
+}
+export function composeOptionalUpdateEntrypoint(original) {
+  return composeEntrypointPatches(original, [
+  [
+    "ELUS_VEREDITO_IMAGENS=\"$(veredito_das_imagens_da_release \"$TARGET_TAG\")\"\n[ \"$ELUS_VEREDITO_IMAGENS\" = \"prontas\" ] \\\n  || refuse \"ELUS_DISTRIBUTION_NO_GO: as quatro imagens da release ELUS360 não estão públicas e acessíveis (veredito: $ELUS_VEREDITO_IMAGENS).\"",
+    "if ! build_local_pedido; then\n  ELUS_VEREDITO_IMAGENS=\"$(veredito_das_imagens_da_release \"$TARGET_TAG\")\"\n  [ \"$ELUS_VEREDITO_IMAGENS\" = \"prontas\" ] \\\n    || refuse \"ELUS_DISTRIBUTION_NO_GO: imagens ELUS360 não verificáveis (veredito: $ELUS_VEREDITO_IMAGENS).\"\nfi"
+  ],
+  [
+    "PLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" \\\n  || refuse \"ELUS_DISTRIBUTION_NO_GO: somente Linux AMD64.\"\nif ! preflight_plataforma_atualizacao \"$TARGET_TAG\" \"$PLATAFORMA_HOST\"; then\n  refuse \"ELUS_DISTRIBUTION_NO_GO: manifestos do ELUS360 ou WAHA incompatíveis com linux/amd64; banco, imagens e código preservados.\"\nfi",
+    "PLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" \\\n  || refuse \"ELUS_DISTRIBUTION_NO_GO: somente Linux amd64 ou arm64.\"\nif build_local_pedido; then\n  WAHA_EFETIVA=\"${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}\"\n  manifesto_tem_plataforma \"$WAHA_EFETIVA\" \"$PLATAFORMA_HOST\" ||\n    refuse \"ELUS_DISTRIBUTION_NO_GO: WAHA sem plataforma $PLATAFORMA_HOST; banco e código preservados.\"\nelif ! preflight_plataforma_atualizacao \"$TARGET_TAG\" \"$PLATAFORMA_HOST\"; then\n  refuse \"ELUS_DISTRIBUTION_NO_GO: imagens ELUS ou WAHA incompatíveis com $PLATAFORMA_HOST; banco e código preservados.\"\nfi"
+  ],
+  [
+    "if ! dc pull; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: pull incompleto; não vou construir imagens na VPS.\"\n  exit 1\nfi",
+    "if ! build_local_pedido && ! dc pull; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: pull incompleto; build automático proibido.\"\n  exit 1\nfi"
+  ],
+  [
+    "if ! subir_o_parque; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build.\"\n  exit 1\nfi",
+    "if build_local_pedido; then\n  construir_aqui_e_subir \"$VERSAO_ALVO\" || {\n    c_red \"ELUS_DISTRIBUTION_NO_GO: build solicitado falhou; rollback de imagens preservado.\"\n    exit 1\n  }\nelif ! subir_o_parque; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build automático.\"\n  exit 1\nfi"
+  ]
+], 'update.sh');
+}
+function composeInstallFromStaged({candidate,report}) {
+  const path='hostgator-setup-kit/install.sh', forkBlob='39d5d81a53cb2368c02d0723c2ae56d5145bb4f7';
+  if(!report.staged.includes(path) || git(['-C',candidate,'rev-parse',report.fork_sha+':'+path])!==forkBlob)
+    throw new Error('ELUS_INSTALL_NOT_STAGED_OR_FORK_CHANGED');
+  const original=readFileSync(join(candidate,path),'utf8');
+  if(gitBlobSha(Buffer.from(original))!==forkBlob)
+    throw new Error('ELUS_INSTALL_SOURCE_BYTES_CHANGED');
+  const content=composeOptionalInstallEntrypoint(original);
+  const syntax=spawnSync('bash',['-n'],{input:content,encoding:'utf8',timeout:10000});
+  if(syntax.error || syntax.signal || syntax.status!==0)
+    throw new Error('ELUS_INSTALL_SYNTAX_NO_GO: '+(syntax.stderr||''));
+  return {path,kind:'elus_optional_install_entrypoint',fork_blob:forkBlob,content,sha256:digest(content)};
+}
+
+function mergeDistributionThreeWay({candidate,report,rule}) {
+  const path=assertSafePath(rule.path);
+  const record=report.review.find(x=>x.path===path);
+  if(!record || record.reason!=='both_changed' || record.fork_status!=='M')
+    throw new Error('ELUS_DISTRIBUTION_NOT_A_CONFLICT: '+path);
+  const ours=readFileSync(join(candidate,path));
+  if(gitBlobSha(ours)!==rule.officialBlob)
+    throw new Error('ELUS_DISTRIBUTION_OFFICIAL_BLOB_CHANGED: '+path);
+  const base=execFileSync('git',['-C',candidate,'show',report.upstream_base_sha+':'+path],
+    {maxBuffer:12*1024*1024});
+  const fork=execFileSync('git',['-C',candidate,'show',report.fork_sha+':'+path],
+    {maxBuffer:12*1024*1024});
+  if(gitBlobSha(base)!==rule.baseBlob || gitBlobSha(fork)!==rule.forkBlob)
+    throw new Error('ELUS_DISTRIBUTION_SOURCE_BLOB_CHANGED: '+path);
+  const scratch=mkdtempSync(join(tmpdir(),'elus360-three-way-'));
+  try {
+    const currentFile=join(scratch,'official'),baseFile=join(scratch,'base'),forkFile=join(scratch,'elus');
+    writeFileSync(currentFile,ours); writeFileSync(baseFile,base);writeFileSync(forkFile,fork);
+    const child=spawnSync('git',['merge-file','-p',currentFile,baseFile,forkFile],
+      {encoding:'utf8',maxBuffer:12*1024*1024});
+    if(child.error || child.status!==0 || child.signal)
+      throw new Error('ELUS_DISTRIBUTION_THREE_WAY_CONFLICT: '+path+
+        ' status='+child.status+' '+(child.error?.message||''));
+    let content=child.stdout;
+    // A revogação da política AMD64/no-build não deve reverter as
+    // verificações ELUS de provenance, rollback ou namespace. Só o helper
+    // compartilhado pode recuperar estas capacidades nesta etapa; install.sh
+    // e update.sh têm gates adicionais e continuam sujeitos a homologação.
+    if (rule.kind==='distribution_common_three_way')
+      content=composeOptionalBuildPolicy(content,ours.toString('utf8'),
+        /^IMG_NS="([^"]+)"$/m.exec(fork.toString('utf8'))?.[1]);
+    if (rule.kind==='distribution_update_three_way')
+      content=composeOptionalUpdateEntrypoint(content);
+    if(!content || content===ours.toString('utf8'))
+      throw new Error('ELUS_DISTRIBUTION_MERGE_WITHOUT_ELUS_DELTA: '+path);
+    // O namespace tem fonte única no _common.sh original do ELUS (blob
+    // pinado acima). Não repetimos o literal no reconciliador: o gate oficial
+    // de namespace do fork exige exatamente essa propriedade.
+    const forkNamespace=rule.kind==='distribution_common_three_way'
+      ? /^IMG_NS="([^"]+)"$/m.exec(fork.toString('utf8'))?.[1] : null;
+    if(rule.kind==='distribution_common_three_way' && !forkNamespace)
+      throw new Error('ELUS_DISTRIBUTION_SOURCE_NAMESPACE_MISSING: '+path);
+    const mandatory=rule.kind==='distribution_common_three_way'
+      ? ['IMG_NS="'+forkNamespace+'"','elus360_origem_confiavel()',
+          'ELUS_DISTRIBUTION_NO_GO','--no-build']
+      : ['elus360_origem_confiavel','ELUS_DISTRIBUTION_NO_GO',
+          'preflight_plataforma_atualizacao','BACKUP_ESPERA_LOCK=300'];
+    if(mandatory.some(x=>!content.includes(x)))
+      throw new Error('ELUS_DISTRIBUTION_REQUIRED_CONTRACT_MISSING: '+path);
+    // Validar os scripts em memória, antes de gravá-los na árvore candidata.
+    // Não executa install/update, Docker, backup, DDL ou chamadas externas.
+    const syntax=spawnSync('bash',['-n'],{
+      input:content,encoding:'utf8',maxBuffer:512*1024,timeout:10000,
+    });
+    if(syntax.error || syntax.signal || syntax.status!==0)
+      throw new Error('ELUS_DISTRIBUTION_BASH_SYNTAX_NO_GO: '+path+
+        ' status='+syntax.status+' '+(syntax.error?.message||syntax.stderr||''));
+    return {path,kind:rule.kind,official_blob:rule.officialBlob,
+      base_blob:rule.baseBlob,fork_blob:rule.forkBlob,content,sha256:digest(content)};
+  } finally {
+    rmSync(scratch,{recursive:true,force:true});
+  }
+}
+
+function exactReplace(text, oldValue, nextValue, path) {
+  const chunks = text.split(oldValue);
+  if (chunks.length !== 2) throw new Error('ADAPTER_ANCHOR_MISMATCH: '+path);
+  if (nextValue === oldValue) throw new Error('ADAPTER_NO_CHANGE: '+path);
+  return chunks.join(nextValue);
+}
+
+export function adaptText(original, adapter) {
+  if (typeof original !== 'string' || !adapter || !Array.isArray(adapter.edits))
+    throw new Error('BAD_ADAPTER');
+  let result = original;
+  for (const [oldValue,nextValue] of adapter.edits)
+    result = exactReplace(result, oldValue, nextValue, adapter.path);
+  return result;
+}
+
+/**
+ * Decisão operacional do ELUS360: exclusões do fork de documentação de skills
+ * deskcomm-* NÃO compõem uma personalização. Conservar o arquivo do upstream.
+ * Este reconhecimento NÃO vale para código, scripts/hooks, modes ou arquivos ELUS.
+ * Um item retido é conferido contra o blob Git do release oficial antes da escrita.
+ */
+
+/** Estrutura Deskcomm oficial pinada: política ELUS vive em docs/elus360. */
+export const ELUS_STRUCTURAL_DOCS = Object.freeze({
+  "AGENTS.md": { officialBlob: "e277161eabff352162a15efd23714cde9c757796", forkBlob: "18e1b4e76694ec9a736331a17d52b259f06d6f1a" },
+  "CLAUDE.md": { officialBlob: "58bdf20f39a04ff56878987dcf0ab770426aabc4", forkBlob: "8173283ad5c4d154ad601a725cd8488ba11ab589" },
+  "docs/index.md": { officialBlob: "e461d4b9b5b7659832c7df4330893eef97f1ed27", forkBlob: "3741cd933931fcfd0358187563a8f400e0ac1abd" },
+});
+export function keepOfficialStructuralDocument(item) {
+  return !!item && Object.hasOwn(ELUS_STRUCTURAL_DOCS,item.path) &&
+    item.reason === 'both_changed' && item.fork_status === 'M' &&
+    item.upstream_status === 'M';
+}
+
+export function keepOfficialDocumentation(item) {
+  if (!item || item.fork_status !== 'D' ||
+      !['both_changed','deletion_or_unsupported_mode'].includes(item.reason))
+    return false;
+  const path = assertSafePath(item.path);
+  if (!/^\.(?:agents|claude)\/skills\/deskcomm-[^/]+\/.+\.(?:md|ya?ml|json)$/.test(path) ||
+      /\/(?:scripts|hooks)\//.test(path))
+    return false;
+  return classifyConflict(item).category === 'upstream_docs_candidate';
+}
+
+/**
+ * Ferramentas de contribuição da comunidade não pertencem ao runtime ELUS360:
+ * a imagem oficial exclui .agents e .claude no .dockerignore.
+ * Manter o conteúdo de origem é uma decisão de overlay, NÃO certificação
+ * para executar hooks. Nenhum hook é instalado/ativado por este montador.
+ */
+export function keepOfficialDeveloperScript(item) {
+  if(!item || item.reason!=='deletion_or_unsupported_mode' || item.fork_status!=='D')
+    return false;
+  const path=assertSafePath(item.path);
+  if(!/^\.(?:agents|claude)\/skills\/deskcomm-[^/]+\/scripts\/.+$/.test(path))
+    return false;
+  return classifyConflict(item).category==='upstream_scripts_security_review';
+}
+
+// Os validadores de shell são testes do Deskcomm, não runtime ELUS.
+ // Conservar o script oficial: não trazer fixtures antigas do fork.
+export function keepOfficialUpstreamValidator(item) {
+  return item?.path==='hostgator-setup-kit/test-validators.sh' &&
+    item?.reason==='both_changed' && item?.fork_status==='M' &&
+    item?.upstream_status==='M';
+}
+
+export function planChanges({report, targetSha, sourceByPath, officialBlobByPath, adapters = ADAPTERS}) {
+  if (report?.schema_version !== 1 || report?.stage !== 'PREPARED_NOT_VALIDATED' ||
+      !/^[a-f0-9]{40}$/.test(targetSha) || report.upstream_target_sha !== targetSha ||
+      !Array.isArray(report.review) || report.review.length !== report.counts?.conflicts) 
+    throw new Error('UNVERIFIED_CLEAN_BASE_REPORT');
+  const originalReview = new Map();
+  for (const item of report.review) {
+    const path = assertSafePath(item.path);
+    if (originalReview.has(path)) throw new Error('DUPLICATE_CONFLICT_PATH');
+    originalReview.set(path, item);
+  }
+  const changed = [];
+  for (const adapter of adapters) {
+    const item = originalReview.get(adapter.path);
+    if (!item || item.reason !== 'both_changed') throw new Error('ADAPTER_OUTSIDE_REVIEW: '+adapter.path);
+    if (officialBlobByPath[adapter.path] !== adapter.officialBlob)
+      throw new Error('OFFICIAL_BLOB_CHANGED: '+adapter.path);
+    const oldContent = sourceByPath[adapter.path];
+    if (typeof oldContent !== 'string') throw new Error('MISSING_OFFICIAL_FILE: '+adapter.path);
+    const content = adaptText(oldContent, adapter);
+    changed.push({path: adapter.path, kind: adapter.kind,
+      official_blob: adapter.officialBlob, content,
+      sha256: digest(content)});
+  }
+  const adaptedPaths = new Set(changed.map(c=>c.path));
+  // Prioridade da base oficial: não há delta ELUS a reaplicar em docs apagados.
+  const officialKept = report.review.filter(item =>
+    !adaptedPaths.has(item.path) &&
+    (keepOfficialDocumentation(item) || keepOfficialDeveloperScript(item) ||
+     keepOfficialUpstreamValidator(item) || keepOfficialStructuralDocument(item)));
+  const keptPaths = new Set(officialKept.map(item=>item.path));
+  const remaining = report.review.filter(item =>
+    !adaptedPaths.has(item.path) && !keptPaths.has(item.path));
+  if(adaptedPaths.size + keptPaths.size + remaining.length !== report.review.length)
+    throw new Error('ELUS_OVERLAY_DECISION_COVERAGE_MISMATCH');
+  return {changed, officialKept, remaining};
+}
+
+
+const ELUS_SQL_BASELINE_OID='e82bf528e36dce1c3f118c645c7e76fe2f93230b';
+const ELUS_SQL_CHAIN=[
+  ['supabase/migrations/20261028235959_9900_elus_ai_autonomy_guarded.sql','b4fd132fdd482c017a823f2baf013b20b2850c2d'],
+  ['supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql','b91a939129f637db5f8bbc74019ac9694d335a93'],
+  ['supabase/migrations/20261106160000_9902_elus_molde_chutes_pt409.sql','f718675d50b4ae1dc81373b15139acda4767ec13'],
+  ['supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql','7d6af15a5306912fe3b1fe595ff277a56a7afbb6'],
+];
+/** Apenas arquivo candidato; nunca executa SQL no banco operacional. */
+function composeElusSql({candidate,report}) {
+  const path='supabase/baseline.sql';
+  const issue=report.review.find(x=>x.path===path);
+  if(!issue || issue.reason!=='both_changed' || issue.fork_status!=='M' ||
+     issue.upstream_status!=='M' || report.staged.includes(path))
+    throw new Error('ELUS_SQL_BASELINE_UNEXPECTED_STATE');
+  const original=readFileSync(join(candidate,path));
+  if(gitBlobSha(original)!==ELUS_SQL_BASELINE_OID)
+    throw new Error('ELUS_SQL_OFFICIAL_BLOB_CHANGED');
+  const parts=[original];
+  for(const [name,oid] of ELUS_SQL_CHAIN){
+    if(!report.staged.includes(name))throw new Error('ELUS_SQL_MIGRATION_NOT_STAGED: '+name);
+    const bytes=readFileSync(join(candidate,name));
+    if(gitBlobSha(bytes)!==oid || !bytes.toString('utf8').startsWith('-- manifest:'))
+      throw new Error('ELUS_SQL_MIGRATION_BLOB_CHANGED: '+name);
+    if(/^\s*\\(?:connect|c|include|i|ir|q|quit|copy|!)/im.test(bytes.toString('utf8')))
+      throw new Error('ELUS_SQL_META_COMMAND_FORBIDDEN: '+name);
+    parts.push(Buffer.from('\n-- ELUS360_FORWARD_BEGIN '+name+'\n'),bytes,
+      Buffer.from('\n-- ELUS360_FORWARD_END '+name+'\n'));
+  }
+  const content=Buffer.concat(parts);
+  return {path,kind:'official_baseline_plus_pinned_elus_migrations',
+    official_blob:ELUS_SQL_BASELINE_OID,
+    migrations:ELUS_SQL_CHAIN.map(([path,blob])=>({path,blob})),
+    sha256:digest(content),content};
+}
+
+function parseFlags(argv) {
+  if (argv.length!==6) throw new Error('USO: --candidate /abs/worktree --source-report /abs/report.json --reports /abs/destino');
+  const f = new Map();
+  for (let i=0;i<argv.length;i+=2){
+    if(!['--candidate','--source-report','--reports'].includes(argv[i]) || f.has(argv[i]))
+      throw new Error('BAD_FLAG');
+    f.set(argv[i],argv[i+1]);
+  }
+  for(const k of ['--candidate','--source-report','--reports'])
+    if(!f.has(k) || !isAbsolute(f.get(k))) throw new Error('REQUIRE_ABSOLUTE_PATH: '+k);
+  return f;
+}
+
+export function run(argv) {
+  const flags = parseFlags(argv), candidate = resolve(flags.get('--candidate'));
+  const reportPath = resolve(flags.get('--source-report')), reports = resolve(flags.get('--reports'));
+  const report = JSON.parse(readFileSync(reportPath,'utf8'));
+  const actualHead = git(['-C',candidate,'rev-parse','HEAD']);
+  // Verificar byte a byte a preparação ANTES dos adaptadores: relatório e worktree
+  // devem representar o MESMO patch e conjunto de caminhos da release fixada.
+  const prepared = execFileSync('git',['-C',candidate,'diff','--cached','--no-ext-diff','--binary'],{maxBuffer:128*1024*1024});
+  if (digest(prepared)!==report.patch?.sha256 || prepared.length!==report.patch?.bytes)
+    throw new Error('PREPARED_PATCH_INTEGRITY_MISMATCH');
+  const staged=execFileSync('git',['-C',candidate,'diff','--cached','--name-only','-z']).toString('utf8').split('\0').filter(Boolean).sort();
+  if (!Array.isArray(report.staged) || JSON.stringify(staged)!==JSON.stringify([...report.staged].sort()))
+    throw new Error('PREPARED_PATHS_INTEGRITY_MISMATCH');
+  // A árvore composta não pode ser a branch da PR nem a main; checkout detached.
+  if (git(['-C',candidate,'branch','--show-current']) !== '') 
+    throw new Error('CANDIDATE_MUST_BE_DETACHED');
+  const sourceByPath = {}, officialBlobByPath = {};
+  for(const adapter of ADAPTERS){
+    assertSafePath(adapter.path);
+    sourceByPath[adapter.path]=readFileSync(join(candidate,adapter.path),'utf8');
+    officialBlobByPath[adapter.path]=git(['-C',candidate,'hash-object','--',adapter.path]);
+  }
+  // Preflight integral, SEM ESCRITA, antes de modificar qualquer arquivo.
+  const plan=planChanges({report,targetSha:actualHead,sourceByPath,officialBlobByPath});
+  // O upstream já está no worktree: validar identidade, modo não-executável e
+  // ausência de alterações em cada doc que decidimos conservar.
+  const rawTree=git(['-C',candidate,'ls-tree','-rz','HEAD','--',
+    '.agents/skills','.claude/skills','hostgator-setup-kit/test-validators.sh','AGENTS.md','CLAUDE.md','docs/index.md']);
+  const officialDocs = new Map();
+  for(const record of rawTree.split('\0').filter(Boolean)) {
+    const m=/^(\d{6}) blob ([a-f0-9]{40})\t(.+)$/.exec(record);
+    if(m)officialDocs.set(m[3],{mode:m[1],sha:m[2]});
+  }
+  const officialKept=[];
+  // Devtools do upstream não entram na imagem ELUS. Falha fechada se o
+  // .dockerignore oficial deixar de excluí-los em release futura.
+  const dockerIgnore=readFileSync(join(candidate,'.dockerignore'),'utf8');
+  const dockerRules=new Set(dockerIgnore.split(/\r?\n/).map(x=>x.trim()));
+  const devtoolExclusionsOk=dockerRules.has('.agents') && dockerRules.has('.claude');
+  for(const item of plan.officialKept) {
+    const developerTool=keepOfficialDeveloperScript(item);
+    const officialValidator=keepOfficialUpstreamValidator(item);
+    const structuralDoc=keepOfficialStructuralDocument(item);
+    const expected=officialDocs.get(item.path);
+    if (structuralDoc) {
+      const policy=ELUS_STRUCTURAL_DOCS[item.path];
+      if (expected?.sha!==policy.officialBlob ||
+          git(['-C',candidate,'rev-parse',report.fork_sha+':'+item.path])!==policy.forkBlob)
+        throw new Error('ELUS_STRUCTURAL_DOCUMENT_BLOB_CHANGED: '+item.path);
+    }
+    const allowedMode=developerTool || officialValidator
+      ? ['100644','100755'].includes(expected?.mode)
+      : expected?.mode==='100644';
+    if(!expected || !allowedMode || report.staged.includes(item.path) ||
+        (developerTool && !devtoolExclusionsOk))
+      throw new Error('ELUS_OFFICIAL_DOCUMENT_NOT_SAFE: '+item.path);
+    const bytes=readFileSync(join(candidate,item.path));
+    const actual=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
+    if(actual!==expected.sha)
+      throw new Error('ELUS_OFFICIAL_DOCUMENT_MODIFIED: '+item.path);
+    officialKept.push({path:item.path,official_blob:expected.sha,
+      decision:developerTool ? 'keep_official_devtool_excluded_from_runtime'
+        : officialValidator ? 'keep_official_upstream_test_without_elus_modifications'
+        : structuralDoc ? 'keep_official_structural_document_with_elus_policy_in_docs_elus360'
+        : 'keep_official_document_no_elus_overlay'});
+
+  }
+  // Pré-compor ambos os scripts antes de tocar no worktree candidato.
+  // Se o Git detectar conflito semântico/textual (exit != 0), falhar fechado.
+  const distributionMerged=DISTRIBUTION_MERGES.map(rule=>
+    mergeDistributionThreeWay({candidate,report,rule}));
+  const platformManifest=composePlatformManifestFromStaged({candidate,report});
+  const installEntrypoint=composeInstallFromStaged({candidate,report});
+  const sqlBaseline=composeElusSql({candidate,report});
+  const mergedPaths=new Set([...distributionMerged.map(x=>x.path),platformManifest.path,installEntrypoint.path,sqlBaseline.path]);
+  if(mergedPaths.size!==distributionMerged.length+3 ||
+     distributionMerged.some(x=>plan.changed.some(y=>y.path===x.path) ||
+       plan.officialKept.some(y=>y.path===x.path)))
+    throw new Error('ELUS_DISTRIBUTION_DECISION_OVERLAP');
+  for(const c of [...plan.changed,...distributionMerged,platformManifest,installEntrypoint,sqlBaseline])
+    writeFileSync(join(candidate,c.path),c.content);
+  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path),platformManifest.path,installEntrypoint.path,sqlBaseline.path]);
+  const patch=execFileSync('git',['-C',candidate,'diff','--cached','--binary'],{maxBuffer:128*1024*1024});
+  mkdirSync(reports,{recursive:true});
+  const composed={
+    schema_version:1, stage:'COMPOSED_NOT_VALIDATED',
+    upstream_target_sha:actualHead, fork_sha:report.fork_sha,
+    source_report_sha256:digest(readFileSync(reportPath)),
+    adapted:[...plan.changed,...distributionMerged,platformManifest,installEntrypoint,sqlBaseline].map(({content,...metadata})=>metadata),
+    official_kept:officialKept,
+    counts:{safe_overlay:report.counts.staged,
+      adaptations:plan.changed.length+distributionMerged.length+3,
+      official_kept:officialKept.length,
+      unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)).length},
+    unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)),
+    candidate_patch:{sha256:digest(patch),bytes:patch.length},
+    gates:{source_blobs_pinned:true, official_documents_verified:true,
+      distribution_three_way_clean:true,
+      devtools_excluded_from_runtime:devtoolExclusionsOk,
+      authorization:'NOT_RUN',typecheck:'NOT_RUN',build:'NOT_RUN',
+      tenant_isolation:'NOT_RUN',db_upgrade:'NOT_RUN',functional_e2e:'NOT_RUN',merge_deploy:'FORBIDDEN'}
+  };
+  writeFileSync(join(reports,'elus360-composed.patch'),patch);
+  writeFileSync(join(reports,'elus360-composed-report.json'),JSON.stringify(composed,null,2)+'\n');
+  process.stdout.write(JSON.stringify({stage:composed.stage,counts:composed.counts,sha256:composed.candidate_patch.sha256})+'\n');
+  return composed;
+}
+if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
+  try{run(process.argv.slice(2));}catch(e){console.error('ELUS_ADAPTER_NO_GO: '+e.message);process.exitCode=1;}
+}

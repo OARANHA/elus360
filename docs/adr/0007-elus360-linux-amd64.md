@@ -1,5 +1,9 @@
 # ADR-0007 — Arquiteturas suportadas na distribuição ELUS360
 
+> **DECISÃO SUPERVENIENTE DO PROPRIETÁRIO — 12/11/2026 (APROVADA, IMPLEMENTAÇÃO PENDENTE).**
+> A restrição exclusiva de Linux AMD64 e a proibição absoluta de build local, estabelecidas abaixo em 07/11/2026, **foram revogadas**. ARM64 e build local são permitidos como capacidades opcionais, desde que o caminho seja seguro e suportado pela distribuição efetiva. Isso não exige build pesado na VPS, nem executá-lo em CI por rotina; imagens publicadas continuam preferenciais. Não anunciar suporte operacional ARM64 ou fallback testado até validar imagens, instalador e atualização. Preservar proveniência, rollback, segredos, backups e ausência de alterações destrutivas. A prioridade da PR #37 é a sinergia do overlay ELUS360 com a base oficial DeskcommCRM, com testes dirigidos exclusivamente ao delta ELUS e suas interfaces críticas; não repetir a bateria completa do upstream. As regras históricas abaixo documentam a decisão anterior e **não devem bloquear a nova integração**.
+
+
 - **Status:** APROVADA PELO PROPRIETÁRIO
 - **Data da aprovação:** 2026-11-07
 - **Escopo de implementação:** `OARANHA/elus360`, PR #22 (DRAFT, isolada)

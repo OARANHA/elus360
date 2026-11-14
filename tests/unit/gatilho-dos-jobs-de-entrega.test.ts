@@ -302,6 +302,23 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   "elus360-ai-governance-inventory.yml::write-surface-inventory": { condicao: null, efeito: "Inventário de escritas protegidas." },
   "elus360-check.yml::validacao": { condicao: null, efeito: "Validação do código ELUS360." },
   "elus360-chutes-check.yml::validar": { condicao: null, efeito: "Integração Chutes." },
+  "elus360-clean-base-candidate.yml::prepare-clean-base": {
+    condicao: null,
+    efeito: "Prepara a candidata sobre release Deskcomm oficial pinada em runner descartável; sem executar, o overlay não tem inventário de conflitos nem prova de procedência.",
+  },
+  "elus360-clean-base-candidate.yml::staging-elus-e2e": {
+    condicao: null,
+    efeito:
+      "Homologa a arvore oficial v1.108 + overlay ELUS usando Supabase local, Auth real e Playwright em runner publico. " +
+      "Skip na candidata deixa login, marca, administracao de tenants e MFA sem prova de integracao; " +
+      "nenhuma verificacao local autoriza escrita no banco operacional.",
+  },
+  "elus360-clean-base-sql-t05b.yml::sql-disposable": {
+    condicao: "github.repository == 'OARANHA/elus360' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 37)",
+    efeito:
+      "Ensaia baseline e migrations ELUS em PostgreSQL descartavel somente no fork, via PR #37 ou disparo manual; " +
+      "o job ignorado nao comprova instalacao, upgrade, restore nem isolamento RLS.",
+  },
   "elus360-upstream-sync.yml::contrato-upstream": { condicao: null, efeito: "Reconciliação upstream sem promoção." },
   "elus360-v1102-candidate.yml::sql-source-parity": { condicao: null, efeito: "Paridade SQL da candidata." },
   "elus360-v1102-candidate.yml::typecheck": { condicao: null, efeito: "TypeScript global da candidata." },

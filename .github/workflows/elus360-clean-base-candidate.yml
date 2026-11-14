@@ -1,0 +1,596 @@
+name: ELUS360 — candidata sobre upstream limpo
+on:
+  pull_request:
+    paths:
+      - "scripts/elus360-clean-base-prepare.mjs"
+      - "scripts/elus360-clean-base-classify.mjs"
+      - "scripts/elus360-clean-base-adapters.mjs"
+      - "scripts/elus360-migration-delta-audit.mjs"
+      - "scripts/elus360-composed-typecheck.mjs"
+      - "tests/operational/elus360-clean-base.test.mjs"
+      - "tests/operational/elus360-clean-base-classify.test.mjs"
+      - "tests/operational/elus360-clean-base-adapters.test.mjs"
+      - "tests/operational/elus360-migration-delta-audit.test.mjs"
+      - "tests/operational/elus360-composed-typecheck.test.mjs"
+      - "tests/operational/elus360-composed-multiarch.test.mjs"
+      - ".github/workflows/elus360-clean-base-candidate.yml"
+      - "docs/elus360/clean-base-v1108.md"
+      - "docs/elus360/clean-base-v1108-conflict-triage.md"
+      - "docs/elus360/clean-base-v1108-composition.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-clean-base:
+    name: Base oficial v1.108.0 + delta ELUS (sem publicação)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preparar Node e pnpm pelo gate canônico do repositório
+        uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - name: Regressões locais do montador
+        run: |
+          set -euo pipefail
+          node --check scripts/elus360-clean-base-prepare.mjs
+          node --check scripts/elus360-clean-base-classify.mjs
+          node --check scripts/elus360-clean-base-adapters.mjs
+          node --check scripts/elus360-migration-delta-audit.mjs
+          node --check scripts/elus360-composed-typecheck.mjs
+          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs tests/operational/elus360-clean-base-adapters.test.mjs tests/operational/elus360-migration-delta-audit.test.mjs tests/operational/elus360-composed-typecheck.test.mjs tests/operational/elus360-composed-multiarch.test.mjs
+      - name: Comprovar tags oficiais e SHA da candidata
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORK_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::ELUS_CLEAN_BASE_NO_GO: $1"; exit 3; }
+          base_tag='v1.102.0'
+          target_tag='v1.108.0'
+          base_expected='4b5815721710c9b1e99078322593838fda1ee740'
+          target_expected='0b60c5abaace17922ae645399a6a6183a5f5c357'
+          for tag in "$base_tag" "$target_tag"; do
+            official="$(gh api "repos/melgarafael/DeskcommCRM/releases/tags/$tag" --jq '.draft == false and .prerelease == false and .published_at != null')" || fail "release $tag ausente"
+            test "$official" = true || fail "release $tag sem publicação comprovada"
+          done
+          git fetch --no-tags https://github.com/melgarafael/DeskcommCRM.git \
+            "refs/tags/$base_tag:refs/elus-clean/source" \
+            "refs/tags/$target_tag:refs/elus-clean/target"
+          base="$(git rev-parse 'refs/elus-clean/source^{commit}')"
+          target="$(git rev-parse 'refs/elus-clean/target^{commit}')"
+          test "$base" = "$base_expected" && test "$target" = "$target_expected" || fail 'SHA oficial divergente'
+          git merge-base --is-ancestor "$base" "$target" || fail 'release não descende da base'
+          [[ "$FORK_HEAD" =~ ^[a-f0-9]{40}$ ]] || fail 'fork HEAD não pinado'
+          if ! git cat-file -e "$FORK_HEAD^{commit}"; then
+            git fetch --no-tags origin "$FORK_HEAD"
+          fi
+          git cat-file -e "$FORK_HEAD^{commit}" || fail 'fork HEAD ausente'
+          test -z "$(git status --porcelain)" || fail 'checkout modificado'
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "fork=$FORK_HEAD" >> "$GITHUB_OUTPUT"
+      - name: Auditar apenas delta SQL entre SHAs fixados (sem DDL)
+        shell: bash
+        env:
+          BASE: ${{ steps.source.outputs.base }}
+          TARGET: ${{ steps.source.outputs.target }}
+          FORK: ${{ steps.source.outputs.fork }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/elus360-clean-reports"
+          node scripts/elus360-migration-delta-audit.mjs \
+            --repo "$GITHUB_WORKSPACE" --base "$BASE" --fork "$FORK" --target "$TARGET" \
+            > "$RUNNER_TEMP/elus360-clean-reports/elus360-sql-delta-report.json"
+          node --input-type=module - <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const p=process.env.RUNNER_TEMP+'/elus360-clean-reports/elus360-sql-delta-report.json';
+          const r=JSON.parse(readFileSync(p,'utf8'));
+          if(r.stage!=='SQL_DELTA_AUDITED_NOT_APPLIED')
+            throw new Error('ELUS_SQL_DELTA_INVALID_STAGE');
+          process.stdout.write('Auditoria SQL (somente leitura): '+JSON.stringify({
+            local_delta:r.local_delta_count, upstream_delta:r.upstream_delta_count,
+            overlapping:r.overlapping_paths.length,
+            prefix_collisions:r.migration_prefix_collisions.length,
+            baseline_equal:r.baseline.same_bytes,
+            decision:r.decision
+          })+'\n');
+          NODE
+      - name: Compor worktree oficial limpo e exportar diferenças reaplicáveis
+        env:
+          BASE: ${{ steps.source.outputs.base }}
+          TARGET: ${{ steps.source.outputs.target }}
+          FORK: ${{ steps.source.outputs.fork }}
+        run: |
+          set -euo pipefail
+          node scripts/elus360-clean-base-prepare.mjs \
+            --base "$BASE" --target "$TARGET" --fork "$FORK" \
+            --out "$RUNNER_TEMP/elus360-official-clean" \
+            --reports "$RUNNER_TEMP/elus360-clean-reports"
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const report = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'elus360-clean-reports/elus360-clean-base-report.json'), 'utf8'));
+          const c = report.counts;
+          const summary = [
+            '## ELUS360 — reconstrução sobre DeskcommCRM v1.108.0',
+            `Base oficial: ${report.upstream_target_sha}`,
+            `Fork de origem: ${report.fork_sha}`,
+            `Delta próprio: ${c.fork_delta} caminhos`,
+            `Aplicados em worktree descartável: ${c.staged}`,
+            `Colisões a resolver: ${c.conflicts}`,
+            `Já idênticos ao upstream: ${c.already_in_upstream}`,
+            `Caminhos reaplicados que exigem validação específica: ${c.staged_requiring_validation}`,
+            '',
+            '**CANDIDATA DE CÓDIGO NÃO HOMOLOGADA.** Nenhum merge, migration ou deploy executado.'
+          ].join('\n');
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
+          if (c.conflicts) console.log(`::warning::ELUS_OVERLAY_INCOMPLETE: ${c.conflicts} colisões precisam de integração explícita`);
+          NODE
+      - name: Classificar todos os conflitos sem aprovar caminhos
+        run: |
+          set -euo pipefail
+          node scripts/elus360-clean-base-classify.mjs \
+            "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-report.json" \
+            "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.json" \
+            "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.md"
+          cat "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-classification.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Aplicar adaptadores ELUS somente sobre blobs oficiais pinados
+        id: compose_adapters
+        run: |
+          set -euo pipefail
+          node scripts/elus360-clean-base-adapters.mjs \
+            --candidate "$RUNNER_TEMP/elus360-official-clean" \
+            --source-report "$RUNNER_TEMP/elus360-clean-reports/elus360-clean-base-report.json" \
+            --reports "$RUNNER_TEMP/elus360-clean-reports"
+
+      - name: Provar que a composição não apagou os recursos novos do AgentForm oficial
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const form=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'app/app/ai/agents/[id]/_components/AgentForm.tsx'),'utf8');
+          // Não confundir teste estático com E2E; TypeScript/build seguem obrigatórios.
+          const invariantes=[
+            'autonomiaTecnica?: Readonly<AutonomiaIa>',
+            'modeloPadrao?: string',
+            'credencialPadrao?: string | null',
+            'permitirModeloTecnico={autonomia.operator_model}',
+            'data-testid="elus-ia-gerenciada"',
+            'RolagemDeChegada',
+            'VozDoAgente',
+            'FraseDoAviso',
+            'EscolhaQuandoHaCompromisso',
+            'data-testid="aviso-vender-sem-funil"',
+          ];
+          const ausentes=invariantes.filter(x=>!form.includes(x));
+          if(ausentes.length)throw new Error('ELUS_FORM_COMPOSITION_INCOMPLETE: '+ausentes.join(', '));
+          console.log('ELUS_FORM_COMPOSITION_STATIC_OK: '+invariantes.length);
+          const operador=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'app/app/ai/agents/[id]/_components/PainelDoOperador.tsx'),'utf8');
+          if(!operador.includes('permitirModeloTecnico?: boolean;') ||
+             !operador.includes('props.permitirModeloTecnico === true') ||
+             !operador.includes('useOperatorMetrics'))
+            throw new Error('ELUS_OPERATOR_PANEL_CONTRACT_MISSING');
+          // O PainelDoOperador é overlay independente, não um conflito.
+          const dicionario=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'lib/i18n/dicionario.ts'),'utf8');
+          for(const official of ['...TEXTOS_CONTRATACAO','...TEXTOS_CADENCIAS_ORIGINAIS',
+            '...TEXTOS_CADENCIAS','## Idioma da conversa']) {
+            if(!dicionario.includes(official))
+              throw new Error('UPSTREAM_DICTIONARY_FEATURE_MISSING: '+official);
+          }
+          const inicio=dicionario.indexOf('  // ELUS360 v1.102.0');
+          const fim=dicionario.indexOf('};\n\n/**\n * Traduz, ou devolve o próprio texto.',inicio);
+          if(inicio<0||fim<0)throw new Error('ELUS_DICTIONARY_ANCHORS_MISSING');
+          const entradas=[...dicionario.slice(inicio,fim).matchAll(/^  ("[^"]+"):\s*\{\s*es:/gm)];
+          if(entradas.length!==48)throw new Error('ELUS_DICTIONARY_ENTRY_COUNT: '+entradas.length);
+          console.log('ELUS_OPERATOR_AND_DICTIONARY_STATIC_OK: 48');
+          const preambulo=readFileSync(join(process.env.RUNNER_TEMP,'elus360-official-clean',
+            'tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts'),'utf8');
+          for(const rule of ['temTimeoutDoMesmoPasso','minutos: 45,','timeoutNoRecuoDaAction',
+            'a guarda encontra timeout no mesmo passo']) {
+            if(!preambulo.includes(rule))
+              throw new Error('ELUS_CI_TIMEOUT_GUARD_MISSING: '+rule);
+          }
+          console.log('ELUS_CI_TIMEOUT_GUARD_STATIC_OK: 4');
+          NODE
+
+      - name: Instalar dependências do código oficial composto (runner efêmero)
+        id: composed_install
+        continue-on-error: true
+        if: ${{ steps.compose_adapters.outcome == 'success' }}
+        run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" install --frozen-lockfile
+
+      - name: TypeScript completo da árvore composta em shards verificáveis
+        id: composed_types
+        continue-on-error: true
+        if: ${{ steps.composed_install.outcome == 'success' }}
+        env:
+          # TS 6.0.3: 4 GiB de heap insuficientes para o programa monolítico
+          # incluindo testes (run 43191496612). Cada shard usa novo processo.
+          # NÃO desabilitar strict, noEmit, testes ou erros do compilador.
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/scripts/elus360-composed-typecheck.mjs" \
+            --candidate "$RUNNER_TEMP/elus360-official-clean" \
+            --reports "$RUNNER_TEMP/elus360-clean-reports"
+
+      - name: Regressões de IA, tenant e governança na árvore composta
+        id: composed_units
+        continue-on-error: true
+        if: ${{ steps.composed_install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/elus360-official-clean"
+          pnpm exec vitest run \
+            tests/unit/elus360-chutes-plataforma.test.ts \
+            tests/unit/elus360-version-governance.test.ts \
+            tests/unit/elus360-ia-gerenciada-guard.test.ts \
+            lib/elus360/ai-managed/authorize-version-write.test.ts \
+            'app/api/v1/ai/agents/[id]/versions/[vid]/patch.route.test.ts' \
+            tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts \
+            tests/unit/branding.test.ts \
+            tests/unit/elus360-ia-gerenciada-policy.test.ts \
+            tests/unit/elus360-ia-incluida-welcome.test.ts \
+            tests/unit/elus360-chutes-fontes-independentes.test.ts \
+            tests/unit/elus360-create-agent-bypass.test.ts \
+            tests/unit/elus360-executores-nao-se-misturam.test.ts \
+            tests/unit/agent-version-columns-drift.test.ts \
+            'app/api/v1/admin/tenants/[id]/ai-default/route.test.ts' \
+            'app/api/v1/admin/tenants/[id]/ai-permissions/route.test.ts'
+
+      - name: Build de produção do código composto (SEM publicar imagem)
+        id: composed_build
+        continue-on-error: true
+        if: ${{ steps.composed_install.outcome == 'success' }}
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: pnpm --dir "$RUNNER_TEMP/elus360-official-clean" build
+
+      - name: Publicar vereditos da árvore composta e reprovar falhas reais
+        if: always()
+        env:
+          ADAPTERS: ${{ steps.compose_adapters.outcome }}
+          INSTALL: ${{ steps.composed_install.outcome }}
+          TYPES: ${{ steps.composed_types.outcome }}
+          UNIT: ${{ steps.composed_units.outcome }}
+          BUILD: ${{ steps.composed_build.outcome }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const folder=path.join(process.env.RUNNER_TEMP,'elus360-clean-reports');
+          const statuses=Object.fromEntries(['ADAPTERS','INSTALL','TYPES','UNIT','BUILD'].map(k=>[k.toLowerCase(),process.env[k]]));
+          const failed=Object.entries(statuses).filter(([,v])=>v!=='success').map(([k])=>k);
+          const file=path.join(folder,'elus360-composed-report.json');
+          const composition=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):null;
+          const remaining=composition?.counts?.unresolved??null;
+          const typeFile=path.join(folder,'elus360-composed-typecheck.json');
+          const typeReport=fs.existsSync(typeFile)?JSON.parse(fs.readFileSync(typeFile,'utf8')):null;
+          // A conclusão só pode ser GREEN com cobertura integral do tsconfig.typecheck.
+          // Falha de relatório, arquivo omitido ou shard pendente é NO-GO.
+          if(statuses.types==='success' && (!typeReport ||
+              typeReport.stage!=='TYPES_SHARDED_PASSED' ||
+              typeReport.root_coverage_complete!==true ||
+              typeReport.shared_type_context_in_every_test_shard!==true ||
+              !Array.isArray(typeReport.shared_test_type_context) ||
+              typeReport.shared_test_type_context.length!==1 ||
+              !Array.isArray(typeReport.shards) || typeReport.shards.length<2 ||
+              typeReport.shards.some(x=>x.status!=='passed'))) {
+            failed.push('types_incomplete_coverage');
+          }
+          const record={schema_version:1,stage:failed.length?'COMPOSED_TEST_FAILED':'COMPOSED_TECHNICAL_CHECKS_PASSED',
+            source_sha:composition?.fork_sha??null,upstream_target_sha:composition?.upstream_target_sha??null,
+            statuses,failed_steps:failed,unresolved_conflicts:remaining,
+            release_gate:'NO_GO_PENDING_ADAPTERS_DB_AUTH_E2E'};
+          fs.mkdirSync(folder,{recursive:true});
+          fs.writeFileSync(path.join(folder,'elus360-composed-validation.json'),JSON.stringify(record,null,2)+'\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            '\n## Validação da aplicação composta\n\n'+
+            Object.entries(statuses).map(([k,v])=>'- '+k+': '+v).join('\n')+
+            '\nConflitos não resolvidos: '+String(remaining)+
+            '\n**Release NO-GO:** autorização, DB upgrade e E2E real da versão composta pendentes.\n');
+          if(failed.length){console.error('ELUS_COMPOSED_VALIDATION_NO_GO: '+failed.join(', '));process.exitCode=1;}
+          else if(remaining)console.log('::warning::ELUS_RELEASE_NO_GO: '+remaining+' conflitos ainda exigem revisão');
+          NODE
+
+      # Somente o index Git da arvore composta: nao inclui segredos gerados,
+      # .next, node_modules nem arquivos locais. Staging, nunca release.
+      - name: Exportar fonte composta para homologacao isolada
+        id: staging_source
+        if: ${{ steps.compose_adapters.outcome == 'success' && steps.composed_install.outcome == 'success' && steps.composed_types.outcome == 'success' && steps.composed_units.outcome == 'success' && steps.composed_build.outcome == 'success' }}
+        shell: bash
+        env:
+          EXPECTED_FORK: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_OFFICIAL: 0b60c5abaace17922ae645399a6a6183a5f5c357
+        run: |
+          set -euo pipefail
+          CANDIDATE="$RUNNER_TEMP/elus360-official-clean"
+          REPORTS="$RUNNER_TEMP/elus360-clean-reports"
+          export CANDIDATE REPORTS
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          const fail=(reason)=>{throw new Error('ELUS_STAGING_EXPORT_NO_GO: '+reason)};
+          const sha=/^[a-f0-9]{40}$/;
+          const fork=process.env.EXPECTED_FORK, target=process.env.EXPECTED_OFFICIAL;
+          if (!sha.test(fork) || !sha.test(target)) fail('SHA_INVALIDO');
+          const reportDir=process.env.REPORTS, cwd=process.env.CANDIDATE;
+          const composed=JSON.parse(fs.readFileSync(path.join(reportDir,'elus360-composed-report.json'),'utf8'));
+          const validation=JSON.parse(fs.readFileSync(path.join(reportDir,'elus360-composed-validation.json'),'utf8'));
+          if(composed.schema_version!==1 || validation.schema_version!==1 ||
+              composed.fork_sha!==fork || validation.source_sha!==fork ||
+              composed.upstream_target_sha!==target || validation.upstream_target_sha!==target ||
+              composed.counts?.unresolved!==0 || composed.unresolved?.length!==0 ||
+              validation.unresolved_conflicts!==0 ||
+              validation.stage!=='COMPOSED_TECHNICAL_CHECKS_PASSED' ||
+              validation.failed_steps?.length!==0 ||
+              !['adapters','install','types','unit','build'].every(x=>validation.statuses?.[x]==='success'))
+            fail('COMPOSICAO_NAO_ACEITA_PARA_STAGING');
+          const git=(args)=>execFileSync('git',['-C',cwd,...args],{encoding:'utf8'}).trim();
+          if(git(['rev-parse','HEAD'])!==target || git(['branch','--show-current'])!=='')
+            fail('WORKTREE_NAO_E_UPSTREAM_DESTACADO');
+          const files=execFileSync('git',['-C',cwd,'ls-files','--cached','-z'])
+            .toString('utf8').split('\0').filter(Boolean);
+          if(files.length<1000)fail('ARVORE_INCOMPLETA');
+          const unsafe=files.filter(p=>p.startsWith('/') || p.split('/').includes('..') ||
+            p.split('/').some(name=>name==='.git' || name==='node_modules' || name==='.next' ||
+              (name.startsWith('.env') && !name.endsWith('.example'))));
+          if(unsafe.length)fail('CAMINHO_SENSIVEL_OU_INSEGURO: '+unsafe.length);
+          const patch=execFileSync('git',['-C',cwd,'diff','--cached','--binary'],
+            {maxBuffer:128*1024*1024});
+          if(createHash('sha256').update(patch).digest('hex')!==composed.candidate_patch?.sha256 ||
+             patch.length!==composed.candidate_patch?.bytes)
+            fail('INDEX_NAO_CORRESPONDE_AO_ARTIFACT');
+          const tree=git(['write-tree']);
+          if(!sha.test(tree))fail('TREE_SHA_INVALIDO');
+          fs.writeFileSync(path.join(reportDir,'elus360-composed-staging-tree.txt'),tree+'\n');
+          console.log('ELUS_COMPOSED_STAGING_INDEX_VERIFIED: '+tree+' / '+files.length+' caminhos');
+          NODE
+          TREE="$(cat "$REPORTS/elus360-composed-staging-tree.txt")"
+          ARCHIVE="$REPORTS/elus360-v1108-composed-staging-source.tar.gz"
+          git -C "$CANDIDATE" archive --format=tar --mtime='@0' "$TREE" | gzip -n > "$ARCHIVE"
+          test -s "$ARCHIVE"
+          gzip -t "$ARCHIVE"
+          (cd "$REPORTS" && sha256sum "elus360-v1108-composed-staging-source.tar.gz" > "elus360-v1108-composed-staging-source.sha256")
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const dir=process.env.REPORTS;
+          const digest=fs.readFileSync(path.join(dir,'elus360-v1108-composed-staging-source.sha256'),'utf8').trim().split(/\s+/)[0];
+          const tree=fs.readFileSync(path.join(dir,'elus360-composed-staging-tree.txt'),'utf8').trim();
+          const status={
+            schema_version:1, stage:'COMPOSED_STAGING_SOURCE_ONLY',
+            fork_sha:process.env.EXPECTED_FORK,official_sha:process.env.EXPECTED_OFFICIAL,
+            git_tree_sha:tree,archive_sha256:digest,
+            release_status:'NO_GO_PENDING_FUNCTIONAL_E2E_STAGING_AND_INSTALLER_ACCEPTANCE',
+            constraints:['no_merge','no_deploy','no_production_data','no_private_env']
+          };
+          fs.writeFileSync(path.join(dir,'elus360-composed-staging-manifest.json'),
+            JSON.stringify(status,null,2)+'\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            '\n### Fonte composta integral para staging\n'+
+            '- Git tree: '+tree+'\n- SHA256: '+digest+
+            '\n- Fonte validada; nao e release, imagem ou deploy.\n');
+          console.log('ELUS_COMPOSED_STAGING_ARCHIVE_READY: '+digest);
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        if: steps.staging_source.outcome == 'success'
+        with:
+          name: elus360-v1108-composed-staging-source
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/elus360-clean-reports/elus360-v1108-composed-staging-source.tar.gz
+            ${{ runner.temp }}/elus360-clean-reports/elus360-v1108-composed-staging-source.sha256
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-staging-manifest.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elus360-clean-base-v1108
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-report.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-sql-delta-report.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base.patch
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-classification.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-clean-base-classification.md
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-report.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed.patch
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-validation.json
+            ${{ runner.temp }}/elus360-clean-reports/elus360-composed-typecheck.json
+
+  staging-elus-e2e:
+    name: ELUS v1.108 — aceite funcional em Supabase local
+    needs: [prepare-clean-base]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    # Sem secrets, ambiente externo, runner privado ou conexao com projeto remoto.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: elus360-v1108-composed-staging-source
+          path: ${{ runner.temp }}/elus-staging-delivery
+
+      - name: Conferir origem, conteudo e integridade antes de extrair
+        env:
+          EXPECTED_FORK: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_OFFICIAL: 0b60c5abaace17922ae645399a6a6183a5f5c357
+        shell: bash
+        run: |
+          set -euo pipefail
+          DELIVERED="$RUNNER_TEMP/elus-staging-delivery"
+          export DELIVERED
+          (cd "$DELIVERED" && sha256sum -c elus360-v1108-composed-staging-source.sha256)
+          python3 - <<'PY'
+          import json, os, tarfile
+          from pathlib import Path
+          delivery=Path(os.environ['DELIVERED'])
+          manifest=json.loads((delivery/'elus360-composed-staging-manifest.json').read_text())
+          assert manifest['stage']=='COMPOSED_STAGING_SOURCE_ONLY'
+          assert manifest['release_status']=='NO_GO_PENDING_FUNCTIONAL_E2E_STAGING_AND_INSTALLER_ACCEPTANCE'
+          assert manifest['fork_sha']==os.environ['EXPECTED_FORK']
+          assert manifest['official_sha']==os.environ['EXPECTED_OFFICIAL']
+          assert len(manifest['git_tree_sha'])==40
+          assert set(manifest['constraints'])=={'no_merge','no_deploy','no_production_data','no_private_env'}
+          archive=delivery/'elus360-v1108-composed-staging-source.tar.gz'
+          with tarfile.open(archive,'r:gz') as tar:
+            contents=tar.getmembers()
+            if len(contents)<10000: raise RuntimeError('ELUS_STAGING_SOURCE_INCOMPLETE')
+            for item in contents:
+              path=Path(item.name)
+              if item.name.startswith('/') or '..' in path.parts or not (item.isfile() or item.isdir()):
+                raise RuntimeError('ELUS_STAGING_SOURCE_UNSAFE_PATH')
+              if any(part in {'.git','.next','node_modules'} for part in path.parts):
+                raise RuntimeError('ELUS_STAGING_SOURCE_RUNTIME_FILE')
+              if any(part.startswith('.env') and not part.endswith('.example') for part in path.parts):
+                raise RuntimeError('ELUS_STAGING_SOURCE_PRIVATE_ENV')
+          print('ELUS_STAGING_MANIFEST_AND_PATHS_OK')
+          PY
+          mkdir -p "$RUNNER_TEMP/elus-staging-source"
+          tar -xzf "$DELIVERED/elus360-v1108-composed-staging-source.tar.gz" \
+            -C "$RUNNER_TEMP/elus-staging-source" --no-same-owner
+          test -f "$RUNNER_TEMP/elus-staging-source/playwright.config.ts"
+          test -f "$RUNNER_TEMP/elus-staging-source/supabase/baseline.sql"
+          echo "ELUS_STAGING_SOURCE=$RUNNER_TEMP/elus-staging-source" >> "$GITHUB_ENV"
+
+      # A action composta reside no checkout da PR (mesmo HEAD do artifact).
+      # Usa o cache e o teto de 5 minutos exigidos pela cerca preambulo-do-ci.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/preparar-node
+        timeout-minutes: 5
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.117.0
+
+      - name: Instalar dependencias da fonte composta
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          test "$(node -p "require('./package.json').packageManager")" = pnpm@9.15.9
+          pnpm install --frozen-lockfile
+
+      - name: Reservar portas locais antes do Supabase
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          portas=$(grep -oE '^[[:space:]]*(shadow_)?port[[:space:]]*=[[:space:]]*[0-9]+' supabase/config.toml |
+            grep -oE '[0-9]+$' | sort -un | paste -sd, -)
+          test -n "$portas"
+          sudo sysctl -w net.ipv4.ip_local_reserved_ports="$portas"
+
+      - name: Subir Supabase descartavel sem replay da cadeia historica
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          mkdir -p "$RUNNER_TEMP/elus-sql-original"
+          mv supabase/migrations "$RUNNER_TEMP/elus-sql-original/"
+          mkdir -p supabase/migrations
+          supabase start -x studio,postgres-meta
+
+      - name: Instalar baseline composto em banco local com Auth e RLS
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          DB='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+          create schema if not exists extensions;
+          create extension if not exists "uuid-ossp" with schema extensions;
+          create extension if not exists pgcrypto with schema extensions;
+          create extension if not exists vector with schema public;
+          create extension if not exists citext with schema public;
+          create extension if not exists pg_trgm with schema public;
+          SQL
+          psql "$DB" -v ON_ERROR_STOP=1 -q -f supabase/baseline.sql
+          psql "$DB" -v ON_ERROR_STOP=1 -q \
+            -c "insert into private.app_secrets (name, value) values ('nuvemshop_oauth_key', '$(openssl rand -hex 32)') on conflict (name) do nothing;"
+          ids="$(docker ps -q --filter name=supabase_realtime)"
+          test -n "$ids" || { echo 'ELUS_STAGING_NO_REALTIME'; exit 1; }
+          docker restart $ids >/dev/null
+          for n in $(seq 1 30); do
+            health="$(docker inspect -f '{{.State.Health.Status}}' $ids 2>/dev/null || true)"
+            test "$health" = healthy && break
+            sleep 2
+          done
+          test "$health" = healthy || { echo 'ELUS_STAGING_REALTIME_UNHEALTHY'; exit 1; }
+
+      - name: Gerar ambiente seguro e build de producao contra Supabase local
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          SENTRY_DSN: "off"
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          pnpm e2e:env
+          test -f .env.e2e
+          grep -Eq '^NEXT_PUBLIC_SUPABASE_URL=http://(127[.]0[.]0[.]1|localhost):[0-9]+' .env.e2e
+          grep -Eq '^SUPABASE_DB_URL=postgres(ql)?://[^@]+@(127[.]0[.]0[.]1|localhost):[0-9]+' .env.e2e
+          cp .env.e2e .env.local
+          pnpm e2e:build
+
+      - name: Instalar Chromium para as jornadas do ELUS
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Preparar identidades descartaveis e impedir promocao de admin de tenant
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          test -f .env.e2e && test -f .env.local
+          pnpm exec tsx scripts/seed-e2e-credentials.ts
+          pnpm exec tsx scripts/seed-e2e-system-update.ts
+
+      - name: Playwright real — marca, empresas, MFA e modelo de IA
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          SENTRY_DSN: "off"
+          CI: "true"
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          pnpm exec playwright test --workers=1 --reporter=list \
+            tests/e2e/marca-logo.spec.ts \
+            tests/e2e/admin-gestao-de-tenants.spec.ts \
+            tests/e2e/mfa-opcional.spec.ts \
+            tests/e2e/molde-de-ia-empresas-novas.spec.ts
+          echo 'ELUS_STAGING_FUNCTIONAL_E2E_PASSED'
+
+      - name: Playwright T06-B — isolamento A-B-A e escopo da organização ativa
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          SENTRY_DSN: "off"
+          CI: "true"
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          # Specs ja existentes no produto oficial: sem credenciais externas,
+          # com usuarios e organizacoes descartaveis.
+          pnpm exec playwright test --workers=1 --reporter=list \
+            tests/e2e/agenda-escopo-da-organizacao.spec.ts \
+            tests/e2e/organizacoes-criacao-convite-e-cache.spec.ts
+          echo 'ELUS_STAGING_T06B_CROSS_TENANT_E2E_PASSED'
+
