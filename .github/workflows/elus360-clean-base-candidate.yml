@@ -48,7 +48,11 @@ jobs:
           # Após a homologação, só reparos de CI/governança e do banco podem
           # divergir do artefato. Qualquer outra mudança deve ser avaliada.
           test "$(git hash-object supabase/baseline.sql)" = ca9bdb5a39a12a118f99642c91b5c597b56aa7ed
-          test -z "$(git diff --name-only "$ORIGINAL" HEAD | grep -Ev '^(\.agents/skills/|\.claude/skills/|\.github/workflows/|AGENTS\.md$|CLAUDE\.md$|hostgator-setup-kit/_common\.sh$|hostgator-setup-kit/_manifestos\.sh$|scripts/elus360-|scripts/conferir-isolamento-do-kit\.sh$|supabase/baseline\.sql$|tests/(distribution|operational|shell|unit|invariants)/|app/app/ai/agents/\[id\]/_components/VozDoAgente\.tsx$)' || true)" \
+          # A única exceção adicional é a fixture de testes; seu blob é fixado.
+          # Nenhum outro arquivo de instalação pode mudar fora do gate de release.
+          test "$(git hash-object hostgator-setup-kit/test-validators.sh)" = c9c15cb6758a3cf6f7e847858abbf37b374ffcdc \
+            || { echo '::error::ELUS_PROVENANCE_NO_GO: fixture de instalador mudou sem revisão'; exit 3; }
+          test -z "$(git diff --name-only "$ORIGINAL" HEAD | grep -Ev '^(\.agents/skills/|\.claude/skills/|\.github/workflows/|AGENTS\.md$|CLAUDE\.md$|hostgator-setup-kit/_common\.sh$|hostgator-setup-kit/_manifestos\.sh$|hostgator-setup-kit/test-validators\.sh$|scripts/elus360-|scripts/conferir-isolamento-do-kit\.sh$|supabase/baseline\.sql$|tests/(distribution|operational|shell|unit|invariants)/|app/app/ai/agents/\[id\]/_components/VozDoAgente\.tsx$)' || true)" \
             || { echo '::error::Fonte materializada recebeu alteração fora da lista de reparos'; exit 3; }
           echo "ELUS_MATERIALIZED_PROVENANCE_OK HEAD=$EXPECTED_HEAD" >> "$GITHUB_STEP_SUMMARY"
       - name: Testes dirigidos do montador, baseline e instalação

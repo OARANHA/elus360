@@ -586,13 +586,34 @@ STUBDOCKER
   cat > "$TMP3/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
-  *releases/latest*) printf '%s' '{"tag_name":"v1.66.1"}' ;;
+  *api.github.com/repos/OARANHA/elus360/releases/latest*)
+    printf '{\n  "tag_name": "v1.66.1"\n}\n' ;;
+  *api.github.com/repos/OARANHA/elus360/releases/tags/v1.66.1*)
+    printf '{\n  "tag_name": "v1.66.1",\n  "draft": false,\n  "prerelease": false,\n  "published_at": "2026-01-01T00:00:00Z"\n}\n' ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...v1.66.1*)
+    printf '{\n  "status": "identical"\n}\n' ;;
   *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
   *ghcr.io/v2/*) printf 200 ;;
   *) printf 200 ;;
 esac
 STUBCURL
   chmod +x "$TMP3/bin/curl"
+  /usr/bin/git -C "$TMP3/proj" init -q -b main
+  /usr/bin/git -C "$TMP3/proj" add -- docker-compose.prod.yml
+  /usr/bin/git -C "$TMP3/proj" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm fixture
+  /usr/bin/git -C "$TMP3/proj" remote add origin https://github.com/OARANHA/elus360.git
+  /usr/bin/git -C "$TMP3/proj" tag v1.66.1
+  cat > "$TMP3/bin/git" <<'STUBGIT_ELUS'
+#!/usr/bin/env bash
+if [ "${1:-}" = ls-remote ] && [[ " $* " == *' refs/tags/v1.66.1 '* ]]; then
+  sha="$(/usr/bin/git rev-parse refs/tags/v1.66.1)" || exit 1
+  printf '%s\trefs/tags/v1.66.1\n' "$sha"
+  exit 0
+fi
+if [ "${1:-}" = fetch ]; then exit 0; fi
+exec /usr/bin/git "$@"
+STUBGIT_ELUS
+  chmod +x "$TMP3/bin/git"
   dublar_uname_amd64 "$TMP3/bin"
   cat > "$TMP3/supabase-provision.sh" <<'PROV'
 #!/usr/bin/env bash
@@ -607,7 +628,7 @@ PROV
 
   saida="$(cd "$TMP3/proj" && env PATH="$TMP3/bin:$PATH" MARCA="$MARCA" \
     SUPABASE_ACCESS_TOKEN=fake NEXT_PUBLIC_SUPABASE_URL= \
-    DESKCOMM_RELEASES_LATEST_URL=https://example.invalid/releases/latest \
+    DESKCOMM_RELEASES_LATEST_URL= \
     bash "$TMP3/install.sh" --yes 2>&1 || true)"
 
   # Sem esta checagem o teste passaria por VACUIDADE: se o install.sh morresse
@@ -2026,6 +2047,15 @@ montar_vps() {
   cp install.sh update.sh backup.sh _common.sh _manifestos.sh _i18n.sh marca-emails.sh manutencao.sh "$raiz/"
   cp -R manutencao "$raiz/"
   : > "$VPS_PROJ/docker-compose.prod.yml"
+  # A inicialização Git é compartilhada também pelos cenários que chamam o
+  # install.sh diretamente (sem rodar()), evitando falsos RED de proveniência.
+  if [ ! -d "$VPS_PROJ/.git" ]; then
+    /usr/bin/git -C "$VPS_PROJ" init -q -b main &&
+    /usr/bin/git -C "$VPS_PROJ" add -- docker-compose.prod.yml &&
+    /usr/bin/git -C "$VPS_PROJ" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm fixture &&
+    /usr/bin/git -C "$VPS_PROJ" remote add origin https://github.com/OARANHA/elus360.git &&
+    /usr/bin/git -C "$VPS_PROJ" tag v1.66.1
+  fi
   cat > "$raiz/bin/docker"
   # O corpo fornecido por cada cenário continua cuidando de compose/exec.
   # O wrapper só dublê o registry OCI que o preflight novo consulta.
@@ -2152,6 +2182,11 @@ rodar() {
     /usr/bin/git -C "$VPS_PROJ" -c user.email=fixture@invalid -c user.name=fixture commit -qm fixture
   }
   /usr/bin/git -C "$VPS_PROJ" config remote.origin.url https://github.com/OARANHA/elus360.git
+  # `git describe` escolhe a primeira tag elegível no mesmo HEAD; a tag da
+  # fixture não pode mascarar a release de cada cenário (ex.: v9.9.9).
+  if [ "$tag" != v1.66.1 ]; then
+    /usr/bin/git -C "$VPS_PROJ" tag -d v1.66.1 >/dev/null 2>&1 || true
+  fi
   /usr/bin/git -C "$VPS_PROJ" rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1 ||
     /usr/bin/git -C "$VPS_PROJ" tag "$tag"
   printf '%s\n%s\n' "$BASE_ENV" "${3-}" > "$VPS_PROJ/.env"
@@ -2307,7 +2342,7 @@ STUB
   # sobrevive aos dois caminhos, com rede e sem.
   img_app="$(valor_no_env "$VPS_PROJ/.env" APP_IMAGE)"
   tag_app="${img_app##*:}"
-  for par in "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
+  for par in "WORKER_IMAGE:elus360-worker" "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
     chave="${par%%:*}"; repo="${par##*:}"
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:${tag_app}" ]; then
       printf '  ✗ %s não acompanha a versão do app (%s): %s\n' "$chave" "$tag_app" \
@@ -2325,7 +2360,7 @@ STUB
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"; exit 1
     fi
   done
-  printf '  ✓ as três imagens saem na MESMA referência (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
+  printf '  ✓ as quatro imagens ELUS saem na MESMA referência (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
 
   # O .env VENCE o compose — e é por isso que este bloco existe. O compose já
   # pinava o WAHA, e o install gravava `WAHA_IMAGE=devlikeapro/waha` (sem tag,
@@ -3698,7 +3733,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'")"
 
   # Vacuidade: se o update.sh parou antes (git, tag, dublê incompleto), a
   # ausência do erro do compose não prova nada.
-  n_up="$(grep -n -E '^compose .* up -d$' "$VPS_LOG" | head -1 | cut -d: -f1)"
+  n_up="$(grep -n -E '^compose .* up -d --no-build$' "$VPS_LOG" | head -1 | cut -d: -f1)"
   if [ -z "$n_up" ]; then
     printf '  ✗ o update.sh não chegou ao "up -d" — teste inconclusivo, não verde\n'
     printf '     última linha da saída: %s\n' "$(printf '%s' "$saida" | tail -1)"; exit 1
@@ -3741,7 +3776,7 @@ PROXY_NETWORK_NAME='proxy_network'
 INTERNAL_SECRET='segredo-de-teste'
 NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'")"
 
-  if grep -q -E '^compose .* up -d$' "$VPS_LOG"; then
+  if grep -q -E '^compose .* up -d --no-build$' "$VPS_LOG"; then
     printf '  ✗ o update.sh subiu a stack mesmo com a rede do NPM ausente\n'; exit 1
   fi
   if ! grep -q 'PROXY_NETWORK_NAME' <<<"$saida"; then
@@ -3847,7 +3882,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
     if [ "$esperado" = bom ]; then
       grep -qF -- '--force-recreate --no-deps caddy' "$VPS_LOG" \
         || { printf '    com a configuração aceita o Caddy não foi recriado\n'; falhou=1; }
-      grep -qE '^compose .* up -d$' "$VPS_LOG" \
+      grep -qE '^compose .* up -d --no-build$' "$VPS_LOG" \
         || { printf '    o up -d do parque não foi o de sempre (sem lista de serviços)\n'; falhou=1; }
       grep -q '✓ proxy recarregado' <<<"$saida" \
         || { printf '    a saída não confirma o proxy recarregado\n'; falhou=1; }
@@ -3856,7 +3891,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
         || { printf '    o Caddy foi recriado com a configuração recusada\n'; falhou=1; }
       ! grep -E '^compose .* up -d' "$VPS_LOG" | grep -qw caddy \
         || { printf '    um up -d do parque alcançou o caddy\n'; falhou=1; }
-      grep -qE '^compose .* up -d app worker scheduler waha$' "$VPS_LOG" \
+      grep -qE '^compose .* up -d --no-build app worker scheduler waha$' "$VPS_LOG" \
         || { printf '    o up -d do parque não subiu os outros serviços\n'; falhou=1; }
       grep -q 'caddy-sites/' <<<"$saida" && grep -q 'unrecognized directive' <<<"$saida" \
         && grep -q 'proxy anterior segue no ar' <<<"$saida" \
