@@ -57,23 +57,26 @@ export function VozDoAgente({ agentId, inicial, disabled }: Props) {
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
-  const carregar = useCallback(async () => {
+  const carregar = useCallback(async (ativo: () => boolean) => {
     try {
       const res = await apiClient.get<{
         data: { voiceId: string | null; vozesDisponiveis: string[] };
       }>("/api/v1/ai/voz");
+      if (!ativo()) return;
       setVozDaOrg(res.data.voiceId ?? "");
       setVozes(res.data.vozesDisponiveis ?? []);
     } catch (err) {
       // Resposta incompleta não derruba o resto do editor: sem lista, cartão fica fora.
-      showApiError(err);
+      if (ativo()) showApiError(err);
     } finally {
-      setCarregando(false);
+      if (ativo()) setCarregando(false);
     }
   }, []);
 
   useEffect(() => {
-    void carregar();
+    let ativo = true;
+    void carregar(() => ativo);
+    return () => { ativo = false; };
   }, [carregar]);
 
   async function escolher(valor: string) {

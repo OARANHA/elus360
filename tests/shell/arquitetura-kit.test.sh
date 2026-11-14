@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELUS360 ADR-0007: install/update must reject ARM before Git, Docker or HTTP.
+# ELUS360 ADR-0007: Linux AMD64/ARM64 admitidos; outros hosts recusados sem efeitos.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMMON="$ROOT/hostgator-setup-kit/_common.sh"
@@ -41,13 +41,17 @@ for name in install.sh update.sh; do
     rodar_como "$name" "$arch"
     rc="$(cat "$TMP/rc-$name-$arch")"
     out="$(cat "$TMP/out-$name-$arch")"
-    if [ "$rc" -ne 3 ] || ! printf '%s' "$out" | grep -q "ELUS_DISTRIBUTION_NO_GO" \
-        || ! printf '%s' "$out" | grep -q "Linux AMD64 (x86_64)" \
-        || printf '%s' "$out" | grep -q "DEPOIS_DA_GUARDA"; then
-      printf 'FAIL %s recusou incorretamente %s (rc=%s)\n' "$name" "$arch" "$rc"
-      fail=1
+    if [ "$arch" = riscv64 ]; then
+      if [ "$rc" -ne 3 ] || ! printf '%s' "$out" | grep -q 'ELUS_DISTRIBUTION_NO_GO' \
+          || printf '%s' "$out" | grep -q 'DEPOIS_DA_GUARDA'; then
+        printf 'FAIL %s deveria recusar %s (rc=%s)\n' "$name" "$arch" "$rc"; fail=1
+      else
+        printf 'OK   %s recusa %s sem efeitos\n' "$name" "$arch"
+      fi
+    elif [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -q 'DEPOIS_DA_GUARDA'; then
+      printf 'FAIL %s recusou Linux/%s (rc=%s)\n' "$name" "$arch" "$rc"; fail=1
     else
-      printf 'OK   %s recusa %s sem efeitos\n' "$name" "$arch"
+      printf 'OK   %s admite Linux/%s\n' "$name" "$arch"
     fi
   done
   # O processador AMD64 fora do Linux nunca autoriza instalar/atualizar.
@@ -68,12 +72,12 @@ for name in install.sh update.sh; do
     printf 'OK   %s admite AMD64\n' "$name"
   fi
 done
-# An old installation marker must not bypass the permanent ARM64 rejection.
+# Uma instalação antiga não muda a regra de arquitetura nem permite mutação na guarda.
 printf 'versao=v1.101.0\n' > "$TMP/.deskcomm-instalado"
 printf 'APP_IMAGE=%s/elus360:1.101.0\n' "$IMG_NS" > "$TMP/.env"
 rodar_como update.sh aarch64
-if [ "$(cat "$TMP/rc-update.sh-aarch64")" -ne 3 ]; then
-  echo 'FAIL instalação antiga ARM64 burlou bloqueio'; fail=1
+if [ "$(cat "$TMP/rc-update.sh-aarch64")" -ne 0 ]; then
+  echo 'FAIL Linux ARM64 recusado sem consultar manifestos'; fail=1
 fi
 for cmd in docker git curl; do
   if [ -e "$TMP/tocou-$cmd" ]; then

@@ -575,7 +575,7 @@ describe("o bloco de dados alcança o que ficou para trás", () => {
       join(process.cwd(), "supabase", "migrations", "20261111031952_9243_anonimizar_alcanca_fichas_fundidas.sql"),
       "utf8",
     );
-    const noBaseline = baseline.slice(baseline.indexOf(INICIO), baseline.indexOf("-- ---- VARREDURA anon:"));
+    const noBaseline = baseline.slice(baseline.indexOf(INICIO), baseline.indexOf("-- ---- Criador provisório sai na entrega", baseline.indexOf(INICIO)));
     const naMigration = migration.slice(migration.indexOf(INICIO), migration.indexOf(`do ${TAG}`));
     expect(noBaseline.length, "CONTROLE: o trecho foi achado").toBeGreaterThan(1000);
     expect(noBaseline.trim()).toBe(naMigration.trim());

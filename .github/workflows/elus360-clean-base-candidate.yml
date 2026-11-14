@@ -23,7 +23,52 @@ permissions:
   contents: read
 
 jobs:
+  materialized-runtime-source:
+    name: Fonte materializada v1.108.0 — proveniência, SQL e contratos
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/elus360-v1108-runtime-materialized-20261114'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Confirmar ancestral, árvore composta e limites da alteração
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          ORIGINAL=533c6406133a36900220495ddf1a8d60b03f33e3
+          git merge-base --is-ancestor "$ORIGINAL" HEAD
+          test "$(git rev-parse "$ORIGINAL^{tree}")" = d657f92ef2a53c6ad3f2e92fe8d5639df73b0a2d
+          # Após a homologação, só reparos de CI/governança e do banco podem
+          # divergir do artefato. Qualquer outra mudança deve ser avaliada.
+          test "$(git hash-object supabase/baseline.sql)" = ca9bdb5a39a12a118f99642c91b5c597b56aa7ed
+          test -z "$(git diff --name-only "$ORIGINAL" HEAD | grep -Ev '^(\.agents/skills/|\.claude/skills/|\.github/workflows/|AGENTS\.md$|CLAUDE\.md$|hostgator-setup-kit/_common\.sh$|hostgator-setup-kit/_manifestos\.sh$|scripts/elus360-|scripts/conferir-isolamento-do-kit\.sh$|supabase/baseline\.sql$|tests/(distribution|operational|shell|unit|invariants)/|app/app/ai/agents/\[id\]/_components/VozDoAgente\.tsx$)' || true)" \
+            || { echo '::error::Fonte materializada recebeu alteração fora da lista de reparos'; exit 3; }
+          echo "ELUS_MATERIALIZED_PROVENANCE_OK HEAD=$EXPECTED_HEAD" >> "$GITHUB_STEP_SUMMARY"
+      - name: Testes dirigidos do montador, baseline e instalação
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/elus360-clean-base-adapters.mjs
+          node --test tests/operational/elus360-clean-base.test.mjs \
+            tests/operational/elus360-clean-base-adapters.test.mjs \
+            tests/operational/elus360-composed-multiarch.test.mjs
+          python3 scripts/elus360-v1108-sql-reconcile.py
+          bash -n hostgator-setup-kit/install.sh
+          bash -n hostgator-setup-kit/update.sh
+          bash tests/shell/install-portao-do-build.test.sh
+          bash tests/shell/guarda-arm-nao-mata-a-recuperacao.test.sh
+          bash tests/shell/arquitetura-kit.test.sh
+          echo 'Fonte v1.108 comprovada; CI completo/E2E em workflows separados continua obrigatório.' >> "$GITHUB_STEP_SUMMARY"
+
   prepare-clean-base:
+    if: github.event_name != 'pull_request' || github.head_ref != 'feat/elus360-v1108-runtime-materialized-20261114'
     name: Base oficial v1.108.0 + delta ELUS (sem publicação)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
