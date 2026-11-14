@@ -23,20 +23,30 @@ test("migration possui identidade, manifest e DDL de coluna separada", () => {
   assert.ok(!migration.includes("create temporary table"));
 });
 
-test("baseline preserva migration integral e única no apêndice final", () => {
-  assert.equal(baseline.split(marker).length - 1, 1);
-  const pos = baseline.lastIndexOf(marker);
-  assert.ok(pos > 3_000_000, "baseline parece truncado ou substituído");
-  const scan = baseline.indexOf("-- ---- VARREDURA anon:", pos);
-  assert.ok(scan > pos, "varredura de ACL deve ser executada APÓS as funções ELUS");
-  assert.equal(baseline.slice(pos + marker.length, scan),
-    migration + forward + marker9902 + forward9902 + "\n" + marker9903 + forward9903);
-  assert.equal(baseline.split(marker9902).length - 1, 1);
-  assert.equal(baseline.split(marker9903).length - 1, 1);
-  assert.equal(baseline.split("-- ---- VARREDURA anon:").length - 1, 1);
+test("baseline v1.108 preserva quatro migrations ELUS e varredura final de ACL", () => {
+  const mig = [sqlFile,
+    'supabase/migrations/20261106140000_9901_elus_ai_agent_create_fields.sql',
+    'supabase/migrations/20261106160000_9902_elus_molde_chutes_pt409.sql',
+    'supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql'];
+  let prev = -1;
+  for(const file of mig){
+    const content = readFileSync(resolve(ROOT,file),'utf8');
+    const start = `-- ELUS360_FORWARD_BEGIN ${file}\n`;
+    const end = `\n-- ELUS360_FORWARD_END ${file}\n`;
+    assert.equal(baseline.split(start).length-1,1,`migration duplicada/ausente: ${file}`);
+    const i = baseline.indexOf(start);
+    const j = baseline.indexOf(end,i);
+    assert.ok(i > prev && j > i,`ordem incorreta: ${file}`);
+    assert.equal(baseline.slice(i+start.length,j),content,`bytes divergentes: ${file}`);
+    prev = j;
+  }
+  const scan = baseline.indexOf('-- ---- VARREDURA anon:');
+  assert.ok(scan > prev, 'ACL sweep tem de executar depois de todo ELUS SQL');
+  assert.equal(baseline.split('-- ---- VARREDURA anon:').length-1,1);
   assert.doesNotMatch(baseline.slice(scan), /^\s*create\s+(?:or\s+replace\s+)?function/gim);
   assert.doesNotMatch(baseline.slice(scan), /^\s*grant\s+[^;]*\bto\b[^;]*\banon\b/gim);
-  assert.match(baseline.slice(0, pos), /create table if not exists "public"\."organizations"/i);
+  assert.match(baseline.slice(0, baseline.indexOf(`-- ELUS360_FORWARD_BEGIN ${sqlFile}`)),
+    /create table if not exists "public"\."organizations"/i);
 });
 
 test("trigger é invoker e somente serviço/admin banco pode mudar grants", () => {

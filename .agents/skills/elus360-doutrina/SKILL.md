@@ -1,6 +1,6 @@
 ---
 name: elus360-doutrina
-description: 'Doutrina de código do ELUS360 (fork do DeskcommCRM) — multi-tenancy com RLS, tripla de migration, restrição de canal, eixo self-host. USE SEMPRE ao escrever ou revisar código neste repositório, e antes de responder pergunta sobre convenção, schema, tenancy, WhatsApp/WAHA, instalador ou Definition of Done. É o ponteiro para a doutrina viva do repo; não substitui ler o CLAUDE.md.'
+description: Guia ELUS360 para consulte padrões obrigatórios de código, RLS, migrations, APIs, identidade, CI, riscos e segurança.
 ---
 
 # DeskcommCRM — doutrina de código

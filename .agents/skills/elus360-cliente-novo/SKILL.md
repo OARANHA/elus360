@@ -1,6 +1,6 @@
 ---
 name: elus360-cliente-novo
-description: 'Guia ELUS360 (fork do DeskcommCRM) para configurar cliente novo por nicho: clínica, imobiliária, agência, curso, loja ou advocacia. Use para onboarding, agente de atendimento, roteador, follow-up, base de conhecimento, memória e funil; também quando pedirem criar agente, montar atendimento, definir prompt, importar conteúdo ou perguntar e agora. Orienta pela interface, prepara textos por nicho e conduz até o teste.'
+description: Guia ELUS360 para configure um cliente por nicho, conecte canais, usuários e IA, valide jornada de onboarding e isolamento entre organizações.
 metadata:
   publico: leigo, agência, implantador
   ponto-de-partida: depois do onboarding (o wizard para no funil e nos convites)

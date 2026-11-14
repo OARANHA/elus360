@@ -311,6 +311,7 @@ const schema = z.object({
   // OpenAI. Opcional — sem ela nada muda; com ela o chat passa a ser roteado
   // por lá. Ver resolveLanguageModel() em lib/ai/gateway.ts.
   OPENROUTER_API_KEY: z.string().optional().default(""),
+  // ELUS360: opcional, chave nunca deve ser registrada ou devolvida ao navegador.
   CHUTES_API_KEY: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z.string().optional().default(""),
   // Atribuição OPCIONAL da OpenRouter (`HTTP-Referer` / `X-Title`): identifica a
@@ -480,6 +481,7 @@ const schema = z.object({
    * e são o piso de rollback. Todas `optional().default()`: `.env` antigo não
    * quebra ao atualizar.
    */
+  CADENCIA_LIMITE_EMAILS_POR_DIA: z.coerce.number().int().min(1).max(10_000).optional().default(60),
   SMTP_HOST: z.string().optional().default(""),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional().default(587),
   SMTP_SECURITY: z.enum(["starttls", "tls", "none"]).optional().default("starttls"),

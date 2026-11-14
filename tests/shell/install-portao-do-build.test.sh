@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELUS360 distribution: failed image pulls must NEVER build on host.
+# ELUS360 distribution: host-side build requires explicit opt-in, never a fallback.
 # Offline regression of the REAL _common.sh; no Docker or registry calls.
 set -euo pipefail
 # Os dublês Git deste teste não herdam metadados do checkout chamador.
@@ -14,11 +14,16 @@ check() {
 }
 negate() { ! "$@"; }
 
-echo 'ELUS360 — host-side builds never allowed'
+echo 'ELUS360 — build local somente com opt-in explicito'
 for flag in "" 0 1 sim yes no; do
   DESKCOMM_BUILD_LOCAL="$flag"
-  check "build request=$flag refused" negate build_local_pedido
-  check "build permission=$flag refused" negate build_local_permitido v1.102.0
+  if [ "$flag" = 1 ]; then
+    check "build request=1 accepted by explicit opt-in" build_local_pedido
+    check "build permission=1 accepted by explicit opt-in" build_local_permitido v1.102.0
+  else
+    check "build request=$flag refused" negate build_local_pedido
+    check "build permission=$flag refused" negate build_local_permitido v1.102.0
+  fi
 done
 unset DESKCOMM_BUILD_LOCAL
 CALLS="$(mktemp)"

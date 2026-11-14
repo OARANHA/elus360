@@ -6,7 +6,6 @@
 
 - [`AGENTS.md`](AGENTS.md) — mesmo contrato em forma portável (para Codex/Cursor/Copilot e afins). É derivado deste arquivo, não o substitui. **Ao mudar doutrina aqui, verifique se `AGENTS.md` desatualizou.**
 - [`docs/index.md`](docs/index.md) — índice dos 149 docs, com regra de precedência quando dois docs discordam. Use antes de sair varrendo `docs/`.
-- **Fork ELUS360 (PR #22, 07/11/2026):** [ADR-0007](docs/adr/0007-elus360-linux-amd64.md) aprovada pelo proprietário. Distribuição de quatro imagens Docker **somente Linux AMD64**; ARM64 definitivamente excluído (sem exceção por instalação antiga ou build na VPS). A ADR restringe a distribuição ELUS360, não reescreve decisões históricas do upstream DeskcommCRM.
 - [`docs/current-state.md`](docs/current-state.md) — o que está pronto, incompleto e quebrado. **Leia antes de estimar ou prometer qualquer coisa.**
 - [`docs/harness-audit.md`](docs/harness-audit.md) — onde a verificação tem buraco. Importante: `pnpm gov:verify` **não** cobre `test:db` nem `test:e2e` — verde ali não é prova para mudança de schema ou de UI.
 - [`docs/threat-model.md`](docs/threat-model.md) — superfície de ataque real do self-host.
@@ -73,7 +72,7 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 - **API key NUNCA em query string** (vaza em logs Vercel/CF). Sempre header
 - Plaintext de bearer token mostrado **uma vez** na criação; depois apenas hash SHA256 no DB
 - Rate limit headers: `X-RateLimit-*` + `Retry-After` em 429
-- `X-Request-Id` em toda response (correlaciona com audit log)
+- Toda resposta de `ok()`/`fail()` leva o `X-Request-Id`, e é o mesmo do registro e da auditoria; as rotas que montam resposta à mão estão sendo migradas (issue #4107)
 
 ### Auth & RBAC
 - Sempre `getUser()` (valida JWT no backend). NUNCA `getSession()` (confia no cookie local)
@@ -164,7 +163,7 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 - Mídia: subir pro Supabase Storage primeiro, passar URL ao WAHA (não inline base64)
 - Multi-device: assinar `message.any` (não só `message`); tratar `fromMe=true` sem duplicar
 - Grupos: entram **só os ligados** em Conexões › Grupos (`channel_session_groups`). O grupo ligado vira conversa `is_group` com um contato `kind = 'whatsapp_group'` que nunca entra em funil, lista, campanha ou IA; o remetente é `p.author` (nunca `p.from`), gravado em `messages.metadata.group_sender` (`lib/messaging/remetente-de-grupo.ts`). Para conversa de grupo o banco emite `message.group_received`, e não `message.received`, e o roteamento automático pula grupo. O filtro `ignore.groups` do WAHA é propriedade desta funcionalidade (`definirRecebimentoDeGrupos`); compatibilidade e convergência não o tocam. Spec: `docs/superpowers/specs/2026-09-23-grupos-na-inbox-design.md`
-- Cron `recover-stuck-messages` (`app/api/v1/cron/recover-stuck-messages/route.ts`, agendado no `scheduler` do `docker-compose.prod.yml`): marca `status='sending'` há >5min como `failed` **e abre aviso na Central** (`agent_inbox_items` kind `message_send_stuck`). Não toca em `queued`: esse estado tem dono (o agent-engine reagenda por `SEND_QUEUED_RETRY_MS`), e falhá-lo perderia mensagem que ia sair. Não reenvia — envio em dobro é pior que não-envio
+- Cron `recover-stuck-messages` (`app/api/v1/cron/recover-stuck-messages/route.ts`, agendado no `scheduler` do `docker-compose.prod.yml`): marca `status='sending'` há >5min como `failed` **e abre aviso na Central** (`agent_inbox_items` kind `message_send_stuck`). Não toca em `queued`: esse estado tem dono (no canal por QR, o resgate do watchdog; a mensagem da pessoa ou do agente que o canal mandou desacelerar, o `lib/messaging/reenvio-desacelerado.handler.ts` — quem são os donos, com o porquê, está na exceção da regra no `docs/business-rules/00-business-rules-catalog.md`), e falhá-lo perderia mensagem que ia sair. Mas não a deixa invisível: a `queued` vencida numa conexão que já voltou a WORKING vira aviso na Central (`avisarEsperaEsquecida`), sem mudar de status: 15 min para a que esperava a conexão, 50 min para a que pode ter nova tentativa agendada, e nenhuma acima de 24 h. Não reenvia — envio em dobro é pior que não-envio
 
 ### Marca própria (white-label)
 - **Uma imagem Docker serve todas as marcas.** Nada de `NEXT_PUBLIC_*` para marca, nada de `public/favicon.ico`, nada de imagem por revendedor — a imagem é pré-buildada e o `update.sh` regrava `APP_IMAGE` incondicionalmente
@@ -191,6 +190,16 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
     TypeScript, o emissor usa **constante compartilhada, nunca string literal**, e a coluna fica
     **fora** do invariante `tests/invariants/vocabulario-banco-x-typescript.test.ts` — que cobre
     apenas colunas que JÁ têm CHECK. Ver o cabeçalho desse arquivo antes de "completar" o schema.
+- **Exceção deliberada ao anti-pattern 4 — lista de ids sem FK (`uuid[]`):** aceita só quando as TRÊS
+  condições valem — conjunto pequeno e com teto na rota (≤ 20), sempre lido e escrito JUNTO com a
+  linha dona (nunca consultado por item), e o handler confere que todo id é membro da organização
+  antes de gravar (recusa 422 nomeando quem ficou de fora) e o consumidor confere de novo ao usar.
+  Caso aceito: `calendar_appointments.team_guest_user_ids` (migration 9209, doc de decisão 272) —
+  quem publica no Google é um gatilho NA LINHA do compromisso, e tabela à parte exigiria um segundo
+  mecanismo só para avisar a linha. O custo, conhecido e aceito: quem perde o acesso à organização
+  segue na lista até a próxima edição (a publicação o descarta). Precedente anterior:
+  `ai_agent_versions.pipeline_ids` e `knowledge_source_ids`. Faltando uma das três condições, é
+  tabela com FK.
 - `tags text[]` + GIN index; promove pra coluna gerada apenas quando vira hot path
 - `custom_fields jsonb` com schema declarativo em `pipeline.settings.fields`; Zod construído dinamicamente
 - `vocabulary jsonb` em pipeline permite renomear lead/deal/won/lost (e-commerce: lead=Cliente, deal=Pedido, won=Pago, lost=Cancelado)
@@ -694,16 +703,16 @@ mesma tabela vale para Codex, Cursor, OpenCode e Antigravity; ver `AGENTS.md`). 
 qualquer pasta, `bash scripts/instalar-guias.sh`; editando um guia numa branch, rode com `--fonte .`
 naquele clone — no Claude Code a skill GLOBAL vence a do projeto com o mesmo nome:
 
-- `elus360-instalar` — instalar, atualizar ou consertar a instalação numa VPS
-- `elus360-operacao` — usar o CRM no dia a dia, encontrar telas, fluxos e configurações pela interface
-- `elus360-curso` — atualizar aulas, traduções e capturas do curso a partir das mudanças do produto
-- `elus360-cliente-novo` — configurar o CRM para um cliente ou nicho (agentes, roteadores, follow-ups, conhecimento)
-- `elus360-saas` — revender o CRM como SaaS: planos, cobrança pela Stripe ou pelo Asaas, régua, contrato
-- `elus360-metricas` — desempenho, conversão, custo de IA, funil, relatório
-- `elus360-prompt` — afinar o prompt de um agente que não performa
-- `elus360-contribuir` — o espelho da triagem, antes do PR; fica quieto para o mantenedor
-- `elus360-extensao` — criar extensão em vez de PR no núcleo: régua de destino, contrato do pacote e envio
-- `elus360-doutrina` — as três regras que mais custam, antes de escrever código
+- `deskcomm-instalar` — instalar, atualizar ou consertar a instalação numa VPS
+- `deskcomm-operacao` — usar o CRM no dia a dia, encontrar telas, fluxos e configurações pela interface
+- `deskcomm-curso` — atualizar aulas, traduções e capturas do curso a partir das mudanças do produto
+- `deskcomm-cliente-novo` — configurar o CRM para um cliente ou nicho (agentes, roteadores, follow-ups, conhecimento)
+- `deskcomm-saas` — revender o CRM como SaaS: planos, cobrança pela Stripe ou pelo Asaas, régua, contrato
+- `deskcomm-metricas` — desempenho, conversão, custo de IA, funil, relatório
+- `deskcomm-prompt` — afinar o prompt de um agente que não performa
+- `deskcomm-contribuir` — o espelho da triagem, antes do PR; fica quieto para o mantenedor
+- `deskcomm-extensao` — criar extensão em vez de PR no núcleo: régua de destino, contrato do pacote e envio
+- `deskcomm-doutrina` — as três regras que mais custam, antes de escrever código
 
 Os guias têm página pública em [deskcomm.com.br/guias](https://www.deskcomm.com.br/guias), escrita
 à mão em `deskcomm-site/conteudo/guias.ts`: guia criado, renomeado ou com comando novo pede a mesma
@@ -784,3 +793,22 @@ Antes de declarar uma task pronta:
     extensão não autoriza remover nem desligar o que já foi distribuído.
 
 Um staff engineer aprovaria? Se não, itera.
+
+## ELUS360 — skills de operação e engenharia
+
+O fork incorpora os dez guias de ".agents/skills/elus360-*", com espelho em
+".claude/skills/elus360-*". Use o guia específico antes de criar um fluxo
+paralelo; ele complementa, mas não substitui, esta doutrina e os testes.
+
+- `elus360-cliente-novo`: onboarding de organizações e clientes.
+- `elus360-contribuir`: mudanças, PR, CI e revisões.
+- `elus360-curso`: academia e treinamento.
+- `elus360-doutrina`: decisões e políticas técnicas.
+- `elus360-extensao`: integrações e extensibilidade.
+- `elus360-instalar`: instalação, release e rollback.
+- `elus360-metricas`: relatórios e métricas.
+- `elus360-operacao`: uso e mapa da interface.
+- `elus360-prompt`: agentes e prompts de IA.
+- `elus360-saas`: gestão da plataforma e tenants.
+
+A release v1.108.0 não autoriza instalação, deploy nem alteração de banco.

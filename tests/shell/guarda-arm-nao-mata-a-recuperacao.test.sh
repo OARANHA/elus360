@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELUS360 ADR-0007: AMD64-only; preserve legacy test path while rejecting ARM.
+# ELUS360 ADR-0007: AMD64/ARM64 condicional, com prova OCI de quatro imagens.
 # Fully offline. No registry, Docker, DDL, network or crontab.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -20,7 +20,7 @@ ghcr_status() {
 }
 manifesto_tem_plataforma() {
   printf 'OCI %s %s\n' "$1" "$2" >> "$LOG"
-  [ "$2" = linux/amd64 ] || return 1
+  [ "$2" = "${OCI_ALLOWED_PLATFORM:-linux/amd64}" ] || return 1
   case "$1" in *"/${ELUS_MISSING_IMAGE:-__none__}:"*) return 1 ;; esac
   return 0
 }
@@ -40,18 +40,27 @@ unset ELUS_403_IMAGE
 ELUS_MISSING_IMAGE=elus360-scheduler
 check 'missing AMD64 scheduler blocks update' negate preflight_imagens_crm 1.102.0 linux/amd64
 unset ELUS_MISSING_IMAGE
-for bad in linux/arm64 linux/riscv64 linux/386; do
+# ARM64 requer manifestos nativos para cada imagem: nunca faz fallback para AMD64.
+: > "$LOG"
+check 'arm64 denied if only amd64 images exist' negate preflight_imagens_crm 1.102.0 linux/arm64
+check 'arm64 probes registry before OCI rejection' test -s "$LOG"
+OCI_ALLOWED_PLATFORM=linux/arm64
+: > "$LOG"
+check 'four-image preflight linux/arm64 when each OCI supports it' preflight_imagens_crm 1.102.0 linux/arm64
+check 'four ARM64 OCI manifests probed' test "$(grep -c '^OCI ' "$LOG")" -eq 4
+unset OCI_ALLOWED_PLATFORM
+for bad in linux/riscv64 linux/386; do
   : > "$LOG"
   check "unsupported OCI $bad rejected" negate preflight_imagens_crm 1.102.0 "$bad"
   check "OCI $bad denied before registry" test ! -s "$LOG"
 done
 DESKCOMM_BUILD_LOCAL=1
-check 'unsupported platform cannot trigger host build' negate build_local_permitido v1.102.0
+check 'explicit opt-in recognized without bypassing OCI preflight' build_local_permitido v1.102.0
 unset DESKCOMM_BUILD_LOCAL
 check 'platform chooser admits x86_64' test "$(plataforma_oci_do_host x86_64)" = linux/amd64
-check 'platform chooser rejects aarch64' negate plataforma_oci_do_host aarch64
-check 'platform chooser rejects arm64' negate plataforma_oci_do_host arm64
+check 'platform chooser admits aarch64' test "$(plataforma_oci_do_host aarch64)" = linux/arm64
+check 'platform chooser admits arm64' test "$(plataforma_oci_do_host arm64)" = linux/arm64
 check 'platform chooser rejects riscv64' negate plataforma_oci_do_host riscv64
-check 'kit architecture rejects aarch64 even with marker' negate veredito_da_arquitetura aarch64 1
+check 'kit architecture admits aarch64' test "$(veredito_da_arquitetura aarch64 1)" = arm64
 printf '\n%s failed checks\n' "$fails"
 [ "$fails" -eq 0 ]

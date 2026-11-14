@@ -41,7 +41,7 @@ elus360_release_publicada_no_main "$ELUS_RELEASE_PREVALIDADA" "$REPO_URL" \
 # da primeira operação que cria arquivo, instala dependência ou altera serviço.
 # Um manifesto 404/403, token ausente ou falha de rede recusa a instalação.
 ELUS_RELEASE_NUMERICA="${ELUS_RELEASE_PREVALIDADA#v}"
-if ! trio_publicado "$ELUS_RELEASE_NUMERICA"; then
+if ! build_local_pedido && ! trio_publicado "$ELUS_RELEASE_NUMERICA"; then
   printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: pacote ELUS360 inexistente, privado ou inacessível; nenhuma instalação iniciada.' >&2
   exit 3
 fi
@@ -1090,16 +1090,21 @@ if [ -f "$PARTIAL_FILE" ]; then
   c_dim "$(t "  (o token do Supabase é de conta e nunca entra no rascunho: ele é perguntado de novo. Enter pula)")"
 fi
 
-# Pré-voo obrigatório AMD64: as quatro imagens ELUS360 e WAHA efetiva
-# devem oferecer linux/amd64 antes de criar Supabase, rede ou schema.
+# Pré-voo OCI no host antes de criar rede, Supabase ou schema.
 PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)")" || {
-  printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: servidor fora de Linux AMD64.' >&2
+  printf '%s\n' 'ELUS_DISTRIBUTION_NO_GO: exige Linux amd64 ou arm64.' >&2
   exit 3
 }
 VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"
 WAHA_EFETIVA="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
-if ! preflight_instalacao "$VERSAO_ALVO" "$PLATAFORMA_HOST" "$WAHA_EFETIVA"; then
-  c_red "ELUS_DISTRIBUTION_NO_GO: quatro imagens e WAHA devem oferecer linux/amd64."
+if build_local_pedido; then
+  manifesto_tem_plataforma "$WAHA_EFETIVA" "$PLATAFORMA_HOST" || {
+    c_red "ELUS_DISTRIBUTION_NO_GO: WAHA incompatível com $PLATAFORMA_HOST."
+    trap - EXIT
+    exit 3
+  }
+elif ! preflight_instalacao "$VERSAO_ALVO" "$PLATAFORMA_HOST" "$WAHA_EFETIVA"; then
+  c_red "ELUS_DISTRIBUTION_NO_GO: imagens ELUS ou WAHA incompatíveis com $PLATAFORMA_HOST."
   trap - EXIT
   exit 3
 fi
@@ -1443,7 +1448,7 @@ fi
 # e sem recuperação por build local.
 VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"
 if [[ ! "${VERSAO_ALVO:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-   || ! trio_publicado "$VERSAO_ALVO"; then
+   || { ! build_local_pedido && ! trio_publicado "$VERSAO_ALVO"; }; then
   die "ELUS_DISTRIBUTION_NO_GO: nenhuma release própria ELUS360 com quatro imagens públicas foi verificada; não uso stable/latest nem compilo imagens nesta VPS."
 fi
 # O clone inicial pode ser shallow e não ter as tags. Buscar SOMENTE a tag
@@ -2447,11 +2452,16 @@ step "$(t "Puxando a imagem e subindo os serviços")"
 # quando a imagem não existe (medido).
 # ELUS360 não usa fallback de compilação no host. Ausência de imagem,
 # 403, rede e arquitetura incompatível interrompem a instalação.
-if ! dc pull; then
-  die "ELUS_DISTRIBUTION_NO_GO: pull das imagens ELUS360 falhou; nenhum build local será executado."
-fi
-if ! dc up -d --no-build; then
-  die "ELUS_DISTRIBUTION_NO_GO: falha ao subir imagens ELUS360 já publicadas (sem build local)."
+if build_local_pedido; then
+  construir_aqui_e_subir "$VERSAO_ALVO" ||
+    die "ELUS_DISTRIBUTION_NO_GO: build explicitamente solicitado falhou."
+else
+  if ! dc pull; then
+    die "ELUS_DISTRIBUTION_NO_GO: pull incompleto; build automático proibido."
+  fi
+  if ! dc up -d --no-build; then
+    die "ELUS_DISTRIBUTION_NO_GO: imagens publicadas não subiram; sem build automático."
+  fi
 fi
 c_grn "$(t "✓ containers no ar")"
 

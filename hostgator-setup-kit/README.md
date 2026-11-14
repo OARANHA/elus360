@@ -25,7 +25,7 @@ Este kit sobe o **DeskcommCRM** no seu servidor VPS da HostGator. Você tem dois
 2. Clone o repositório (`git clone --depth 1 https://github.com/OARANHA/elus360.git elus360`)
    e abra a pasta no **Claude Code, Codex, Cursor, OpenCode ou Antigravity** dentro do VPS —
    ou jogue só esta pasta no chat: o `CLAUDE.md` daqui manda clonar e abre o guia.
-3. Diga: *"instala o DeskcommCRM pra mim"*. O guia `elus360-instalar` conduz tudo —
+3. Diga: *"instala o ELUS360 pra mim"*. O guia `elus360-instalar` conduz tudo —
    cria o banco, gera as senhas, sobe o CRM e te ajuda a conectar o WhatsApp.
 
 ## ⚙️ Caminho manual: um comando
@@ -66,6 +66,10 @@ Para criar só o projeto, sem instalar, o script também roda sozinho:
 ```bash
 bash supabase-provision.sh "Nome do Projeto" sa-east-1 >> .env
 ```
+
+O segundo argumento (ou `SUPABASE_REGION`) é a região do projeto: use a **mais próxima da VPS** —
+`sa-east-1` no Brasil, `us-east-1` ou `eu-central-1` nos EUA/Europa. Ela **não muda depois** de
+criado o projeto.
 
 O script cria o projeto, **espera o banco ficar `ACTIVE_HEALTHY`** (projeto novo não
 nasce pronto), busca as chaves e **descobre o host do pooler testando conexão real** em

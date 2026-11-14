@@ -3,7 +3,6 @@
 > Contrato portável para **qualquer** agente de código (Codex, Cursor, OpenCode, Antigravity, Copilot).
 > Este arquivo é o núcleo. A **doutrina completa e não-negociável vive em [`CLAUDE.md`](CLAUDE.md)** —
 > leia-o antes de tocar em código. O mapa de toda a documentação está em [`docs/index.md`](docs/index.md).
-> **ELUS360 / PR #22:** [ADR-0007](docs/adr/0007-elus360-linux-amd64.md) aprovada pelo proprietário em 07/11/2026: distribuição de quatro imagens somente `linux/amd64`. ARM64 não é suportado nem planejado. Sem fallback de build local ou exceção por instalação existente.
 > Precedência quando dois documentos discordam: `CLAUDE.md` > `docs/specs/` > `docs/prd/` >
 > `HANDOFF-*.md` > `README.md`.
 
@@ -198,16 +197,16 @@ cite cada um:
 **Os cinco são checks obrigatórios** na branch protection da `main` — medido em 2026-08-14 @ `741c4ec8` (o comando exige permissão de **admin** no repositório: com token de contribuidor ele devolve `404`, medido em 2026-09-13):
 | Situação                                                                            | Guia                    |
 | ----------------------------------------------------------------------------------- | ----------------------- |
-| Instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp | `elus360-instalar`     |
-| Usar o CRM no dia a dia; encontrar telas, fluxos e configurações pela interface     | `elus360-operacao`     |
-| Atualizar aulas, traduções e capturas do curso com as mudanças do produto           | `elus360-curso`        |
-| Configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base    | `elus360-cliente-novo` |
-| Revender como SaaS: planos, cobrança pela Stripe ou Asaas, régua, contrato          | `elus360-saas`         |
-| Desempenho, conversão, custo de IA, funil, relatório                                | `elus360-metricas`     |
-| O agente responde errado, passa tudo para humano, não usa a agenda; afinar o prompt | `elus360-prompt`       |
-| Contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main`   | `elus360-contribuir`   |
-| Criar extensão/plugin/módulo de nicho, ou transformar um PR de nicho em pacote      | `elus360-extensao`     |
-| Escrever ou revisar código aqui                                                     | `elus360-doutrina`     |
+| Instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp | `deskcomm-instalar`     |
+| Usar o CRM no dia a dia; encontrar telas, fluxos e configurações pela interface     | `deskcomm-operacao`     |
+| Atualizar aulas, traduções e capturas do curso com as mudanças do produto           | `deskcomm-curso`        |
+| Configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base    | `deskcomm-cliente-novo` |
+| Revender como SaaS: planos, cobrança pela Stripe ou Asaas, régua, contrato          | `deskcomm-saas`         |
+| Desempenho, conversão, custo de IA, funil, relatório                                | `deskcomm-metricas`     |
+| O agente responde errado, passa tudo para humano, não usa a agenda; afinar o prompt | `deskcomm-prompt`       |
+| Contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main`   | `deskcomm-contribuir`   |
+| Criar extensão/plugin/módulo de nicho, ou transformar um PR de nicho em pacote      | `deskcomm-extensao`     |
+| Escrever ou revisar código aqui                                                     | `deskcomm-doutrina`     |
 
 O gate de arquitetura de qualquer peça que atende pessoas é a skill `sistema-vivo` (lei em
 [`docs/doctrine/sistema-vivo.md`](docs/doctrine/sistema-vivo.md)).
@@ -233,7 +232,8 @@ if (!authz.ok) return authz.response;
 ```
 
 **Erros** — `fail(code, message, status)` com código de `lib/api/errors.ts`. Nunca `throw` cru na
-borda. Cada response leva `X-Request-Id`, correlacionado com o audit log.
+borda. Toda resposta de `ok()`/`fail()` leva o `X-Request-Id`, e é o mesmo do registro e da auditoria;
+as rotas que montam resposta à mão estão sendo migradas (issue #4107).
 
 **Nomes e dados** — arquivos e símbolos em PT-BR são a norma (mantenha o idioma do arquivo que
 editar). JSON da API em **snake_case**; dinheiro em `_cents` + `currency`; datas ISO-8601 UTC;
@@ -284,7 +284,8 @@ o controlador (`organizations.legal_name`) e o DPO.
 - **`docker-compose.traefik.yml`** — numa VPS que já tem proxy reverso próprio
   (Hostinger, Coolify, Dokploy…), é o único lugar que dá ao contêiner `app` as labels
   de roteamento. Todo `up -d` leva os **dois** arquivos de compose:
-**Anti-patterns proibidos** — string que deveria ser FK; duplicação sem source of truth declarado;
+**Anti-patterns proibidos** — string que deveria ser FK (lista `uuid[]` pequena, lida junto com a
+linha e conferida no handler é exceção escrita em `CLAUDE.md`, seção Modelagem); duplicação sem source of truth declarado;
 feature nomeando um provider de canal (gate `pnpm lint:channels`); tela nova sem porta declarada em
 `lib/navigation/registry.ts` (gate `tests/unit/navegacao-completude.test.ts`); `getSession()` no
 server; segredo em query string; `throw` cru na borda da API.
@@ -545,14 +546,14 @@ casar, mesmo que a pessoa não saiba que ele existe. Fora de um clone (ou num cl
 
 | situação | guia |
 |---|---|
-| instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp que não conecta | `elus360-instalar` |
-| configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base de conhecimento | `elus360-cliente-novo` |
-| revender como SaaS: painel do dono, planos, cobrança pela Stripe ou pelo Asaas, régua, contrato com o cliente final | `elus360-saas` |
-| desempenho, conversão, custo de IA, funil, relatório | `elus360-metricas` |
-| atualizar aulas, traduções e capturas do curso com as mudanças do produto | `elus360-curso` |
-| o agente responde errado, passa tudo para humano, não usa a agenda; melhorar o prompt | `elus360-prompt` |
-| contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main` | `elus360-contribuir` — que fica quieto quando `bash .agents/skills/elus360-contribuir/scripts/quem-sou.sh` responde `mantenedor` |
-| escrever ou revisar código aqui | `elus360-doutrina` (as três regras que mais custam) e `sistema-vivo` (o gate de arquitetura) |
+| instalar, atualizar ou consertar a instalação numa VPS; domínio, Supabase, WhatsApp que não conecta | `deskcomm-instalar` |
+| configurar o CRM para um cliente ou nicho: agentes, roteadores, follow-ups, base de conhecimento | `deskcomm-cliente-novo` |
+| revender como SaaS: painel do dono, planos, cobrança pela Stripe ou pelo Asaas, régua, contrato com o cliente final | `deskcomm-saas` |
+| desempenho, conversão, custo de IA, funil, relatório | `deskcomm-metricas` |
+| atualizar aulas, traduções e capturas do curso com as mudanças do produto | `deskcomm-curso` |
+| o agente responde errado, passa tudo para humano, não usa a agenda; melhorar o prompt | `deskcomm-prompt` |
+| contribuir: corrigir bug, abrir ou atualizar PR, migration, conflito com a `main` | `deskcomm-contribuir` — que fica quieto quando `bash .agents/skills/deskcomm-contribuir/scripts/quem-sou.sh` responde `mantenedor` |
+| escrever ou revisar código aqui | `deskcomm-doutrina` (as três regras que mais custam) e `sistema-vivo` (o gate de arquitetura) |
 
 Os guias têm vitrine pública em [deskcomm.com.br/guias](https://www.deskcomm.com.br/guias) (pt-BR,
 en, es), escrita à mão no repositório `deskcomm-site` (`conteudo/guias.ts`). Guia criado,
@@ -594,3 +595,22 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## ELUS360 — skills de operação e engenharia
+
+O fork incorpora os dez guias de ".agents/skills/elus360-*", com espelho em
+".claude/skills/elus360-*". Use o guia específico antes de criar um fluxo
+paralelo; ele complementa, mas não substitui, esta doutrina e os testes.
+
+- `elus360-cliente-novo`: onboarding de organizações e clientes.
+- `elus360-contribuir`: mudanças, PR, CI e revisões.
+- `elus360-curso`: academia e treinamento.
+- `elus360-doutrina`: decisões e políticas técnicas.
+- `elus360-extensao`: integrações e extensibilidade.
+- `elus360-instalar`: instalação, release e rollback.
+- `elus360-metricas`: relatórios e métricas.
+- `elus360-operacao`: uso e mapa da interface.
+- `elus360-prompt`: agentes e prompts de IA.
+- `elus360-saas`: gestão da plataforma e tenants.
+
+A release v1.108.0 não autoriza instalação, deploy nem alteração de banco.

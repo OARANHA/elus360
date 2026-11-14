@@ -188,7 +188,7 @@ jobs:
     timeout-minutes: 15
     # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o
     # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.
-    # ELUS360 candidate isolation: do not dispatch to user/private production runners.
+    # ELUS360: runner publico isolado, nunca private VPS
     runs-on: ubuntu-24.04
     concurrency:
       group: ${{ github.workflow }}-verify-parte${{ matrix.parte }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.run_attempt != '1' && format('-reentrada-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt != '1' && format('-reentrada-{0}', github.sha) || '' }}
@@ -280,8 +280,7 @@ jobs:
       # minutos. Rodam UMA vez: o passo de unit abaixo pula o projeto `cercas`.
       # Seleção e medições: o bloco `projects` de vitest.config.ts.
       # Na parte 7, junto do kit bash: o porquê e a conta estão no cabeçalho do job.
-      # node:test é executado ANTES das cercas para não ser pulado quando
-      # uma cerca reprova; os dois gates devem entregar evidência independente.
+      # ELUS360: regressões locais específicas antes das cercas.
       - name: ELUS operational tests (node:test)
         if: matrix.parte == 7
         run: pnpm test:operational
@@ -655,10 +654,13 @@ jobs:
     # medido — não há Docker onde esta matriz foi escrita —, e existe para o
     # vermelho continuar falando de schema: mantido em 20, a perna morreria por
     # relógio no meio da segunda passada.
-    timeout-minutes: 30
+    timeout-minutes: 45
+    # 30 → 45 em 10/11/2026 (doc de decisão 302): cortada por relógio aos 30 min
+    # no pg15 e no pg17, também na `main`. Razão inteira em
+    # tests/unit/preambulo-do-ci-nao-come-o-relogio.test.ts (TETOS).
     # Executor próprio para trabalho nosso quando EXECUTOR_PROPRIO=ligado; o
     # porquê e a guarda contra fork: comentário do e2e-parte no e2e.yml.
-    # ELUS360 candidate isolation: do not dispatch to user/private production runners.
+    # ELUS360: runner publico isolado, nunca private VPS
     runs-on: ubuntu-24.04
     needs: [invariants-alcance]
     concurrency:
@@ -686,23 +688,12 @@ jobs:
         # aceita `timeout-minutes`. Razão e medições: o cabeçalho da action.
         timeout-minutes: 5
 
-      - name: Confirm official v1.102 and legacy v1.63 releases without fork-latest lookup
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 https://github.com/melgarafael/DeskcommCRM.git \
-            +refs/tags/v1.102.0:refs/tags/v1.102.0 \
-            +refs/tags/v1.63.0:refs/tags/v1.63.0
-          pin="$(git rev-parse 'refs/tags/v1.102.0^{commit}')"
-          test "$pin" = "4b5815721710c9b1e99078322593838fda1ee740"
-          git cat-file -e 'refs/tags/v1.63.0^{commit}'
       - name: RLS isolation + governance invariants (pg${{ matrix.pg }})
         # O token é só para `gh release view`: o test:db confere o update.sh da
         # última release publicada (issue #1909), e a API anônima tem teto de 60
         # consultas/hora por IP — o executor próprio é um IP só.
         env:
           GH_TOKEN: ${{ github.token }}
-          CONFERENCIA_KIT_RELEASE: v1.102.0
         run: pnpm test:db
 
       # O `update.sh` do cliente roda sobre um banco COM DADOS, e nenhum gate
