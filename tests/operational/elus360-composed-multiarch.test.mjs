@@ -11,6 +11,9 @@ const path=resolve(ROOT,'hostgator-setup-kit/_manifestos.sh');
 const original=readFileSync(path,'utf8');
 const sha=execFileSync('git',['hash-object',path],{encoding:'utf8'}).trim();
 const composed=composeOptionalPlatformManifest(original);
+const common=readFileSync(resolve(ROOT,'hostgator-setup-kit/_common.sh'),'utf8');
+const imgNs=/^IMG_NS="([^"]+)"$/m.exec(common)?.[1];
+assert.ok(imgNs,'IMG_NS do fork ausente');
 const FAKE_REGISTRY=[
   'docker() {',
   '  test "$1" = buildx && test "$2" = imagetools && test "$3" = inspect || return 99',
@@ -22,7 +25,7 @@ const FAKE_REGISTRY=[
   '  else return 99; fi',
   '}',
   'ghcr_status() { printf \'%s\' "$TEST_HTTP_STATUS"; }',
-  'IMG_NS=ghcr.io/oaranha',
+  'IMG_NS='+imgNs,
 ].join('\n');
 function run(script,env={}) {
   return spawnSync('bash',['-c',composed+'\n'+FAKE_REGISTRY+'\n'+script],{

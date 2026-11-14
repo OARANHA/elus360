@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADAPTERS, OFFICIAL_TARGET, ELUS_STRUCTURAL_DOCS, keepOfficialStructuralDocument, adaptText, planChanges, composeOptionalBuildPolicy } from '../../scripts/elus360-clean-base-adapters.mjs';
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { ADAPTERS, OFFICIAL_TARGET, ELUS_STRUCTURAL_DOCS, keepOfficialStructuralDocument, adaptText, planChanges, composeOptionalBuildPolicy, composeOptionalInstallEntrypoint, composeOptionalUpdateEntrypoint } from '../../scripts/elus360-clean-base-adapters.mjs';
 
 // Testes compactos incluem adaptadores de CI, E2E, instruções ELUS e demais casos;
 // AgentForm, dicionário e teste do preâmbulo exigem o conteúdo upstream real.
@@ -219,4 +221,29 @@ test('T04: README do ELUS aponta para o fork sem substituir o manual oficial com
     assert.match(all,/OARANHA\/elus360/);
     assert.match(all,/elus360-instalar/);
   }
+});
+
+test('T06-C: entrypoints compostos com opt-in e recusa de alteração incompatível',()=>{
+  const install=readFileSync(new URL('../../hostgator-setup-kit/install.sh',import.meta.url),'utf8');
+  const update=readFileSync(new URL('../../hostgator-setup-kit/update.sh',import.meta.url),'utf8');
+  const i=composeOptionalInstallEntrypoint(install),u=composeOptionalUpdateEntrypoint(update);
+  for(const sh of [i,u]) {
+    assert.equal(spawnSync('bash',['-n'],{input:sh,encoding:'utf8'}).status,0);
+    assert.match(sh,/construir_aqui_e_subir "\$VERSAO_ALVO"/);
+    assert.match(sh,/manifesto_tem_plataforma "\$WAHA_EFETIVA" "\$PLATAFORMA_HOST"/);
+  }
+  assert.match(i,/if ! build_local_pedido && ! trio_publicado/);
+  assert.match(u,/if ! build_local_pedido && ! dc pull/);
+  assert.throws(()=>composeOptionalInstallEntrypoint(i),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
+  assert.throws(()=>composeOptionalUpdateEntrypoint(u),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
+  assert.throws(()=>composeOptionalInstallEntrypoint(install.replace('trio_publicado "$ELUS_RELEASE_NUMERICA"','outra_sonda')),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
+  assert.throws(()=>composeOptionalUpdateEntrypoint(update.replace('if ! subir_o_parque; then','if ! outro_sender; then')),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
+});
+test('T07: release compatível reutiliza os adaptadores; contrato mudado falha fechado',()=>{
+  const f=sourceFixture(),nextSha='a'.repeat(40),report={...f.report,upstream_target_sha:nextSha};
+  const result=planChanges({...f,report,targetSha:nextSha,adapters:FIXTURE_ADAPTERS});
+  assert.equal(result.changed.length,FIXTURE_ADAPTERS.length);
+  assert.equal(result.remaining.length,1);
+  assert.throws(()=>planChanges({...f,report,targetSha:nextSha,adapters:FIXTURE_ADAPTERS,officialBlobByPath:{...f.officialBlobByPath,'lib/env.ts':'0'.repeat(40)}}),/OFFICIAL_BLOB_CHANGED/);
+  assert.throws(()=>planChanges({...f,report,targetSha:'b'.repeat(40),adapters:FIXTURE_ADAPTERS}),/UNVERIFIED_CLEAN_BASE_REPORT/);
 });

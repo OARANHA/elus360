@@ -294,7 +294,7 @@ export function composeOptionalBuildPolicy(merged, official, expectedNamespace) 
   replace('veredito_das_imagens_da_release', imagesWithPlatform);
   const requested=`build_local_pedido() {
   case "\${DESKCOMM_BUILD_LOCAL:-}" in
-    1|sim|s|yes) return 0 ;;
+    1) return 0 ;;
     *) return 1 ;;
   esac
 }`;
@@ -373,6 +373,71 @@ function composePlatformManifestFromStaged({candidate,report}) {
   return {path,kind:'elus_optional_arm64_oci',fork_blob:forkBlob,content,sha256:digest(content)};
 }
 
+
+/** Adaptações de distribuição aplicadas apenas no worktree composto, com âncoras exatas. */
+function composeEntrypointPatches(original, patches, entrypoint) {
+  if(typeof original!=='string')throw new Error('ELUS_ENTRYPOINT_SOURCE_MISSING: '+entrypoint);
+  let result=original;
+  for(const [from,to] of patches){
+    if(result.split(from).length!==2)throw new Error('ELUS_ENTRYPOINT_CONTRACT_CHANGED: '+entrypoint);
+    result=result.replace(from,to);
+  }
+  return result;
+}
+export function composeOptionalInstallEntrypoint(original) {
+  return composeEntrypointPatches(original, [
+  [
+    "if ! trio_publicado \"$ELUS_RELEASE_NUMERICA\"; then",
+    "if ! build_local_pedido && ! trio_publicado \"$ELUS_RELEASE_NUMERICA\"; then"
+  ],
+  [
+    "# Pré-voo obrigatório AMD64: as quatro imagens ELUS360 e WAHA efetiva\n# devem oferecer linux/amd64 antes de criar Supabase, rede ou schema.\nPLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" || {\n  printf '%s\\n' 'ELUS_DISTRIBUTION_NO_GO: servidor fora de Linux AMD64.' >&2\n  exit 3\n}\nVERSAO_ALVO=\"${ELUS_RELEASE_PREVALIDADA#v}\"\nWAHA_EFETIVA=\"${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}\"\nif ! preflight_instalacao \"$VERSAO_ALVO\" \"$PLATAFORMA_HOST\" \"$WAHA_EFETIVA\"; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: quatro imagens e WAHA devem oferecer linux/amd64.\"\n  trap - EXIT\n  exit 3\nfi",
+    "# Pré-voo OCI no host antes de criar rede, Supabase ou schema.\nPLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" || {\n  printf '%s\\n' 'ELUS_DISTRIBUTION_NO_GO: exige Linux amd64 ou arm64.' >&2\n  exit 3\n}\nVERSAO_ALVO=\"${ELUS_RELEASE_PREVALIDADA#v}\"\nWAHA_EFETIVA=\"${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}\"\nif build_local_pedido; then\n  manifesto_tem_plataforma \"$WAHA_EFETIVA\" \"$PLATAFORMA_HOST\" || {\n    c_red \"ELUS_DISTRIBUTION_NO_GO: WAHA incompatível com $PLATAFORMA_HOST.\"\n    trap - EXIT\n    exit 3\n  }\nelif ! preflight_instalacao \"$VERSAO_ALVO\" \"$PLATAFORMA_HOST\" \"$WAHA_EFETIVA\"; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: imagens ELUS ou WAHA incompatíveis com $PLATAFORMA_HOST.\"\n  trap - EXIT\n  exit 3\nfi"
+  ],
+  [
+    "   || ! trio_publicado \"$VERSAO_ALVO\"; then",
+    "   || { ! build_local_pedido && ! trio_publicado \"$VERSAO_ALVO\"; }; then"
+  ],
+  [
+    "if ! dc pull; then\n  die \"ELUS_DISTRIBUTION_NO_GO: pull das imagens ELUS360 falhou; nenhum build local será executado.\"\nfi\nif ! dc up -d --no-build; then\n  die \"ELUS_DISTRIBUTION_NO_GO: falha ao subir imagens ELUS360 já publicadas (sem build local).\"\nfi",
+    "if build_local_pedido; then\n  construir_aqui_e_subir \"$VERSAO_ALVO\" ||\n    die \"ELUS_DISTRIBUTION_NO_GO: build explicitamente solicitado falhou.\"\nelse\n  if ! dc pull; then\n    die \"ELUS_DISTRIBUTION_NO_GO: pull incompleto; build automático proibido.\"\n  fi\n  if ! dc up -d --no-build; then\n    die \"ELUS_DISTRIBUTION_NO_GO: imagens publicadas não subiram; sem build automático.\"\n  fi\nfi"
+  ]
+], 'install.sh');
+}
+export function composeOptionalUpdateEntrypoint(original) {
+  return composeEntrypointPatches(original, [
+  [
+    "ELUS_VEREDITO_IMAGENS=\"$(veredito_das_imagens_da_release \"$TARGET_TAG\")\"\n[ \"$ELUS_VEREDITO_IMAGENS\" = \"prontas\" ] \\\n  || refuse \"ELUS_DISTRIBUTION_NO_GO: as quatro imagens da release ELUS360 não estão públicas e acessíveis (veredito: $ELUS_VEREDITO_IMAGENS).\"",
+    "if ! build_local_pedido; then\n  ELUS_VEREDITO_IMAGENS=\"$(veredito_das_imagens_da_release \"$TARGET_TAG\")\"\n  [ \"$ELUS_VEREDITO_IMAGENS\" = \"prontas\" ] \\\n    || refuse \"ELUS_DISTRIBUTION_NO_GO: imagens ELUS360 não verificáveis (veredito: $ELUS_VEREDITO_IMAGENS).\"\nfi"
+  ],
+  [
+    "PLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" \\\n  || refuse \"ELUS_DISTRIBUTION_NO_GO: somente Linux AMD64.\"\nif ! preflight_plataforma_atualizacao \"$TARGET_TAG\" \"$PLATAFORMA_HOST\"; then\n  refuse \"ELUS_DISTRIBUTION_NO_GO: manifestos do ELUS360 ou WAHA incompatíveis com linux/amd64; banco, imagens e código preservados.\"\nfi",
+    "PLATAFORMA_HOST=\"$(plataforma_oci_do_host \"$(uname -m 2>/dev/null || true)\")\" \\\n  || refuse \"ELUS_DISTRIBUTION_NO_GO: somente Linux amd64 ou arm64.\"\nif build_local_pedido; then\n  WAHA_EFETIVA=\"${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}\"\n  manifesto_tem_plataforma \"$WAHA_EFETIVA\" \"$PLATAFORMA_HOST\" ||\n    refuse \"ELUS_DISTRIBUTION_NO_GO: WAHA sem plataforma $PLATAFORMA_HOST; banco e código preservados.\"\nelif ! preflight_plataforma_atualizacao \"$TARGET_TAG\" \"$PLATAFORMA_HOST\"; then\n  refuse \"ELUS_DISTRIBUTION_NO_GO: imagens ELUS ou WAHA incompatíveis com $PLATAFORMA_HOST; banco e código preservados.\"\nfi"
+  ],
+  [
+    "if ! dc pull; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: pull incompleto; não vou construir imagens na VPS.\"\n  exit 1\nfi",
+    "if ! build_local_pedido && ! dc pull; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: pull incompleto; build automático proibido.\"\n  exit 1\nfi"
+  ],
+  [
+    "if ! subir_o_parque; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build.\"\n  exit 1\nfi",
+    "if build_local_pedido; then\n  construir_aqui_e_subir \"$VERSAO_ALVO\" || {\n    c_red \"ELUS_DISTRIBUTION_NO_GO: build solicitado falhou; rollback de imagens preservado.\"\n    exit 1\n  }\nelif ! subir_o_parque; then\n  c_red \"ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build automático.\"\n  exit 1\nfi"
+  ]
+], 'update.sh');
+}
+function composeInstallFromStaged({candidate,report}) {
+  const path='hostgator-setup-kit/install.sh', forkBlob='39d5d81a53cb2368c02d0723c2ae56d5145bb4f7';
+  if(!report.staged.includes(path) || git(['-C',candidate,'rev-parse',report.fork_sha+':'+path])!==forkBlob)
+    throw new Error('ELUS_INSTALL_NOT_STAGED_OR_FORK_CHANGED');
+  const original=readFileSync(join(candidate,path),'utf8');
+  if(gitBlobSha(Buffer.from(original))!==forkBlob)
+    throw new Error('ELUS_INSTALL_SOURCE_BYTES_CHANGED');
+  const content=composeOptionalInstallEntrypoint(original);
+  const syntax=spawnSync('bash',['-n'],{input:content,encoding:'utf8',timeout:10000});
+  if(syntax.error || syntax.signal || syntax.status!==0)
+    throw new Error('ELUS_INSTALL_SYNTAX_NO_GO: '+(syntax.stderr||''));
+  return {path,kind:'elus_optional_install_entrypoint',fork_blob:forkBlob,content,sha256:digest(content)};
+}
+
 function mergeDistributionThreeWay({candidate,report,rule}) {
   const path=assertSafePath(rule.path);
   const record=report.review.find(x=>x.path===path);
@@ -404,6 +469,8 @@ function mergeDistributionThreeWay({candidate,report,rule}) {
     if (rule.kind==='distribution_common_three_way')
       content=composeOptionalBuildPolicy(content,ours.toString('utf8'),
         /^IMG_NS="([^"]+)"$/m.exec(fork.toString('utf8'))?.[1]);
+    if (rule.kind==='distribution_update_three_way')
+      content=composeOptionalUpdateEntrypoint(content);
     if(!content || content===ours.toString('utf8'))
       throw new Error('ELUS_DISTRIBUTION_MERGE_WITHOUT_ELUS_DELTA: '+path);
     // O namespace tem fonte única no _common.sh original do ELUS (blob
@@ -506,7 +573,7 @@ export function keepOfficialUpstreamValidator(item) {
 
 export function planChanges({report, targetSha, sourceByPath, officialBlobByPath, adapters = ADAPTERS}) {
   if (report?.schema_version !== 1 || report?.stage !== 'PREPARED_NOT_VALIDATED' ||
-      report.upstream_target_sha !== OFFICIAL_TARGET || targetSha !== OFFICIAL_TARGET ||
+      !/^[a-f0-9]{40}$/.test(targetSha) || report.upstream_target_sha !== targetSha ||
       !Array.isArray(report.review) || report.review.length !== report.counts?.conflicts) 
     throw new Error('UNVERIFIED_CLEAN_BASE_REPORT');
   const originalReview = new Map();
@@ -663,25 +730,26 @@ export function run(argv) {
   const distributionMerged=DISTRIBUTION_MERGES.map(rule=>
     mergeDistributionThreeWay({candidate,report,rule}));
   const platformManifest=composePlatformManifestFromStaged({candidate,report});
+  const installEntrypoint=composeInstallFromStaged({candidate,report});
   const sqlBaseline=composeElusSql({candidate,report});
-  const mergedPaths=new Set([...distributionMerged.map(x=>x.path),platformManifest.path,sqlBaseline.path]);
-  if(mergedPaths.size!==distributionMerged.length+2 ||
+  const mergedPaths=new Set([...distributionMerged.map(x=>x.path),platformManifest.path,installEntrypoint.path,sqlBaseline.path]);
+  if(mergedPaths.size!==distributionMerged.length+3 ||
      distributionMerged.some(x=>plan.changed.some(y=>y.path===x.path) ||
        plan.officialKept.some(y=>y.path===x.path)))
     throw new Error('ELUS_DISTRIBUTION_DECISION_OVERLAP');
-  for(const c of [...plan.changed,...distributionMerged,platformManifest,sqlBaseline])
+  for(const c of [...plan.changed,...distributionMerged,platformManifest,installEntrypoint,sqlBaseline])
     writeFileSync(join(candidate,c.path),c.content);
-  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path),platformManifest.path,sqlBaseline.path]);
+  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path),platformManifest.path,installEntrypoint.path,sqlBaseline.path]);
   const patch=execFileSync('git',['-C',candidate,'diff','--cached','--binary'],{maxBuffer:128*1024*1024});
   mkdirSync(reports,{recursive:true});
   const composed={
     schema_version:1, stage:'COMPOSED_NOT_VALIDATED',
     upstream_target_sha:actualHead, fork_sha:report.fork_sha,
     source_report_sha256:digest(readFileSync(reportPath)),
-    adapted:[...plan.changed,...distributionMerged,platformManifest,sqlBaseline].map(({content,...metadata})=>metadata),
+    adapted:[...plan.changed,...distributionMerged,platformManifest,installEntrypoint,sqlBaseline].map(({content,...metadata})=>metadata),
     official_kept:officialKept,
     counts:{safe_overlay:report.counts.staged,
-      adaptations:plan.changed.length+distributionMerged.length+2,
+      adaptations:plan.changed.length+distributionMerged.length+3,
       official_kept:officialKept.length,
       unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)).length},
     unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)),
