@@ -20,6 +20,11 @@ source "$KIT_DIR/_common.sh"
 # shellcheck source=manutencao.sh
 source "$KIT_DIR/manutencao.sh"
 enter_project
+# ELUS360 distribui imagens prontas e nunca compila na VPS, mesmo quando
+# DESKCOMM_BUILD_LOCAL=1 foi herdado do ambiente ou informado pelo operador.
+# A flag e suportada pelo kit de origem, mas nao pode contornar os gates OCI,
+# o pull obrigatorio nem o rollback seguro desta distribuicao.
+unset DESKCOMM_BUILD_LOCAL
 # A origem é comprovada ANTES de cron, notificações, autenticação ou DDL.
 elus360_origem_confiavel "$(git config --get remote.origin.url 2>/dev/null || true)" \
   || refuse "ELUS_DISTRIBUTION_NO_GO: remote.origin não é OARANHA/elus360; nenhuma atualização será executada."
