@@ -511,8 +511,13 @@ echo "caso 30 — ⛔ o aviso desce no PROPRIO update.sh, antes do 'up -d' que t
 # `subir_o_parque` (que deixa o Caddy de fora quando a configuração dele foi
 # recusada), e a sonda aceita os dois nomes.
 q_desce="$(printf '%s' "$UP" | grep -n "^manutencao_desce$" | head -1 | cut -d: -f1)"
-q_up="$(printf '%s' "$UP" | grep -nE "^(if ! )?(dc up -d|subir_o_parque)(; then)?$" | head -1 | cut -d: -f1)"
-if [ -n "$q_desce" ] && [ -n "$q_up" ] && [ "$q_desce" -lt "$q_up" ]; then
+# A subida atual esta sob "elif ! subir_o_parque; then", e a funcao deve
+# continuar chamando o Compose sem construir imagens automaticamente.
+q_up="$(printf '%s' "$UP" | grep -nE "^(if ! |elif ! )?(dc up -d|subir_o_parque)(; then)?$" | head -1 | cut -d: -f1)"
+PARQUE="$(sed -n '/^subir_o_parque() {/,/^}/p' "$RAIZ/hostgator-setup-kit/_common.sh")"
+q_sem_build=""
+if printf '%s\n' "$PARQUE" | grep -qF 'dc up -d --no-build'; then q_sem_build=1; fi
+if [ -n "$q_desce" ] && [ -n "$q_up" ] && [ "$q_desce" -lt "$q_up" ] && [ -n "$q_sem_build" ]; then
   ok "desce antes do 'dc up -d' do proprio script"
 else
   nao "descida no update.sh" "manutencao_desce antes de 'dc up -d'" "desce=$q_desce up=$q_up"
@@ -622,8 +627,13 @@ echo "caso 30 — ⛔ o aviso desce no PROPRIO update.sh, antes do 'up -d' que t
 # `subir_o_parque` (que deixa o Caddy de fora quando a configuração dele foi
 # recusada), e a sonda aceita os dois nomes.
 q_desce="$(printf '%s' "$UP" | grep -n "^manutencao_desce$" | head -1 | cut -d: -f1)"
-q_up="$(printf '%s' "$UP" | grep -nE "^(if ! )?(dc up -d|subir_o_parque)(; then)?$" | head -1 | cut -d: -f1)"
-if [ -n "$q_desce" ] && [ -n "$q_up" ] && [ "$q_desce" -lt "$q_up" ]; then
+# A subida atual esta sob "elif ! subir_o_parque; then", e a funcao deve
+# continuar chamando o Compose sem construir imagens automaticamente.
+q_up="$(printf '%s' "$UP" | grep -nE "^(if ! |elif ! )?(dc up -d|subir_o_parque)(; then)?$" | head -1 | cut -d: -f1)"
+PARQUE="$(sed -n '/^subir_o_parque() {/,/^}/p' "$RAIZ/hostgator-setup-kit/_common.sh")"
+q_sem_build=""
+if printf '%s\n' "$PARQUE" | grep -qF 'dc up -d --no-build'; then q_sem_build=1; fi
+if [ -n "$q_desce" ] && [ -n "$q_up" ] && [ "$q_desce" -lt "$q_up" ] && [ -n "$q_sem_build" ]; then
   ok "desce antes do 'dc up -d' do proprio script"
 else
   nao "descida no update.sh" "manutencao_desce antes de 'dc up -d'" "desce=$q_desce up=$q_up"
