@@ -1,0 +1,103 @@
+# PR #37: materialização única do artifact homologado; não publica imagens/release.
+name: ELUS360 - materializar fonte validada 1.108.0
+on:
+  push:
+    branches: [feat/elus360-v1108-materialize-bootstrap-20261114]
+    paths: ['.github/workflows/elus360-materialize-v1108.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: elus360-v1108-materialize-once
+  cancel-in-progress: false
+jobs:
+  materialize:
+    if: github.repository == 'OARANHA/elus360'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Confirmar SHA imutável da main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          main="$(gh api repos/OARANHA/elus360/branches/main --jq '.commit.sha')"
+          test "$main" = '56a60670c446caaa1ecbd0c643531e4f7b14fb55' || { echo '::error::main avançou'; exit 3; }
+          test "$(git rev-parse HEAD^)" = "$main"
+          test -z "$(git status --porcelain)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: elus360-v1108-composed-staging-source
+          run-id: 43572124498
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/elus360-source-artifact
+      - name: Conferir manifesto, integridade, conteúdo e Git tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tarfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])/'elus360-source-artifact'
+          m = json.loads((root/'elus360-composed-staging-manifest.json').read_text())
+          expected = {
+            'schema_version': 1,
+            'stage': 'COMPOSED_STAGING_SOURCE_ONLY',
+            'fork_sha': '7f9e9df8023451e1aca97e2d344e7593d756c298',
+            'official_sha': '0b60c5abaace17922ae645399a6a6183a5f5c357',
+            'git_tree_sha': 'd657f92ef2a53c6ad3f2e92fe8d5639df73b0a2d',
+            'archive_sha256': 'd2ece11660a6f40264fd4e5e235a083d41bb8929137c9720359e628d8bf7a44f',
+          }
+          if any(m.get(k) != v for k,v in expected.items()):
+            raise SystemExit('ELUS_SOURCE_NO_GO: manifesto divergente')
+          p = root/'elus360-v1108-composed-staging-source.tar.gz'
+          h = hashlib.sha256()
+          with p.open('rb') as f:
+            for chunk in iter(lambda: f.read(8*1024*1024), b''):
+              h.update(chunk)
+          if h.hexdigest() != expected['archive_sha256']:
+            raise SystemExit('ELUS_SOURCE_NO_GO: SHA256 divergente')
+          sums = (root/'elus360-v1108-composed-staging-source.sha256').read_text().strip()
+          if sums != f"{expected['archive_sha256']}  {p.name}":
+            raise SystemExit('ELUS_SOURCE_NO_GO: lista de checksum divergente')
+          n = 0
+          with tarfile.open(p, 'r:gz') as tf:
+            for item in tf:
+              name = item.name
+              parts = pathlib.PurePosixPath(name).parts
+              if (name.startswith('/') or '\\' in name or
+                  any(s in ('..','.git','node_modules','.next') for s in parts) or
+                  (item.isfile() and any(s.startswith('.env') and not s.endswith('.example') for s in parts)) or
+                  not (item.isfile() or item.isdir())):
+                raise SystemExit('ELUS_SOURCE_NO_GO: path inseguro: '+name)
+              n += item.isfile()
+          if n != 11502:
+            raise SystemExit('ELUS_SOURCE_NO_GO: contagem incorreta '+str(n))
+          print('Artifact confirmado: 11502 arquivos e hash do arquivo pinado')
+          PY
+      - name: Criar commit com a árvore composta exatamente homologada
+        env:
+          TARGET: feat/elus360-v1108-runtime-materialized-20261114
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/elus360-source-extracted"
+          mkdir -p "$SRC"
+          tar -xzf "$RUNNER_TEMP/elus360-source-artifact/elus360-v1108-composed-staging-source.tar.gz" -C "$SRC"
+          git switch -c "$TARGET"
+          rsync -a --delete --exclude='/.git/' "$SRC/" "$GITHUB_WORKSPACE/"
+          git add --force --all
+          tree="$(git write-tree)"
+          test "$tree" = d657f92ef2a53c6ad3f2e92fe8d5639df73b0a2d || {
+            echo "::error::ELUS_SOURCE_NO_GO: árvore não é a candidata validada: $tree"; exit 3;
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(elus360): materializar a fonte v1.108.0 validada' -m 'PR37 head 7f9e9df; official 0b60c5a; git tree d657f92; archive d2ece116; artifact run 43572124498. Somente candidata para PR, não autoriza release.'
+          test "$(git rev-parse 'HEAD^{tree}')" = "$tree"
+          test -z "$(git ls-remote --heads origin "$TARGET")" || { echo '::error::branch alvo já existe'; exit 3; }
+          git push origin "HEAD:refs/heads/$TARGET"
+          echo "ELUS_SOURCE_PUSHED branch=$TARGET sha=$(git rev-parse HEAD) tree=$tree" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Abrir PR usando esta branch, CI do SHA novo e somente então liberar release.' >> "$GITHUB_STEP_SUMMARY"
