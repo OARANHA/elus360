@@ -302,9 +302,17 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   "elus360-ai-governance-inventory.yml::write-surface-inventory": { condicao: null, efeito: "Inventário de escritas protegidas." },
   "elus360-check.yml::validacao": { condicao: null, efeito: "Validação do código ELUS360." },
   "elus360-chutes-check.yml::validar": { condicao: null, efeito: "Integração Chutes." },
+  // Duas modalidades EXCLUDENTES: fonte já materializada (PR38) e composição
+  // ainda por executar. O caminho materializado nunca herda um verde do job
+  // pulado: testa ancestral SHA, árvore original, baseline e instalação.
+  // Mudança destas condições exige revisão de segurança deste mapa.
+  "elus360-clean-base-candidate.yml::materialized-runtime-source": {
+    condicao: "github.event_name == 'pull_request' && github.head_ref == 'feat/elus360-v1108-runtime-materialized-20261114'",
+    efeito: "Prova a fonte materializada, SQL e procedência da PR38. Sem ele, pular o montador poderia parecer GREEN sem testar código.",
+  },
   "elus360-clean-base-candidate.yml::prepare-clean-base": {
-    condicao: null,
-    efeito: "Prepara a candidata sobre release Deskcomm oficial pinada em runner descartável; sem executar, o overlay não tem inventário de conflitos nem prova de procedência.",
+    condicao: "github.event_name != 'pull_request' || github.head_ref != 'feat/elus360-v1108-runtime-materialized-20261114'",
+    efeito: "Compõe fonte oficial pinada em outras PRs. O único skip permitido é a PR38, onde o job materialized-runtime-source exige provas equivalentes, sem publicação.",
   },
   "elus360-clean-base-candidate.yml::staging-elus-e2e": {
     condicao: null,
@@ -449,6 +457,19 @@ describe("nenhum job pode ser desligado por uma condição — `skipped` conta c
       expect(job?.condicao, chave).toContain("github.repository == 'melgarafael/DeskcommCRM'");
     }
   });
+  it("PR38 seleciona exclusivamente o gate da fonte materializada; outras PRs preservam a composição", () => {
+    const m = jobs.find((j) => chave(j) === "elus360-clean-base-candidate.yml::materialized-runtime-source");
+    const p = jobs.find((j) => chave(j) === "elus360-clean-base-candidate.yml::prepare-clean-base");
+    expect(m?.condicao).toBe("github.event_name == 'pull_request' && github.head_ref == 'feat/elus360-v1108-runtime-materialized-20261114'");
+    expect(p?.condicao).toBe("github.event_name != 'pull_request' || github.head_ref != 'feat/elus360-v1108-runtime-materialized-20261114'");
+    const yaml = readFileSync(join(DIR, "elus360-clean-base-candidate.yml"), "utf8");
+    expect(yaml).toContain("git merge-base --is-ancestor \"$ORIGINAL\" HEAD");
+    expect(yaml).toContain("python3 scripts/elus360-v1108-sql-reconcile.py");
+    expect(yaml).toContain("node --test tests/operational/elus360-clean-base.test.mjs");
+    // A PR materializada não pode ser validada somente com o skip do montador.
+    expect(yaml).toMatch(/(?m)^  materialized-runtime-source:\n    name: Fonte materializada v1\.108\.0/);
+  });
+
   it("todo job declara seu gatilho neste mapa — nenhum entra nem sai sem passar por aqui", () => {
     expect(
       jobs.map(chave).sort(),

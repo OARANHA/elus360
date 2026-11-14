@@ -2060,7 +2060,12 @@ STUBOCI
   cat > "$raiz/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
-  *releases/latest*) printf '{"tag_name":"%s"}' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
+  *api.github.com/repos/OARANHA/elus360/releases/latest*)
+    printf '{\n  "tag_name": "%s"\n}\n' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
+  *api.github.com/repos/OARANHA/elus360/releases/tags/*)
+    printf '{\n  "tag_name": "%s",\n  "draft": false,\n  "prerelease": false,\n  "published_at": "2026-01-01T00:00:00Z"\n}\n' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...*)
+    printf '{\n  "status": "identical"\n}\n' ;;
   *ghcr.io/token*) printf '{"token":"dublê"}' ;;
   *ghcr.io/v2/*)   printf '%s' "${DUBLE_GHCR:-200}" ;;
   # O v_supabase_url exige o GoTrue: o JSON de /auth/v1/verify sem parâmetros.
@@ -2103,7 +2108,23 @@ case "${1:-}" in
 esac
 exit 0
 STUB
-  chmod +x "$raiz/bin/docker" "$raiz/bin/curl" "$raiz/bin/crontab"
+  # O protocolo de distribuição exige origin ELUS e release publicada.
+  # Os fixtures exercitam o update/install reais contra Git/HTTP completamente
+  # offline: nenhum acesso ao GitHub e nenhum override aceito na produção.
+  cat > "$raiz/bin/git" <<'STUB_GIT_ELUS'
+#!/usr/bin/env bash
+if [ "${1:-}" = ls-remote ] && [[ "$*" == *refs/tags/v* ]]; then
+  tag="${!#}"
+  tag="${tag#refs/tags/}"
+  sha="$(/usr/bin/git rev-parse --verify "refs/tags/$tag" 2>/dev/null)" || exit 1
+  printf '%s\trefs/tags/%s\n' "$sha" "$tag"
+  exit 0
+fi
+# A tag ja esta criada no repo descartavel pelo rodar(); o fetch nao sai da VPS falsa.
+if [ "${1:-}" = fetch ] && [[ " $* " == *' origin '* ]]; then exit 0; fi
+exec /usr/bin/git "$@"
+STUB_GIT_ELUS
+  chmod +x "$raiz/bin/docker" "$raiz/bin/curl" "$raiz/bin/crontab" "$raiz/bin/git"
   dublar_uname_amd64 "$raiz/bin"
 }
 
@@ -2120,18 +2141,29 @@ STUB
 # partir de um .env de mentira. O cenário declara o próprio ambiente.
 rodar() {
   local script="$1" flags="$2"
-  local -a release_env=()
-  [ "$script" = install.sh ] && release_env=(DESKCOMM_RELEASES_LATEST_URL=https://api.github.com/repos/exemplo/releases/latest)
+  local -a release_env=(DESKCOMM_RELEASES_LATEST_URL=)
+  # O repositório da fixture é local, mas o origin guard continua REAL.
+  # Nenhum teste precisa fazer fetch na Internet nem trocar a origem do produto.
+  local tag="${DUBLE_RELEASE_TAG:-}"
+  [ -n "$tag" ] || { [ "$script" = install.sh ] && tag=v1.66.1 || tag=v9.9.9; }
+  [ -d "$VPS_PROJ/.git" ] || {
+    /usr/bin/git -C "$VPS_PROJ" init -q -b main &&
+    /usr/bin/git -C "$VPS_PROJ" add -- docker-compose.prod.yml &&
+    /usr/bin/git -C "$VPS_PROJ" -c user.email=fixture@invalid -c user.name=fixture commit -qm fixture
+  }
+  /usr/bin/git -C "$VPS_PROJ" config remote.origin.url https://github.com/OARANHA/elus360.git
+  /usr/bin/git -C "$VPS_PROJ" rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1 ||
+    /usr/bin/git -C "$VPS_PROJ" tag "$tag"
   printf '%s\n%s\n' "$BASE_ENV" "${3-}" > "$VPS_PROJ/.env"
   : > "$VPS_LOG"
   if [ $# -ge 4 ]; then
     printf '%s' "$4" > "$VPS_RAIZ/respostas.txt"
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
+      SUPABASE_ACCESS_TOKEN= DUBLE_RELEASE_TAG="$tag" "${release_env[@]}" \
       bash "$VPS_RAIZ/$script" $flags <"$VPS_RAIZ/respostas.txt" 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   else
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= "${release_env[@]}" \
+      SUPABASE_ACCESS_TOKEN= DUBLE_RELEASE_TAG="$tag" "${release_env[@]}" \
       bash "$VPS_RAIZ/$script" $flags 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   fi
 }
@@ -2453,12 +2485,11 @@ case "$1" in
 esac
 exit 0
 STUB
-  export REPO_URL="$origem"
   export DUBLE_RELEASE_TAG=v1.10.0
   rodar install.sh --yes >/dev/null
-  unset REPO_URL DUBLE_RELEASE_TAG
+  unset DUBLE_RELEASE_TAG
 
-  for par in "APP_IMAGE:deskcommcrm" "WORKER_IMAGE:deskcomm-worker" "SCHEDULER_IMAGE:deskcomm-scheduler"; do
+  for par in "APP_IMAGE:elus360" "WORKER_IMAGE:elus360-worker" "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
     chave="${par%%:*}"; repo="${par##*:}"
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:1.10.0" ]; then
       printf '  ✗ %s não foi pinado na versão resolvida (1.10.0): %s\n' "$chave" \
@@ -2470,7 +2501,7 @@ STUB
   if [ "$(valor_no_env "$VPS_PROJ/.env" APP_PULL_POLICY)" = "always" ]; then
     printf '  ✗ tag imutável com pull_policy=always: o CRM só sobe se o GHCR estiver de pé\n'; exit 1
   fi
-  printf '  ✓ com v1.0.0/v1.9.0/v1.10.0 no remoto, o .env nasce pinado em 1.10.0 (as três imagens)\n'
+  printf '  ✓ release fictícia ELUS360 v1.10.0 tem quatro imagens pinadas, sem tag móvel\n'
 ) || fail=1
 rm -rf "$TMP_PIN"
 
@@ -2485,12 +2516,8 @@ echo "packaging: a tag do git não basta — as imagens têm de existir"
 # GHCR nasce privado, e repositório público não muda isso.
 TMP_PRIV="$(mktemp -d)"
 (
-  # O remoto daqui é um FIXTURE local, como no teste de pinagem acima, e não o
-  # default do repositório. Enquanto o default apontava para o upstream (com
-  # tags), este caso dependia de rede e passava por acidente; num fork sem tag
-  # publicada a sonda de versão volta vazia, o install cai em `latest` e o aviso
-  # de build local nunca sai — o teste reprovava o fork por acidente de ambiente,
-  # não por defeito. Com o fixture a asserção é determinística.
+  # Release e tag fictícias existem apenas na VPS descartável: a origem canônica
+  # do ELUS continua obrigatória e a API/Git são mockados por esta suite.
   origem="$TMP_PRIV/origem.git"
   git init --quiet --bare "$origem"
   (
@@ -2510,23 +2537,23 @@ case "$1" in
 esac
 exit 0
 STUB
-  export REPO_URL="$origem"
+  export DUBLE_RELEASE_TAG=v1.0.0
   export DUBLE_GHCR=403          # pacote existe mas está PRIVADO
   saida="$(rodar install.sh --yes)"
-  unset DUBLE_GHCR REPO_URL
+  unset DUBLE_GHCR DUBLE_RELEASE_TAG
 
-  if ! grep -q "construídas neste servidor" <<<"$saida"; then
-    printf '  ✗ com as imagens inalcançáveis, o instalador não avisou que ia construir aqui\n'
-    printf '     silêncio aqui é o defeito: o dono não descobre que duas peças saíram do fonte local.\n'
+  if ! grep -q "ELUS_DISTRIBUTION_NO_GO.*pacote ELUS360 inexistente" <<<"$saida"; then
+    printf '  ✗ com as imagens inalcançáveis, o instalador não bloqueou antes de mutações\n'
+    printf '     a falha deve ocorrer antes de qualquer clone, Docker ou alteração de pin.\n'
     exit 1
   fi
-  printf '  ✓ imagens inalcançáveis (403): avisa que vai construir no servidor, em vez de calar\n'
+  printf '  ✓ imagens inalcançáveis (403): recusa a instalação, sem fallback\n'
 
-  # E ainda assim a instalação COMPLETA — construir é lento, não é impedimento.
-  if ! grep -qE "^APP_IMAGE=" "$VPS_PROJ/.env"; then
-    printf '  ✗ a instalação não chegou a escrever o .env\n'; exit 1
+  # Falha fechada: sem quatro imagens publicadas, nem mutação nem build local.
+  if grep -qE '^APP_IMAGE=' "$VPS_PROJ/.env" || [ -s "$VPS_LOG" ]; then
+    printf '  ✗ release privada avançou até gravação de imagem ou Docker\n'; exit 1
   fi
-  printf '  ✓ e mesmo assim conclui a instalação (constrói é lento, não é impedimento)\n'
+  printf '  ✓ recusou antes de imagens, Docker e qualquer build local\n'
 ) || fail=1
 rm -rf "$TMP_PRIV"
 
