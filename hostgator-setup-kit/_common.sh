@@ -23,13 +23,16 @@ COMPOSE_BUILD="docker-compose.build.yml"
 # Dispositivos ARM continuam podendo acessar o CRM pelo navegador.
 arquitetura_suportada_pelo_kit() {
   case "${1:-}" in
-    x86_64|amd64) return 0 ;;
+    x86_64|amd64|aarch64|arm64) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 imagem_waha_padrao_para_host() {
-  printf '%s' 'devlikeapro/waha:latest-2026.7.2'
+  case "$(uname -m 2>/dev/null || true)" in
+    aarch64|arm64) printf '%s' 'devlikeapro/waha:noweb-arm-2026.7.2' ;;
+    *)             printf '%s' 'devlikeapro/waha:latest-2026.7.2' ;;
+  esac
 }
 
 # ── JÁ EXISTE UMA INSTALAÇÃO REAL AQUI? (#1266, corrigido pelo #1778) ───────
@@ -142,9 +145,10 @@ marcar_instalacao_feita() {  # marcar_instalacao_feita [versão]
 
 # Não há escape por "instalação existente" nem build local. A decisão é
 # independente de Docker, repositório remoto, arquivos ou marcadores locais.
-veredito_da_arquitetura() { # <uname -m> [instalação-existente]
+veredito_da_arquitetura() {
   case "${1:-}" in
     x86_64|amd64) printf 'amd64'; return 0 ;;
+    aarch64|arm64) printf 'arm64'; return 0 ;;
     *) printf 'nao_suportada'; return 1 ;;
   esac
 }
@@ -154,7 +158,7 @@ verificar_arquitetura_do_kit() {
   arch="$(uname -m 2>/dev/null || printf desconhecida)"
   sistema="$(uname -s 2>/dev/null || printf desconhecido)"
   [ "$sistema" = Linux ] && arquitetura_suportada_pelo_kit "$arch" && return 0
-  printf 'ELUS_DISTRIBUTION_NO_GO: host %s/%s não suportado. ELUS360 exige Linux AMD64 (x86_64); outros sistemas e arquiteturas são recusados, inclusive em instalações existentes, sem build local.\n' "$sistema" "$arch" >&2
+  printf 'ELUS_DISTRIBUTION_NO_GO: host %s/%s não suportado; exige Linux amd64 ou arm64.\n' "$sistema" "$arch" >&2
   return 3
 }
 
@@ -1015,9 +1019,33 @@ restaurar_servicos() {
 # arquitetura da VPS, tag que ainda está publicando, pacote que nasceu privado
 # no registro e registro fora do ar caem todos no mesmo caminho, sem depender de
 # casar em inglês uma frase que o Docker escreve como quer.
-construir_aqui_e_subir() {  # distribuição ELUS360 não constrói imagens no host
-  c_red "ELUS_DISTRIBUTION_NO_GO: imagens só podem vir do CI e do registry ELUS360."
-  return 1
+construir_aqui_e_subir() {  # construir_aqui_e_subir [versão alvo] → 0 se subiu
+  if ! build_local_pedido; then
+    c_red "ELUS_DISTRIBUTION_NO_GO: build local exige DESKCOMM_BUILD_LOCAL=1 explícito."
+    return 3
+  fi
+  local versao="${1:-}"
+  # A imagem construída aqui responde /api/v1/health com a versão de verdade —
+  # o código no disco É a versão alvo. Sem isto ela responderia "local".
+  [ -n "$versao" ] && export APP_VERSION="$versao"
+  # O aviso vem ANTES da construção, e não depois: são 15 a 25 minutos de tela
+  # parada, e sem ele o dono conclui que travou e mata o script no meio.
+  c_ylw "$(t "⚠ As imagens prontas desta versão não servem para esta VPS.")"
+  c_ylw "$(t "  O motivo mais comum é a arquitetura dela ser diferente da das imagens")"
+  c_ylw "$(t "  publicadas: o registro responde que não tem manifest para a arquitetura")"
+  c_ylw "$(t "  daqui. Não é problema da sua VPS nem do seu acesso.")"
+  c_ylw "$(t "  Vou construir as três imagens aqui, do código desta versão.")"
+  c_ylw "$(t "  Leva de 15 a 25 minutos e a tela fica sem novidade nesse tempo —")"
+  c_ylw "$(t "  não é travamento, pode deixar rodando.")"
+  if ! dc -f "$COMPOSE_BUILD" build; then
+    c_red "$(t "✖ A construção das imagens aqui falhou (o erro está logo acima).")"
+    return 1
+  fi
+  if ! dc -f "$COMPOSE_BUILD" up -d; then
+    c_red "$(t "✖ As imagens foram construídas, mas os serviços não subiram.")"
+    return 1
+  fi
+  return 0
 }
 
 # ── O que fazer quando o REGISTRO DE IMAGENS não responde (#1955) ───────────
@@ -1070,11 +1098,17 @@ com_prazo() {  # com_prazo <segundos> <comando...>
 veredito_das_imagens_da_release() {  # veredito_das_imagens_da_release <versão>
   local versao="${1:-}" img total=0 achadas=0
   versao="${versao#v}"
+  local plataforma
+  case "$(uname -m 2>/dev/null || true)" in
+    x86_64|amd64) plataforma=linux/amd64 ;;
+    aarch64|arm64) plataforma=linux/arm64 ;;
+    *) printf 'indisponivel'; return 0 ;;
+  esac
   [ -n "$versao" ] || { printf 'indisponivel'; return 0; }
   for img in "$IMG_APP" "$IMG_WORKER" "$IMG_SCHEDULER" "$IMG_VOICE_AGENT"; do
     total=$((total + 1))
     if com_prazo 20 docker buildx imagetools inspect "${img}:${versao}" >/dev/null 2>&1 \
-       && manifesto_tem_plataforma "${img}:${versao}" linux/amd64 exclusivo >/dev/null 2>&1; then
+       && manifesto_tem_plataforma "${img}:${versao}" "$plataforma" >/dev/null 2>&1; then
       achadas=$((achadas + 1))
     fi
   done
@@ -1260,12 +1294,15 @@ preflight_atualizacao() {  # preflight_atualizacao <versão alvo>
 # `next-build` e a instalação em 502 (#1955, critério 2).
 #
 # → 0 = pode construir aqui.
-build_local_pedido() {  # ELUS360: não permitir bypass por variável do operador
-  return 1
+build_local_pedido() {
+  case "${DESKCOMM_BUILD_LOCAL:-}" in
+    1) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
-build_local_permitido() {  # ELUS360: CI publica; VPS só consome
-  return 1
+build_local_permitido() {
+  build_local_pedido
 }
 
 # Por que o portão recusou? Ecoa UM motivo, pronto para a mensagem da recusa.
@@ -1901,10 +1938,69 @@ resposta_sim() {
 # passava como saudável, desde que qualquer outro check estivesse de pé. Quem
 # decide é o app, no Node que já está sendo invocado; o shell não repete a
 # regra dele.
+# app_health_probe [prazo_s] — `0`/ausente = sem prazo, como sempre foi.
+#
+# O prazo existe porque `docker exec` trava pelo mesmo motivo do `docker ps`
+# (#1955: resolver do Docker saturado) e era o segundo ponto em que o
+# healthcheck ficava sem resposta. `timeout` só executa BINÁRIOS e `dc()` é
+# função de shell, então o caminho COM prazo sai como
+# `docker compose $(dc_files) exec` — o idioma que o resto deste arquivo já usa
+# (:1407, :1744) e que carrega o mesmo conjunto de overlays, coberto pelo
+# test-validators.sh. Quem não pede prazo continua passando por `dc()`.
 app_health_probe() {
-  dc exec -T app node -e \
-    "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>r.json()).then(j=>{console.log((j&&j.data&&j.data.status)||'sem_status');console.log(JSON.stringify(j))}).catch(()=>process.exit(1))" \
-    2>/dev/null || echo ''
+  local prazo="${1:-0}" sonda
+  sonda="fetch('http://127.0.0.1:3000/api/v1/health').then(r=>r.json()).then(j=>{console.log((j&&j.data&&j.data.status)||'sem_status');console.log(JSON.stringify(j))}).catch(()=>process.exit(1))"
+  if [ "$prazo" = "0" ]; then
+    dc exec -T app node -e "$sonda" 2>/dev/null || echo ''
+  else
+    com_prazo "$prazo" docker compose $(dc_files) exec -T app node -e "$sonda" 2>/dev/null || echo ''
+  fi
+}
+
+# relatar_saude_do_app <saída de app_health_probe> — imprime o veredito e devolve
+# 0 SÓ quando o status GERAL é `healthy`. Qualquer outra coisa reprova.
+#
+# É o irmão rigoroso do wait_app_healthy, e a diferença é de propósito: lá
+# `degraded` passa porque, durante a instalação, ele costuma dizer "serviço
+# OPCIONAL ainda não configurado" e recusar reprovaria um CRM de pé. Aqui quem
+# lê é o dono — e um cron: "saudável" é uma AFIRMAÇÃO, e `degraded` quer dizer
+# que alguma coisa do produto não está funcionando (WhatsApp fora, por
+# exemplo). Dizer "✓ app saudável" nesses estados era o defeito do #4087: o
+# healthcheck procurava o `ok` dos CHECKS no JSON cru e aprovava um app com o
+# BANCO FORA, porque `checks.redis.status` também é `ok`.
+#
+# Falha FECHADA: corpo vazio, JSON inválido (HTML de proxy, por exemplo) ou
+# status fora do vocabulário (`sem_status`) reprovam. Um healthcheck que aprova
+# o que não entendeu é pior do que um que grita.
+relatar_saude_do_app() {
+  local saida="${1:-}" status corpo
+  # Sem pipe para `head`/`tail`: com `set -o pipefail`, o SIGPIPE do printf num
+  # corpo grande derrubaria o script (mesma família do pipe que matou o
+  # supabase-provision.sh). Expansão de parâmetro não abre processo nenhum.
+  case "$saida" in
+    *$'\n'*) status="${saida%%$'\n'*}"; corpo="${saida#*$'\n'}" ;;
+    *)       status="$saida";            corpo='' ;;
+  esac
+  status="${status%$'\r'}"
+  case "$status" in
+    healthy)
+      c_grn "✓ app saudável (status geral: healthy)"
+      return 0 ;;
+    degraded)
+      c_ylw "⚠ app DEGRADADO (status geral: degraded) — algum subsistema não está funcionando;"
+      c_ylw "  o JSON acima diz qual. Isto NÃO é 'saudável'."
+      return 1 ;;
+    unhealthy)
+      c_red "⛔ app NÃO está saudável (status geral: unhealthy) — algum subsistema está fora;"
+      c_red "  o JSON acima diz qual. Logs: docker compose logs --tail=50 app worker"
+      return 1 ;;
+    *)
+      c_red "⛔ não deu para saber a saúde do app (status geral: ${status:-vazio})."
+      if [ -n "$corpo" ]; then
+        c_dim "  resposta: ${corpo:0:200}"
+      fi
+      return 1 ;;
+  esac
 }
 
 # wait_app_healthy [tentativas] [intervalo_s] — 0 quando o app se declara
@@ -2571,8 +2667,10 @@ preflight_plataforma_atualizacao() { # <vX.Y.Z> <linux/platform>; usa WAHA_IMAGE
     return 1
   fi
   versao="${tag#v}"
-  [ "$plataforma" = linux/amd64 ] || { printf 'ELUS_DISTRIBUTION_NO_GO: arquitetura OCI não suportada (%s).\n' "$plataforma" >&2; return 1; }
   waha="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
+  if [ "$plataforma" = linux/arm64 ] && waha_amd64_conhecido_em_arm arm64 "$waha"; then
+    waha='devlikeapro/waha:noweb-arm-2026.7.2'
+  fi
   preflight_imagens_crm "$versao" "$plataforma" || return 1
   if ! manifesto_tem_plataforma "$waha" "$plataforma"; then
     printf 'WAHA_IMAGE %s não oferece %s; não alterei a escolha do operador.\n' "$waha" "$plataforma" >&2
