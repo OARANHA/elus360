@@ -467,7 +467,7 @@ describe("nenhum job pode ser desligado por uma condição — `skipped` conta c
     expect(yaml).toContain("python3 scripts/elus360-v1108-sql-reconcile.py");
     expect(yaml).toContain("node --test tests/operational/elus360-clean-base.test.mjs");
     // A PR materializada não pode ser validada somente com o skip do montador.
-    expect(yaml).toMatch(/(?m)^  materialized-runtime-source:\n    name: Fonte materializada v1\.108\.0/);
+    expect(yaml).toMatch(/^  materialized-runtime-source:\n    name: Fonte materializada v1\.108\.0/m);
   });
 
   it("todo job declara seu gatilho neste mapa — nenhum entra nem sai sem passar por aqui", () => {
