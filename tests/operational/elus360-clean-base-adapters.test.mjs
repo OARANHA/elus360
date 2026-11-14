@@ -223,21 +223,22 @@ test('T04: README do ELUS aponta para o fork sem substituir o manual oficial com
   }
 });
 
-test('T06-C: entrypoints compostos com opt-in e recusa de alteração incompatível',()=>{
+test('T06-C: entrypoints já compostos preservam opt-in e recusam reaplicar adaptador',()=>{
   const install=readFileSync(new URL('../../hostgator-setup-kit/install.sh',import.meta.url),'utf8');
   const update=readFileSync(new URL('../../hostgator-setup-kit/update.sh',import.meta.url),'utf8');
-  const i=composeOptionalInstallEntrypoint(install),u=composeOptionalUpdateEntrypoint(update);
-  for(const sh of [i,u]) {
+  for(const sh of [install,update]) {
     assert.equal(spawnSync('bash',['-n'],{input:sh,encoding:'utf8'}).status,0);
     assert.match(sh,/construir_aqui_e_subir "\$VERSAO_ALVO"/);
     assert.match(sh,/manifesto_tem_plataforma "\$WAHA_EFETIVA" "\$PLATAFORMA_HOST"/);
+    assert.match(sh,/ELUS_DISTRIBUTION_NO_GO/);
   }
-  assert.match(i,/if ! build_local_pedido && ! trio_publicado/);
-  assert.match(u,/if ! build_local_pedido && ! dc pull/);
-  assert.throws(()=>composeOptionalInstallEntrypoint(i),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
-  assert.throws(()=>composeOptionalUpdateEntrypoint(u),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
-  assert.throws(()=>composeOptionalInstallEntrypoint(install.replace('trio_publicado "$ELUS_RELEASE_NUMERICA"','outra_sonda')),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
-  assert.throws(()=>composeOptionalUpdateEntrypoint(update.replace('if ! subir_o_parque; then','if ! outro_sender; then')),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
+  assert.match(install,/if ! build_local_pedido && ! trio_publicado/);
+  assert.match(update,/if ! build_local_pedido && ! dc pull/);
+  // Evitar dupla adaptação, que criaria portões divergentes sem sinalizar erro.
+  assert.throws(()=>composeOptionalInstallEntrypoint(install),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
+  assert.throws(()=>composeOptionalUpdateEntrypoint(update),/ELUS_ENTRYPOINT_CONTRACT_CHANGED/);
+  assert.doesNotMatch(install,/ghcr.io\/melgarafael/);
+  assert.doesNotMatch(update,/ghcr.io\/melgarafael/);
 });
 test('T07: release compatível reutiliza os adaptadores; contrato mudado falha fechado',()=>{
   const f=sourceFixture(),nextSha='a'.repeat(40),report={...f.report,upstream_target_sha:nextSha};

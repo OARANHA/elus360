@@ -134,24 +134,32 @@ class DisposableEntrypoints(unittest.TestCase):
             self.assertFalse(call.startswith(("docker:", "crontab:", "git:fetch", "git:clone")),
                              f"side effect before attestation: {call}")
 
-    def test_installer_arm64_denied_before_any_provider_or_mutation(self):
+    def test_installer_arm64_is_conditional_and_fails_closed_before_mutation(self):
         for arch in ("aarch64", "arm64"):
             with self.subTest(arch=arch):
                 self.calls.write_text("")
                 result = self.run_script(INSTALL, "--yes", ELUS_FAKE_ARCH=arch)
-                self.assert_no_mutation_before_proof(result)
-                self.assertNotIn("curl:", self.calls.read_text())
-                self.assertNotIn("docker:", self.calls.read_text())
+                output = result.stdout + result.stderr
+                self.assertNotIn("host Linux/" + arch + " não suportado", output)
+                self.assertEqual(self.env_path.read_text(), self.env_initial)
+                self.assertFalse(any(x.startswith(("docker:compose up", "docker:compose build", "docker:compose pull")) for x in self.calls.read_text().splitlines()))
+                self.assertNotIn("crontab:", self.calls.read_text())
+                self.assertIn("curl:", self.calls.read_text(), "preflight da release não foi consultado")
 
-    def test_updater_arm64_denied_before_any_provider_or_mutation(self):
+    def test_updater_arm64_does_not_block_by_arch_or_mutate_without_proof(self):
         for arch in ("aarch64", "arm64"):
             with self.subTest(arch=arch):
                 self.calls.write_text("")
-                result = self.run_script(UPDATE, "--to", "v1.102.0",
-                                         ELUS_FAKE_ARCH=arch)
-                self.assert_no_mutation_before_proof(result)
-                self.assertNotIn("curl:", self.calls.read_text())
-                self.assertNotIn("docker:", self.calls.read_text())
+                result = self.run_script(UPDATE, "--to", "v1.102.0", ELUS_FAKE_ARCH=arch)
+                output = result.stdout + result.stderr
+                self.assertNotIn("host Linux/" + arch + " não suportado", output)
+                self.assertEqual(self.env_path.read_text(), self.env_initial)
+                self.assertFalse((self.project / ".deskcomm-banco.log").exists())
+                calls = self.calls.read_text()
+                self.assertFalse(any(x.startswith(("docker:compose up", "docker:compose build", "docker:compose pull")) for x in calls.splitlines()))
+                self.assertNotIn("crontab:", calls)
+                # Docker ps é leitura, necessária para identificar instalação existente.
+                self.assertTrue(any(x.startswith(("curl:", "git:")) for x in calls.splitlines()))
 
     def test_installer_darwin_x86_denied_before_any_provider_or_mutation(self):
         result = self.run_script(INSTALL, "--yes", ELUS_FAKE_OS="Darwin",
@@ -180,7 +188,7 @@ class DisposableEntrypoints(unittest.TestCase):
         # images cannot be inspected. The preflight is read-only; do not mutate.
         result = self.run_script(UPDATE, "--to", "v1.102.0", ELUS_FETCH_OK="1")
         self.assertEqual(result.returncode, 3, result.stderr + result.stdout)
-        self.assertIn("quatro imagens", result.stdout + result.stderr)
+        self.assertIn("ELUS_DISTRIBUTION_NO_GO: imagens ELUS360 não verificáveis", result.stdout + result.stderr)
         self.assertEqual(self.env_path.read_text(), self.env_initial)
         self.assertFalse((self.project / ".deskcomm-update-diagnostico.log").exists())
         calls = self.calls.read_text().splitlines()

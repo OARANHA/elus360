@@ -83,11 +83,21 @@ class AMD64RuntimeOCI(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.calls.read_text().splitlines()), 8)
 
-    def test_own_multiarch_manifest_is_rejected(self):
+    def test_own_multiarch_manifest_is_compatible(self):
         result = self.preflight(ELUS_OWN_PLATFORMS="linux/amd64\nlinux/arm64")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("ELUS_DISTRIBUTION_NO_GO", result.stderr)
-        self.assertEqual(len(self.calls.read_text().splitlines()), 2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls.read_text().splitlines()), 8)
+
+    def test_own_multiarch_arm64_target_is_compatible(self):
+        result = self.bash(
+            'source "$ELUS_MANIFESTOS"\n'
+            'source "$ELUS_COMMON"\n'
+            'ghcr_status() { printf 200; }\n'
+            'preflight_imagens_crm 1.102.0 linux/arm64\n',
+            ELUS_OWN_PLATFORMS="linux/amd64\nlinux/arm64",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls.read_text().splitlines()), 8)
 
     def test_own_arm_only_manifest_is_rejected(self):
         result = self.preflight(ELUS_OWN_PLATFORMS="linux/arm64")

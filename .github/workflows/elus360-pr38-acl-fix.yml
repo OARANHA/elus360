@@ -1,0 +1,58 @@
+# Correção fail-closed exclusiva da PR #38. Não faz deploy, release nem DDL.
+# Uma execução no push que adiciona este próprio workflow; depois será removido.
+name: ELUS360 - ordenar ACL da PR38 uma vez
+on:
+  push:
+    branches: [feat/elus360-v1108-runtime-materialized-20261114]
+    paths: [".github/workflows/elus360-pr38-acl-fix.yml"]
+permissions:
+  contents: write
+concurrency:
+  group: elus360-pr38-acl-once
+  cancel-in-progress: false
+jobs:
+  repair:
+    if: github.repository == 'OARANHA/elus360'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Verificar fonte e executar sweep anon após migrations ELUS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object supabase/baseline.sql)" = "20a0199ac9501bfbb7ba25d3c17339bf58d2a3ee" \
+            || { echo "::error::ELUS_SQL_NO_GO: baseline de origem divergente"; exit 3; }
+          test -z "$(git status --porcelain)" || { echo "::error::worktree sujo"; exit 3; }
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/baseline.sql')
+          raw=p.read_bytes()
+          begin=b'-- ---- VARREDURA anon:'
+          finish='-- ---- Criador provisório sai'.encode()
+          if raw.count(begin)!=1: raise SystemExit('ELUS_SQL_NO_GO: sweep não único')
+          i=raw.index(begin)
+          j=raw.index(finish,i)
+          if i<0 or j<=i: raise SystemExit('ELUS_SQL_NO_GO: âncora alterada')
+          marker=b'-- ELUS360_FORWARD_END supabase/migrations/20261106170000_9903_elus_agent_version_columns.sql'
+          if marker not in raw[j:]: raise SystemExit('ELUS_SQL_NO_GO: migrations ELUS ausentes')
+          sweep=raw[i:j]
+          if b'anon' not in sweep or b'revoke' not in sweep.lower():
+            raise SystemExit('ELUS_SQL_NO_GO: sweep sem revogação')
+          updated=raw[:i]+raw[j:]+sweep
+          if not updated.endswith(sweep): raise SystemExit('ELUS_SQL_NO_GO: ACL não final')
+          p.write_bytes(updated)
+          PY
+          test "$(git hash-object supabase/baseline.sql)" = "ca9bdb5a39a12a118f99642c91b5c597b56aa7ed" \
+            || { echo "::error::ELUS_SQL_NO_GO: hash da SQL corrigida divergente"; exit 3; }
+          git add -- supabase/baseline.sql
+          test "$(git diff --cached --name-only)" = "supabase/baseline.sql" \
+            || { echo "::error::arquivos inesperados no commit"; exit 3; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "fix(elus360): executar ACL anon após migrations v1.108.0"
+          git push origin "HEAD:refs/heads/feat/elus360-v1108-runtime-materialized-20261114"
+          printf 'ACL_FINAL_VERIFIED: %s\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

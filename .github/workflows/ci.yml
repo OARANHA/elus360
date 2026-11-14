@@ -407,7 +407,7 @@ jobs:
       - name: Mapa da skill de operação cobre as telas do menu? (aviso)
         if: matrix.parte == 1 && github.event_name == 'pull_request'
         continue-on-error: true
-        run: bash .agents/skills/deskcomm-operacao/scripts/conferir-mapa.sh --ci
+        run: bash .agents/skills/elus360-operacao/scripts/conferir-mapa.sh --ci
 
       # O ACERVO DE `.changes/` CABE NA TELA DA VPS? — e por que fora de PR.
       #

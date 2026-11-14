@@ -1,6 +1,6 @@
 ---
 name: deskcomm-curso
-description: 'Atualizar o curso visual.'
+description: Guia DeskcommCRM para atualize cursos e vídeos de treinamento após mudanças de interface ou de fluxos, com referências verificáveis.
 metadata:
   fonte-de-verdade: curso/publicacao.json
   procedimento: docs/runbooks/atualizar-curso.md

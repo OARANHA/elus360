@@ -59,7 +59,7 @@ manifesto_tem_plataforma() { # <ref> <linux/platform> [exclusivo]
     return 1
   fi
   [ "$(grep -Fxc "$plataforma" <<<"$plataformas")" = 1 ] && return 0
-  printf 'Imagem %s não oferece %s\n' "$ref" "$plataforma" >&2
+  printf 'ELUS_DISTRIBUTION_NO_GO: imagem %s não oferece %s\n' "$ref" "$plataforma" >&2
   return 1
 }
 

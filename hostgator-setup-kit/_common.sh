@@ -13,13 +13,14 @@ COMPOSE="docker-compose.prod.yml"
 COMPOSE_TRAEFIK="docker-compose.traefik.yml"
 COMPOSE_NPM="docker-compose.npm.yml"
 COMPOSE_CLOUDFLARED="docker-compose.cloudflared.yml"
-# Overlay legado de build local mantido como referência histórica.
-# ELUS360 nunca o executa nem constrói imagens em VPS, qualquer arquitetura.
+# Overlay opcional de recuperação por build local. Nunca automático:
+# somente com DESKCOMM_BUILD_LOCAL=1 explícito, após validar release e proveniência.
+# Produção/Portainer continua priorizando imagens publicadas; sem build pesado na VPS.
 COMPOSE_BUILD="docker-compose.build.yml"
 
 # ── Arquitetura do fork ELUS360 (ADR-0007) ──────────────────────────────────
-# Decisão aprovada do proprietário: somente Linux AMD64 (x86_64).
-# ARM64 não tem suporte nem exceção para instalações antigas.
+# Decisão superveniente (12/11/2026): Linux AMD64 ou ARM64 condicional à
+# disponibilidade comprovada das quatro imagens e WAHA para a plataforma.
 # Dispositivos ARM continuam podendo acessar o CRM pelo navegador.
 arquitetura_suportada_pelo_kit() {
   case "${1:-}" in
@@ -143,8 +144,8 @@ marcar_instalacao_feita() {  # marcar_instalacao_feita [versão]
   chmod 600 "$marca" 2>/dev/null || true
 }
 
-# Não há escape por "instalação existente" nem build local. A decisão é
-# independente de Docker, repositório remoto, arquivos ou marcadores locais.
+# O host deve ser Linux AMD64/ARM64; outras arquiteturas sempre recusadas.
+# Build local opt-in não contorna a verificação da origem e da release.
 veredito_da_arquitetura() {
   case "${1:-}" in
     x86_64|amd64) printf 'amd64'; return 0 ;;

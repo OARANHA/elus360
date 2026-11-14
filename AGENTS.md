@@ -595,3 +595,22 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## ELUS360 — skills de operação e engenharia
+
+O fork incorpora os dez guias de ".agents/skills/elus360-*", com espelho em
+".claude/skills/elus360-*". Use o guia específico antes de criar um fluxo
+paralelo; ele complementa, mas não substitui, esta doutrina e os testes.
+
+- `elus360-cliente-novo`: onboarding de organizações e clientes.
+- `elus360-contribuir`: mudanças, PR, CI e revisões.
+- `elus360-curso`: academia e treinamento.
+- `elus360-doutrina`: decisões e políticas técnicas.
+- `elus360-extensao`: integrações e extensibilidade.
+- `elus360-instalar`: instalação, release e rollback.
+- `elus360-metricas`: relatórios e métricas.
+- `elus360-operacao`: uso e mapa da interface.
+- `elus360-prompt`: agentes e prompts de IA.
+- `elus360-saas`: gestão da plataforma e tenants.
+
+A release v1.108.0 não autoriza instalação, deploy nem alteração de banco.
