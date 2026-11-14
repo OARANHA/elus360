@@ -578,3 +578,18 @@ jobs:
             tests/e2e/molde-de-ia-empresas-novas.spec.ts
           echo 'ELUS_STAGING_FUNCTIONAL_E2E_PASSED'
 
+      - name: Playwright T06-B — isolamento A-B-A e escopo da organização ativa
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          SENTRY_DSN: "off"
+          CI: "true"
+        run: |
+          set -euo pipefail
+          cd "$ELUS_STAGING_SOURCE"
+          # Specs ja existentes no produto oficial: sem credenciais externas,
+          # com usuarios e organizacoes descartaveis.
+          pnpm exec playwright test --workers=1 --reporter=list \
+            tests/e2e/agenda-escopo-da-organizacao.spec.ts \
+            tests/e2e/organizacoes-criacao-convite-e-cache.spec.ts
+          echo 'ELUS_STAGING_T06B_CROSS_TENANT_E2E_PASSED'
+
