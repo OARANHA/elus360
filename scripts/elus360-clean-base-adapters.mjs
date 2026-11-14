@@ -318,6 +318,61 @@ export function composeOptionalBuildPolicy(merged, official, expectedNamespace) 
   return result;
 }
 
+
+/**
+ * T06-C: o fork antigo preserva origem, os quatro nomes de imagem ELUS
+ * e checagem OCI, mas recusa ARM64 em _manifestos.sh. Esta transformação
+ * cirurgica age somente na cópia composta e é pinada pelo blob do fork.
+ * Não declara suporte ARM64 quando um dos quatro manifestos não oferece
+ * a plataforma solicitada: falha antes de instalar, tocar em banco ou Docker.
+ */
+export function composeOptionalPlatformManifest(original) {
+  let output=original;
+  const changes=[
+    ['# <uname -m> [uname -s] -> somente linux/amd64',
+     '# <uname -m> [uname -s] -> linux/amd64 | linux/arm64 (apenas Linux)'],
+    ['use Linux AMD64 (x86_64)', 'use Linux AMD64 ou ARM64'],
+    ["    x86_64|amd64) printf '%s\\n' linux/amd64 ;;",
+     "    x86_64|amd64) printf '%s\\n' linux/amd64 ;;\n    aarch64|arm64) printf '%s\\n' linux/arm64 ;;"],
+    ['# Imagens ELUS são estritamente AMD64; WAHA upstream pode ser multiarch.',
+     '# OCI: quatro imagens ELUS e WAHA podem ser multiarch; destino deve existir uma vez.'],
+    ["    linux/amd64) ;;",
+     "    linux/amd64|linux/arm64) ;;"],
+    ["  grep -Fxq \"$plataforma\" <<<\"$plataformas\" && return 0",
+     "  [ \"$(grep -Fxc \"$plataforma\" <<<\"$plataformas\")\" = 1 ] && return 0"],
+    ["  [ \"$plataforma\" = linux/amd64 ] || { printf 'ELUS_DISTRIBUTION_NO_GO: plataforma OCI %s não suportada (somente linux/amd64).\\n' \"$plataforma\" >&2; return 1; }",
+     "  case \"$plataforma\" in linux/amd64|linux/arm64) ;; *) printf 'ELUS_DISTRIBUTION_NO_GO: plataforma OCI inválida (%s).\\n' \"$plataforma\" >&2; return 1 ;; esac"],
+    ['    manifesto_tem_plataforma "$ref" "$plataforma" exclusivo || return 1',
+     '    manifesto_tem_plataforma "$ref" "$plataforma" compativel || return 1'],
+  ];
+  for(const [oldText,newText] of changes) {
+    // A frase de arquitetura aparece nos dois diagnósticos distintos:
+    // sistema operacional e arquitetura. Ambos devem ser atualizados.
+    const expected=oldText==='use Linux AMD64 (x86_64)' ? 3 : 2;
+    if(output.split(oldText).length!==expected)
+      throw new Error('ELUS_PLATFORM_MANIFEST_ANCHOR_CHANGED: '+oldText.slice(0,55));
+    output=expected===3 ? output.replaceAll(oldText,newText) : output.replace(oldText,newText);
+  }
+  if(!output.includes('elus360-voice-agent') || !output.includes('ghcr_status "$img" "$tag"') ||
+     !output.includes('ELUS_DISTRIBUTION_NO_GO') || output===original)
+    throw new Error('ELUS_PLATFORM_MANIFEST_SOURCE_CONTRACT_MISSING');
+  return output;
+}
+function composePlatformManifestFromStaged({candidate,report}) {
+  const path='hostgator-setup-kit/_manifestos.sh', forkBlob='55b5517d5889d337d0c3da68527be5398fde10a4';
+  if(!report.staged.includes(path) ||
+      git(['-C',candidate,'rev-parse',report.fork_sha+':'+path])!==forkBlob)
+    throw new Error('ELUS_PLATFORM_MANIFEST_NOT_STAGED_OR_FORK_CHANGED');
+  const original=readFileSync(join(candidate,path),'utf8');
+  if(gitBlobSha(Buffer.from(original))!==forkBlob)
+    throw new Error('ELUS_PLATFORM_MANIFEST_BYTES_CHANGED');
+  const content=composeOptionalPlatformManifest(original);
+  const syntax=spawnSync('bash',['-n'],{input:content,encoding:'utf8',timeout:10000});
+  if(syntax.error || syntax.signal || syntax.status!==0)
+    throw new Error('ELUS_PLATFORM_MANIFEST_SYNTAX_FAILED: '+(syntax.stderr||''));
+  return {path,kind:'elus_optional_arm64_oci',fork_blob:forkBlob,content,sha256:digest(content)};
+}
+
 function mergeDistributionThreeWay({candidate,report,rule}) {
   const path=assertSafePath(rule.path);
   const record=report.review.find(x=>x.path===path);
@@ -607,25 +662,26 @@ export function run(argv) {
   // Se o Git detectar conflito semântico/textual (exit != 0), falhar fechado.
   const distributionMerged=DISTRIBUTION_MERGES.map(rule=>
     mergeDistributionThreeWay({candidate,report,rule}));
+  const platformManifest=composePlatformManifestFromStaged({candidate,report});
   const sqlBaseline=composeElusSql({candidate,report});
-  const mergedPaths=new Set([...distributionMerged.map(x=>x.path),sqlBaseline.path]);
-  if(mergedPaths.size!==distributionMerged.length+1 ||
+  const mergedPaths=new Set([...distributionMerged.map(x=>x.path),platformManifest.path,sqlBaseline.path]);
+  if(mergedPaths.size!==distributionMerged.length+2 ||
      distributionMerged.some(x=>plan.changed.some(y=>y.path===x.path) ||
        plan.officialKept.some(y=>y.path===x.path)))
     throw new Error('ELUS_DISTRIBUTION_DECISION_OVERLAP');
-  for(const c of [...plan.changed,...distributionMerged,sqlBaseline])
+  for(const c of [...plan.changed,...distributionMerged,platformManifest,sqlBaseline])
     writeFileSync(join(candidate,c.path),c.content);
-  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path),sqlBaseline.path]);
+  git(['-C',candidate,'add','--',...plan.changed.map(x=>x.path),...distributionMerged.map(x=>x.path),platformManifest.path,sqlBaseline.path]);
   const patch=execFileSync('git',['-C',candidate,'diff','--cached','--binary'],{maxBuffer:128*1024*1024});
   mkdirSync(reports,{recursive:true});
   const composed={
     schema_version:1, stage:'COMPOSED_NOT_VALIDATED',
     upstream_target_sha:actualHead, fork_sha:report.fork_sha,
     source_report_sha256:digest(readFileSync(reportPath)),
-    adapted:[...plan.changed,...distributionMerged,sqlBaseline].map(({content,...metadata})=>metadata),
+    adapted:[...plan.changed,...distributionMerged,platformManifest,sqlBaseline].map(({content,...metadata})=>metadata),
     official_kept:officialKept,
     counts:{safe_overlay:report.counts.staged,
-      adaptations:plan.changed.length+distributionMerged.length+1,
+      adaptations:plan.changed.length+distributionMerged.length+2,
       official_kept:officialKept.length,
       unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)).length},
     unresolved:plan.remaining.filter(x=>!mergedPaths.has(x.path)),

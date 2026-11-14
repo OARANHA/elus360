@@ -12,6 +12,7 @@ on:
       - "tests/operational/elus360-clean-base-adapters.test.mjs"
       - "tests/operational/elus360-migration-delta-audit.test.mjs"
       - "tests/operational/elus360-composed-typecheck.test.mjs"
+      - "tests/operational/elus360-composed-multiarch.test.mjs"
       - ".github/workflows/elus360-clean-base-candidate.yml"
       - "docs/elus360/clean-base-v1108.md"
       - "docs/elus360/clean-base-v1108-conflict-triage.md"
@@ -42,7 +43,7 @@ jobs:
           node --check scripts/elus360-clean-base-adapters.mjs
           node --check scripts/elus360-migration-delta-audit.mjs
           node --check scripts/elus360-composed-typecheck.mjs
-          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs tests/operational/elus360-clean-base-adapters.test.mjs tests/operational/elus360-migration-delta-audit.test.mjs tests/operational/elus360-composed-typecheck.test.mjs
+          node --test tests/operational/elus360-clean-base.test.mjs tests/operational/elus360-clean-base-classify.test.mjs tests/operational/elus360-clean-base-adapters.test.mjs tests/operational/elus360-migration-delta-audit.test.mjs tests/operational/elus360-composed-typecheck.test.mjs tests/operational/elus360-composed-multiarch.test.mjs
       - name: Comprovar tags oficiais e SHA da candidata
         id: source
         shell: bash
