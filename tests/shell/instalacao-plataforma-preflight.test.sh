@@ -47,8 +47,14 @@ TEST_STATUS=000
 recusa 'registry offline falha fechado' 000 preflight_instalacao 1.102.0 linux/amd64 "$WAHA_IMAGE"
 unset TEST_STATUS
 : > "$TMP/probes"
-recusa 'ARM64 proibido mesmo com quatro imagens no registry' ELUS_DISTRIBUTION_NO_GO preflight_instalacao 1.102.0 linux/arm64 devlikeapro/waha:latest-2026.7.2
-test ! -s "$TMP/probes" || { echo '✗ o registry foi consultado antes de recusar ARM64'; exit 1; }
+ok 'ARM64 com imagens e WAHA OCI compativeis' preflight_instalacao 1.102.0 linux/arm64 devlikeapro/waha:noweb-arm-2026.7.2
+grep -Fq "OCI ${IMG_NS}/elus360:1.102.0 linux/arm64" "$TMP/probes" || { echo '✗ OCI ARM64 não sondado'; exit 1; }
+TEST_BAD_IMAGE=elus360-worker:1.102.0
+recusa 'worker sem ARM64 bloqueia instalacao' linux/arm64 preflight_instalacao 1.102.0 linux/arm64 devlikeapro/waha:noweb-arm-2026.7.2
+unset TEST_BAD_IMAGE
+: > "$TMP/probes"
+recusa 'plataforma OCI invalida recusa antes do registro' inválida preflight_instalacao 1.102.0 linux/riscv64 devlikeapro/waha:noweb-arm-2026.7.2
+test ! -s "$TMP/probes" || { echo '✗ registro consultado com OCI invalido'; exit 1; }
 ok 'imagem padrão de WAHA preservada em AMD64' preflight_instalacao 1.102.0 linux/amd64 devlikeapro/waha:latest-2026.7.2
 recusa 'canal mutável não é versão de preflight' numérica preflight_instalacao stable linux/amd64 devlikeapro/waha:latest-2026.7.2
 
