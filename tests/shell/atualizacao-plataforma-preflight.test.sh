@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ELUS360 ADR-0007: só Linux AMD64; preflight antes de mutações.
+# ELUS360 ADR-0007 superveniente: Linux AMD64 ou ARM64 com OCI comprovada; preflight antes de mutações.
 # Registry, Docker e Git são simulados; não há rede, banco, containers ou VPS real.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -32,9 +32,9 @@ done
 grep -Fq "OCI $WAHA_IMAGE linux/amd64" "$TMP/probes" || { echo '✗ WAHA não sondada'; exit 1; }
 
 : > "$TMP/probes"
-reject 'ARM64 recusada mesmo com release íntegra' preflight_plataforma_atualizacao v1.102.0 linux/arm64
-grep -Fq ELUS_DISTRIBUTION_NO_GO "$TMP/out" || { echo '✗ recusa ARM64 sem causa'; exit 1; }
-test ! -s "$TMP/probes" || { echo '✗ registro consultado antes de negar ARM64'; exit 1; }
+ok 'ARM64 com quatro imagens e WAHA compatíveis' preflight_plataforma_atualizacao v1.102.0 linux/arm64
+grep -Fq "OCI $IMG_NS/elus360:1.102.0 linux/arm64" "$TMP/probes" || { echo '✗ OCI ARM64 não sondado'; exit 1; }
+: > "$TMP/probes"
 reject 'riscv64 é recusada' preflight_plataforma_atualizacao v1.102.0 linux/riscv64
 test ! -s "$TMP/probes" || { echo '✗ registro consultado antes de negar riscv64'; exit 1; }
 
@@ -66,14 +66,16 @@ dono="$(linha 'recusar_projeto_de_outra_arvore || refuse')"
 fetch="$(linha 'git fetch --tags --quiet origin')"
 manifestos="$(linha 'ELUS_VEREDITO_IMAGENS=')"
 preflight="$(linha 'if ! preflight_plataforma_atualizacao "$TARGET_TAG"')"
-backup="$(linha 'if bash "$KIT_DIR/backup.sh"')"
+# O backup usa BACKUP_ESPERA_LOCK=300 antes de bash; conferir a chamada
+# efetiva sem atrelar a guarda ao prefixo opcional de ambiente.
+backup="$(linha 'bash "$KIT_DIR/backup.sh"; then')"
 test -n "$origem" && test -n "$release" && test -n "$dono" && test -n "$fetch" && test -n "$manifestos" && test -n "$preflight" && test -n "$backup" || { echo '✗ alguma etapa obrigatória desapareceu'; exit 1; }
 test "$origem" -lt "$release" && test "$release" -lt "$dono" && test "$dono" -lt "$fetch" &&
   test "$fetch" -lt "$manifestos" && test "$manifestos" -lt "$preflight" && test "$preflight" -lt "$backup" || { echo '✗ proteção de procedência/arquitetura ocorre após mutações'; exit 1; }
 ! grep -qE '^if \[ "\$PLATAFORMA_HOST" = linux/arm64 \]' "$updater" || { echo '✗ fallback ARM64 reintroduzido'; exit 1; }
 echo '✓ origem, release, propriedade, tag, GHCR e OCI são verificados antes de backup'
 
-# Bootstrap pré-upgrade também deve recusar arquitetura errada SEM alterar a .env.
+# Bootstrap pré-upgrade também deve recusar arquitetura nao suportada SEM alterar a .env.
 bootstrap="$ROOT/hostgator-setup-kit/preflight-upgrade.sh"
 test -f "$bootstrap"
 mkdir -p "$TMP/instalacao" "$TMP/bin"
@@ -82,7 +84,7 @@ printf 'WAHA_IMAGE=registry.exemplo/plus:custom\nTEST_SECRET=nao_vazar\n' > "$TM
 cp "$TMP/instalacao/.env" "$TMP/env-antes"
 cat > "$TMP/bin/uname" <<'STUB'
 #!/usr/bin/env bash
-case "$1" in -s) printf 'Linux\n';; -m) printf 'aarch64\n';; *) exit 99;; esac
+case "$1" in -s) printf 'Linux\n';; -m) printf 'riscv64\n';; *) exit 99;; esac
 STUB
 cat > "$TMP/bin/docker" <<'STUB'
 #!/usr/bin/env bash
@@ -92,13 +94,13 @@ STUB
 chmod +x "$TMP/bin/"*
 : > "$TMP/docker-acoes"
 if (cd "$TMP" && REGISTRO_DOCKER="$TMP/docker-acoes" PATH="$TMP/bin:$PATH" bash "$bootstrap" --installation "$TMP/instalacao" --to v1.102.0 > "$TMP/out-bootstrap" 2>&1); then
-  echo '✗ bootstrap aceitou ARM64'; exit 1
+  echo '✗ bootstrap aceitou riscv64'; exit 1
 fi
-grep -Fq ELUS_DISTRIBUTION_NO_GO "$TMP/out-bootstrap" || { echo '✗ bootstrap recusou sem explicar arquitetura'; exit 1; }
+grep -Fq ELUS_DISTRIBUTION_NO_GO "$TMP/out-bootstrap" || { echo '✗ bootstrap recusou sem explicar plataforma'; exit 1; }
 cmp -s "$TMP/instalacao/.env" "$TMP/env-antes" || { echo '✗ bootstrap alterou .env'; exit 1; }
-test ! -s "$TMP/docker-acoes" || { echo '✗ bootstrap consultou/alterou Docker em ARM64'; exit 1; }
+test ! -s "$TMP/docker-acoes" || { echo '✗ bootstrap consultou/alterou Docker em riscv64'; exit 1; }
 ! grep -Fq nao_vazar "$TMP/out-bootstrap" || { echo '✗ bootstrap vazou segredo'; exit 1; }
-echo '✓ bootstrap legado recusa ARM64 sem ler Docker, editar .env ou vazar segredo'
+echo '✓ bootstrap legado recusa riscv64 sem ler Docker, editar .env ou vazar segredo'
 
 # O carregamento sequencial não pode sombrear funções críticas.
 dup="$(cat "$ROOT"/hostgator-setup-kit/{_i18n,_manifestos,_common,_supabase-images,manutencao}.sh | grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(\)' | sort | uniq -d)"

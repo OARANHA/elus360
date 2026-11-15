@@ -100,7 +100,13 @@ update_sh_da() {  # update_sh_da <tag> — caminho de uma cópia do update.sh da
   if ! git -C "$ROOT" rev-parse -q --verify "refs/tags/$1^{commit}" >/dev/null; then
     local profundidade=""
     [ "$(git -C "$ROOT" rev-parse --is-shallow-repository)" = true ] && profundidade="--depth=1"
-    git -C "$ROOT" fetch -q --no-tags $profundidade "$origem_das_tags" "+refs/tags/$1:refs/tags/$1"
+    # O fork é independente: a tag histórica v1.63.0 NÃO pertence a ele.
+    # Consultar o upstream exclusivamente para esse controle do legado.
+    local remote="$origem_das_tags"
+    if [ "$1" = "$ANTES_DO_FILTRO" ]; then
+      remote="https://github.com/melgarafael/DeskcommCRM.git"
+    fi
+    git -C "$ROOT" fetch -q --no-tags $profundidade "$remote" "+refs/tags/$1:refs/tags/$1"
   fi
   git -C "$ROOT" show "$1:hostgator-setup-kit/update.sh" > "$TMP/$1"
   printf '%s' "$TMP/$1"

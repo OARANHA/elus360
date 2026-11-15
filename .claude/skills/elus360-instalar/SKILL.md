@@ -1,6 +1,6 @@
 ---
 name: elus360-instalar
-description: 'Guia ELUS360 (fork do DeskcommCRM) para instalar e operar em VPS Linux AMD64 com Docker, usando OARANHA/elus360 e release própria verificada. Use para instalação, atualização, backup, domínio, DNS, SSL, Supabase, WAHA/WhatsApp, chaves de IA, SMTP, proxy, contêiner reiniciando, recuperação de senha ou autenticação. Aplica os gates da ADR-0007, não cria imagem na VPS e recusa instalação sem release própria; segue prompts e scripts do kit com segurança.'
+description: Guia ELUS360 para instale ou atualize em VPS Linux via Docker; verifique release, backup, imagens, rollback e saúde da aplicação.
 metadata:
   publico: leigo, agência, operador de VPS
   fonte-de-verdade: hostgator-setup-kit/install.sh

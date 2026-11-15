@@ -627,7 +627,15 @@ function composeElusSql({candidate,report}) {
   const original=readFileSync(join(candidate,path));
   if(gitBlobSha(original)!==ELUS_SQL_BASELINE_OID)
     throw new Error('ELUS_SQL_OFFICIAL_BLOB_CHANGED');
-  const parts=[original];
+  const scanBegin=original.indexOf(Buffer.from('-- ---- VARREDURA anon:'));
+  const scanEnd=original.indexOf(Buffer.from('-- ---- Criador provisório sai'),scanBegin);
+  if(scanBegin<0 || scanEnd<=scanBegin ||
+     original.indexOf(Buffer.from('-- ---- VARREDURA anon:'),scanBegin+1)>=0)
+    throw new Error('ELUS_SQL_FINAL_ACL_SWEEP_MISSING_OR_DUPLICATED');
+  const scan=original.subarray(scanBegin,scanEnd);
+  if(!scan.includes(Buffer.from('revoke')) || !scan.includes(Buffer.from('anon')))
+    throw new Error('ELUS_SQL_FINAL_ACL_SWEEP_CONTRACT_CHANGED');
+  const parts=[original.subarray(0,scanBegin),original.subarray(scanEnd)];
   for(const [name,oid] of ELUS_SQL_CHAIN){
     if(!report.staged.includes(name))throw new Error('ELUS_SQL_MIGRATION_NOT_STAGED: '+name);
     const bytes=readFileSync(join(candidate,name));
@@ -638,7 +646,12 @@ function composeElusSql({candidate,report}) {
     parts.push(Buffer.from('\n-- ELUS360_FORWARD_BEGIN '+name+'\n'),bytes,
       Buffer.from('\n-- ELUS360_FORWARD_END '+name+'\n'));
   }
+  parts.push(scan); // Última operação: remove o acesso anon das funções novas em UPDATE.
   const content=Buffer.concat(parts);
+  const final=content.subarray(content.indexOf(Buffer.from('-- ---- VARREDURA anon:')));
+  if(/^[ \t]*create[ \t]+(?:or[ \t]+replace[ \t]+)?function/gim.test(final.toString('utf8')) ||
+     /^[ \t]*grant[ \t][^;]*\bto\b[^;]*\banon\b/gim.test(final.toString('utf8')))
+    throw new Error('ELUS_SQL_POST_SWEEP_FUNCTION_OR_ANON_GRANT');
   return {path,kind:'official_baseline_plus_pinned_elus_migrations',
     official_blob:ELUS_SQL_BASELINE_OID,
     migrations:ELUS_SQL_CHAIN.map(([path,blob])=>({path,blob})),

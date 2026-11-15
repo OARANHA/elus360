@@ -65,9 +65,11 @@ elus360_release_tag_comprovada "$TARGET_TAG" \
 # Gate 4: a release não pode começar a mexer em cron, banco ou .env
 # quando faltam os artefatos no GHCR. Apenas docker buildx imagetools inspect
 # (consulta de manifestos), sem pull, build, up ou alteração de pins.
-ELUS_VEREDITO_IMAGENS="$(veredito_das_imagens_da_release "$TARGET_TAG")"
-[ "$ELUS_VEREDITO_IMAGENS" = "prontas" ] \
-  || refuse "ELUS_DISTRIBUTION_NO_GO: as quatro imagens da release ELUS360 não estão públicas e acessíveis (veredito: $ELUS_VEREDITO_IMAGENS)."
+if ! build_local_pedido; then
+  ELUS_VEREDITO_IMAGENS="$(veredito_das_imagens_da_release "$TARGET_TAG")"
+  [ "$ELUS_VEREDITO_IMAGENS" = "prontas" ] \
+    || refuse "ELUS_DISTRIBUTION_NO_GO: imagens ELUS360 não verificáveis (veredito: $ELUS_VEREDITO_IMAGENS)."
+fi
 
 
 
@@ -246,9 +248,13 @@ fi
 # WAHA efetiva. ARM64 já foi recusado no source de _common.sh, antes do cron.
 # Falha de manifesto não autoriza build local, checkout nem alteração de DB.
 PLATAFORMA_HOST="$(plataforma_oci_do_host "$(uname -m 2>/dev/null || true)")" \
-  || refuse "ELUS_DISTRIBUTION_NO_GO: somente Linux AMD64."
-if ! preflight_plataforma_atualizacao "$TARGET_TAG" "$PLATAFORMA_HOST"; then
-  refuse "ELUS_DISTRIBUTION_NO_GO: manifestos do ELUS360 ou WAHA incompatíveis com linux/amd64; banco, imagens e código preservados."
+  || refuse "ELUS_DISTRIBUTION_NO_GO: somente Linux amd64 ou arm64."
+if build_local_pedido; then
+  WAHA_EFETIVA="${WAHA_IMAGE:-$(imagem_waha_padrao_para_host)}"
+  manifesto_tem_plataforma "$WAHA_EFETIVA" "$PLATAFORMA_HOST" ||
+    refuse "ELUS_DISTRIBUTION_NO_GO: WAHA sem plataforma $PLATAFORMA_HOST; banco e código preservados."
+elif ! preflight_plataforma_atualizacao "$TARGET_TAG" "$PLATAFORMA_HOST"; then
+  refuse "ELUS_DISTRIBUTION_NO_GO: imagens ELUS ou WAHA incompatíveis com $PLATAFORMA_HOST; banco e código preservados."
 fi
 if [ -n "$MESMA_TAG" ] && [ -n "$FORCE" ]; then
   # Com --force na mesma tag ninguém conferiu a imagem: quem chega aqui pediu
@@ -328,7 +334,12 @@ fi
 # ── 2. Backup de segurança ANTES de tocar no banco ───────────────────────────
 if [ -z "$SKIP_BACKUP" ]; then
   step "Backup de segurança (antes de mexer no banco)"
-  if bash "$KIT_DIR/backup.sh"; then
+  # BACKUP_ESPERA_LOCK: dois caminhos chamam o backup.sh (este e o cron diário),
+  # e no mesmo segundo eles disputam a mesma pasta (#4222). Aqui não vale "o
+  # outro está fazendo": este backup é a rede de segurança DESTA atualização, e
+  # seguir sem ele seria pior que esperar o outro terminar. A trava é do
+  # backup.sh; aqui só se diz que ela pode ser esperada.
+  if BACKUP_ESPERA_LOCK=300 bash "$KIT_DIR/backup.sh"; then
     c_grn "✓ backup feito. Ele só volta num banco VAZIO, não por cima deste (restore.sh; ver hostgator-setup-kit/README.md)."
   else
     if [ -n "${DESKCOMM_AGENT_REPORT:-}" ] || [ ! -t 0 ]; then
@@ -804,8 +815,8 @@ VOZ_CRIADA="$(completar_segredos_da_voz .env)" || VOZ_CRIADA=""
 # responde ou não.
 # Uma falha depois do DDL não autoriza build no host: o trap recupera
 # o checkpoint de imagens anterior sem fingir reversão do schema.
-if ! dc pull; then
-  c_red "ELUS_DISTRIBUTION_NO_GO: pull incompleto; não vou construir imagens na VPS."
+if ! build_local_pedido && ! dc pull; then
+  c_red "ELUS_DISTRIBUTION_NO_GO: pull incompleto; build automático proibido."
   exit 1
 fi
 # A rede do proxy externo é declarada como EXTERNA no compose: se ela sumiu
@@ -853,8 +864,13 @@ esac
 # de ERRO, onde este ponto aqui nunca chega a ser alcancado.
 manutencao_desce
 CONSTRUIU_AQUI=""
-if ! subir_o_parque; then
-  c_red "ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build."
+if build_local_pedido; then
+  construir_aqui_e_subir "$VERSAO_ALVO" || {
+    c_red "ELUS_DISTRIBUTION_NO_GO: build solicitado falhou; rollback de imagens preservado."
+    exit 1
+  }
+elif ! subir_o_parque; then
+  c_red "ELUS_DISTRIBUTION_NO_GO: imagem publicada não subiu; rollback de imagens solicitado, sem build automático."
   exit 1
 fi
 

@@ -14,8 +14,6 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # escrita cai no repositório de quem roda. Zerar o ambiente local do git é o
 # idioma canônico do próprio git para isso.
 unset $(git rev-parse --local-env-vars)
-REAL_GIT="$(command -v git)"
-export REAL_GIT
 
 # O _common.sh vem antes porque é dele que saem `nome_do_projeto_compose`,
 # `veredito_rede_do_proxy` e `garantir_rede_do_proxy` — o install.sh e o update.sh
@@ -588,31 +586,33 @@ STUBDOCKER
   cat > "$TMP3/bin/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 case "$*" in
-  *releases/latest*) printf '{\n "tag_name": "v1.102.0"\n}\n' ;;
-  *releases/tags/v1.102.0*) printf '{\n "tag_name": "v1.102.0",\n "draft": false,\n "prerelease": false,\n "published_at": "2026-11-07T00:00:00Z"\n}\n' ;;
-  *compare/main...v1.102.0*) printf '{\n "status": "behind"\n}\n' ;;
-  *ghcr.io/token*) printf '{"token":"teste"}' ;;
+  *api.github.com/repos/OARANHA/elus360/releases/latest*)
+    printf '{\n  "tag_name": "v1.66.1"\n}\n' ;;
+  *api.github.com/repos/OARANHA/elus360/releases/tags/v1.66.1*)
+    printf '{\n  "tag_name": "v1.66.1",\n  "draft": false,\n  "prerelease": false,\n  "published_at": "2026-01-01T00:00:00Z"\n}\n' ;;
+  *api.github.com/repos/OARANHA/elus360/compare/main...v1.66.1*)
+    printf '{\n  "status": "identical"\n}\n' ;;
+  *ghcr.io/token*) printf '%s' '{"token":"teste"}' ;;
   *ghcr.io/v2/*) printf 200 ;;
   *) printf 200 ;;
 esac
 STUBCURL
   chmod +x "$TMP3/bin/curl"
-  # O remoto sintético representa SOMENTE esta instalação descartável.
-  "$REAL_GIT" -C "$TMP3/proj" init -q
-  "$REAL_GIT" -C "$TMP3/proj" add -A
-  "$REAL_GIT" -C "$TMP3/proj" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm fixture
-  "$REAL_GIT" -C "$TMP3/proj" tag v1.102.0
-  "$REAL_GIT" -C "$TMP3/proj" remote add origin https://github.com/OARANHA/elus360.git
-  cat > "$TMP3/bin/git" <<'STUBGIT'
+  /usr/bin/git -C "$TMP3/proj" init -q -b main
+  /usr/bin/git -C "$TMP3/proj" add -- docker-compose.prod.yml
+  /usr/bin/git -C "$TMP3/proj" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm fixture
+  /usr/bin/git -C "$TMP3/proj" remote add origin https://github.com/OARANHA/elus360.git
+  /usr/bin/git -C "$TMP3/proj" tag v1.66.1
+  cat > "$TMP3/bin/git" <<'STUBGIT_ELUS'
 #!/usr/bin/env bash
-case "${1:-}" in
-  ls-remote) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1.102.0\n'; exit 0;;
-  rev-parse) case " $* " in *" refs/tags/v1.102.0"*) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'; exit 0;; esac;;
-  fetch) exit 0;;
-  checkout) [ "${2:-}" = --quiet ] && exit 0;;
-esac
-exec "$REAL_GIT" "$@"
-STUBGIT
+if [ "${1:-}" = ls-remote ] && [[ " $* " == *' refs/tags/v1.66.1 '* ]]; then
+  sha="$(/usr/bin/git rev-parse refs/tags/v1.66.1)" || exit 1
+  printf '%s\trefs/tags/v1.66.1\n' "$sha"
+  exit 0
+fi
+if [ "${1:-}" = fetch ]; then exit 0; fi
+exec /usr/bin/git "$@"
+STUBGIT_ELUS
   chmod +x "$TMP3/bin/git"
   dublar_uname_amd64 "$TMP3/bin"
   cat > "$TMP3/supabase-provision.sh" <<'PROV'
@@ -628,6 +628,7 @@ PROV
 
   saida="$(cd "$TMP3/proj" && env PATH="$TMP3/bin:$PATH" MARCA="$MARCA" \
     SUPABASE_ACCESS_TOKEN=fake NEXT_PUBLIC_SUPABASE_URL= \
+    DESKCOMM_RELEASES_LATEST_URL= \
     bash "$TMP3/install.sh" --yes 2>&1 || true)"
 
   # Sem esta checagem o teste passaria por VACUIDADE: se o install.sh morresse
@@ -834,6 +835,90 @@ saude_ok "degraded: serviço opcional sem config" saudavel degraded "$DEGRADED"
 saude_ok "unhealthy AINDA QUE o redis esteja ok" nao      unhealthy "$UNHEALTHY"
 saude_ok "porta aberta, app mudo"                nao      ''        ''
 saude_ok "proxy devolveu HTML de erro"           nao      ''        '<html>502 Bad Gateway</html>'
+
+echo "healthcheck.sh: veredito pelo status GERAL e código de saída (#4087)"
+# O defeito: o healthcheck procurava `"status":"ok"` no JSON cru. `ok` é o
+# vocabulário dos CHECKS individuais, então um app com o BANCO FORA (status
+# geral `unhealthy`) mas com o Redis de pé casava no `checks.redis` e imprimia
+# "✓ app saudável" — e, pior, saía 0: nem cron nem monitor podiam usá-lo como
+# alarme. Medido com o payload UNHEALTHY acima, no script de antes da correção:
+#   ✓ app saudável
+#   EXIT=0
+# A prova abaixo é de ponta a ponta e sem Docker nem rede: `docker` e `crontab`
+# são dublês, e o dublê do `exec` devolve as DUAS linhas que app_health_probe
+# produz (status geral, corpo).
+diagnostico_ok() {  # diagnostico_ok <descrição> <0|1> <status> <corpo>
+  local desc="$1" esperado="$2" st="$3" corpo="$4" real rc
+  if ST="$st" CORPO="$corpo" bash -c '
+        . ./_common.sh
+        relatar_saude_do_app "$(printf "%s\n%s\n" "${ST}" "${CORPO}")"
+      ' >/dev/null 2>&1
+  then real=0; else real=1; fi
+  if [ "$real" = "$esperado" ]; then printf '  ✓ %s\n' "$desc"
+  else printf '  ✗ %s  (deu %s, esperava %s)\n' "$desc" "$real" "$esperado"; fail=1; fi
+}
+diagnostico_ok "healthy: todos os checks ok"                  0 healthy   "$HEALTHY"
+diagnostico_ok "unhealthy com redis ok (o caso do #4087)"     1 unhealthy "$UNHEALTHY"
+diagnostico_ok "degraded: não é 'saudável' no diagnóstico"    1 degraded  "$DEGRADED"
+diagnostico_ok "status fora do vocabulário (sem_status)"      1 sem_status '{"erro":"rota antiga"}'
+diagnostico_ok "app mudo: sonda vazia"                        1 ''        ''
+
+# Regressão do grep mentiroso: se alguém voltar a decidir pelo texto do JSON em
+# vez do status geral, o healthcheck volta a mentir. A varredura é no código,
+# não nos comentários — por isso o literal não aparece em comentário nenhum.
+if grep -qF '"status":"ok"' ./healthcheck.sh; then
+  printf '  ✗ healthcheck.sh voltou a procurar o status `ok` dos checks no JSON cru\n'; fail=1
+else
+  printf '  ✓ healthcheck.sh não decide mais pelo `ok` dos checks\n'
+fi
+if grep -q 'app_health_probe' ./healthcheck.sh && grep -q 'relatar_saude_do_app' ./healthcheck.sh; then
+  printf '  ✓ healthcheck.sh usa a sonda e o veredito do _common.sh\n'
+else
+  printf '  ✗ healthcheck.sh não usa app_health_probe/relatar_saude_do_app\n'; fail=1
+fi
+
+hc_dir="$(mktemp -d)"
+cp ./healthcheck.sh ./_common.sh ./_i18n.sh ./_manifestos.sh "$hc_dir/"
+printf 'NEXT_PUBLIC_SUPABASE_URL=\n' > "$hc_dir/.env"
+: > "$hc_dir/docker-compose.prod.yml"
+mkdir -p "$hc_dir/bin"
+cat > "$hc_dir/bin/docker" <<'DUBLE'
+#!/usr/bin/env bash
+# Dublê do `docker compose … exec`: devolve o que a sonda do Node devolveria.
+if [ -n "${HC_VAZIO:-}" ]; then exit 1; fi
+case " $* " in
+  *" exec "*) printf '%s\n%s\n' "${HC_STATUS:-sem_status}" "${HC_CORPO:-}" ;;
+esac
+exit 0
+DUBLE
+printf '#!/usr/bin/env bash\nexit 1\n' > "$hc_dir/bin/crontab"
+chmod +x "$hc_dir/bin/docker" "$hc_dir/bin/crontab"
+
+healthcheck_ok() {  # healthcheck_ok <descrição> <0|1> <disse saudável?> <status> <corpo>
+  local desc="$1" esperado="$2" verde_esperado="$3" st="$4" corpo="$5" out rc verde
+  out="$(cd "$hc_dir" && PATH="$hc_dir/bin:$PATH" HC_STATUS="$st" HC_CORPO="$corpo" \
+        bash healthcheck.sh 2>&1)"
+  rc=$?
+  if printf '%s' "$out" | grep -q '✓ app saudável'; then verde=sim; else verde=nao; fi
+  if [ "$rc" = "$esperado" ] && [ "$verde" = "$verde_esperado" ]; then
+    printf '  ✓ %s\n' "$desc"
+  else
+    printf '  ✗ %s  (saiu %s, esperava %s; "saudável": %s, esperava %s)\n' \
+      "$desc" "$rc" "$esperado" "$verde" "$verde_esperado"; fail=1
+  fi
+}
+healthcheck_ok "banco fora + redis ok ⇒ REPROVA (sai 1)"  1 nao unhealthy "$UNHEALTHY"
+healthcheck_ok "healthy de verdade ⇒ APROVA (sai 0)"      0 sim healthy   "$HEALTHY"
+healthcheck_ok "degraded ⇒ REPROVA (sai 1)"               1 nao degraded  "$DEGRADED"
+healthcheck_ok "status desconhecido ⇒ REPROVA (sai 1)"    1 nao sem_status '{"erro":"rota antiga"}'
+out_mudo="$(cd "$hc_dir" && PATH="$hc_dir/bin:$PATH" HC_VAZIO=1 bash healthcheck.sh 2>&1)"
+rc_mudo=$?
+if [ "$rc_mudo" = 1 ] && ! printf '%s' "$out_mudo" | grep -q '✓ app saudável'; then
+  printf '  ✓ app não respondeu ⇒ REPROVA (sai 1)\n'
+else
+  printf '  ✗ app não respondeu  (saiu %s; nunca pode sair 0)\n' "$rc_mudo"; fail=1
+fi
+rm -rf "$hc_dir"
 
 echo "rascunho das respostas (save_partial → load_env)"
 # Quem trava na connection string — a pergunta mais difícil, e a última das
@@ -1962,11 +2047,14 @@ montar_vps() {
   cp install.sh update.sh backup.sh _common.sh _manifestos.sh _i18n.sh marca-emails.sh manutencao.sh "$raiz/"
   cp -R manutencao "$raiz/"
   : > "$VPS_PROJ/docker-compose.prod.yml"
+  # A inicialização Git é compartilhada também pelos cenários que chamam o
+  # install.sh diretamente (sem rodar()), evitando falsos RED de proveniência.
   if [ ! -d "$VPS_PROJ/.git" ]; then
-    "$REAL_GIT" -C "$VPS_PROJ" init -q
-    "$REAL_GIT" -C "$VPS_PROJ" add -A
-    "$REAL_GIT" -C "$VPS_PROJ" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm "fixture ELUS360"
-    "$REAL_GIT" -C "$VPS_PROJ" remote add origin https://github.com/OARANHA/elus360.git
+    /usr/bin/git -C "$VPS_PROJ" init -q -b main &&
+    /usr/bin/git -C "$VPS_PROJ" add -- docker-compose.prod.yml &&
+    /usr/bin/git -C "$VPS_PROJ" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm fixture &&
+    /usr/bin/git -C "$VPS_PROJ" remote add origin https://github.com/OARANHA/elus360.git &&
+    /usr/bin/git -C "$VPS_PROJ" tag v1.66.1
   fi
   cat > "$raiz/bin/docker"
   # O corpo fornecido por cada cenário continua cuidando de compose/exec.
@@ -1978,9 +2066,9 @@ if [ "${1:-}" = buildx ] && [ "${2:-}" = imagetools ] && [ "${3:-}" = inspect ];
   case " $* " in
     *' --raw '*)
       if [ -n "${DUBLE_MANIFEST:-}" ]; then printf '%s' "$DUBLE_MANIFEST"
-      else printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}}]}'
+      else printf '%s' '{"schemaVersion":2,"manifests":[{"platform":{"os":"linux","architecture":"amd64"}},{"platform":{"os":"linux","architecture":"arm64"}}]}'
       fi ;;
-    *) printf 'linux/amd64\n' ;;
+    *) printf 'linux/amd64\nlinux/arm64\n' ;;
   esac
   exit 0
 fi
@@ -2003,16 +2091,16 @@ STUBOCI
 #!/usr/bin/env bash
 case "$*" in
   *api.github.com/repos/OARANHA/elus360/releases/latest*)
-    printf '{\n "tag_name": "%s"\n}\n' "${DUBLE_RELEASE_TAG:-v1.102.0}" ;;
+    printf '{\n  "tag_name": "%s"\n}\n' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
   *api.github.com/repos/OARANHA/elus360/releases/tags/*)
-    tag="${@: -1}"; tag="${tag##*/}"
-    printf '{\n "tag_name": "%s",\n "draft": false,\n "prerelease": false,\n "published_at": "2026-11-07T00:00:00Z"\n}\n' "$tag" ;;
+    printf '{\n  "tag_name": "%s",\n  "draft": false,\n  "prerelease": false,\n  "published_at": "2026-01-01T00:00:00Z"\n}\n' "${DUBLE_RELEASE_TAG:-v1.66.1}" ;;
   *api.github.com/repos/OARANHA/elus360/compare/main...*)
-    printf '{\n "status": "behind"\n}\n' ;;
+    printf '{\n  "status": "identical"\n}\n' ;;
   *ghcr.io/token*) printf '{"token":"dublê"}' ;;
   *ghcr.io/v2/*)   printf '%s' "${DUBLE_GHCR:-200}" ;;
+  # O v_supabase_url exige o GoTrue: o JSON de /auth/v1/verify sem parâmetros.
   *auth/v1/verify*) printf '{"msg":"Verify requires a verification type"}\n400' ;;
-  *) printf 200 ;;
+  *)               printf 200 ;;
 esac
 STUBCURL
   # O install.sh e o update.sh vão até o fim, e no fim eles AGENDAM CRON. Sem
@@ -2050,24 +2138,22 @@ case "${1:-}" in
 esac
 exit 0
 STUB
-  cat > "$raiz/bin/git" <<'STUBGIT'
+  # O protocolo de distribuição exige origin ELUS e release publicada.
+  # Os fixtures exercitam o update/install reais contra Git/HTTP completamente
+  # offline: nenhum acesso ao GitHub e nenhum override aceito na produção.
+  cat > "$raiz/bin/git" <<'STUB_GIT_ELUS'
 #!/usr/bin/env bash
-SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-case "${1:-}" in
-  ls-remote)
-    last="${@: -1}"
-    case "$last" in refs/tags/v*) printf '%s\t%s\n' "$SHA" "$last"; exit 0;; esac
-    ;;
-  rev-parse)
-    case " $* " in *" refs/tags/v"*|*" v"*"^{commit}"*) printf '%s\n' "$SHA"; exit 0;; esac
-    ;;
-  fetch) exit 0 ;;
-  checkout)
-    if [ "${2:-}" = "--quiet" ] && [[ "${3:-}" == v* ]]; then exit 0; fi
-    ;;
-esac
-exec "$REAL_GIT" "$@"
-STUBGIT
+if [ "${1:-}" = ls-remote ] && [[ "$*" == *refs/tags/v* ]]; then
+  tag="${!#}"
+  tag="${tag#refs/tags/}"
+  sha="$(/usr/bin/git rev-parse --verify "refs/tags/$tag" 2>/dev/null)" || exit 1
+  printf '%s\trefs/tags/%s\n' "$sha" "$tag"
+  exit 0
+fi
+# A tag ja esta criada no repo descartavel pelo rodar(); o fetch nao sai da VPS falsa.
+if [ "${1:-}" = fetch ] && [[ " $* " == *' origin '* ]]; then exit 0; fi
+exec /usr/bin/git "$@"
+STUB_GIT_ELUS
   chmod +x "$raiz/bin/docker" "$raiz/bin/curl" "$raiz/bin/crontab" "$raiz/bin/git"
   dublar_uname_amd64 "$raiz/bin"
 }
@@ -2085,16 +2171,34 @@ STUBGIT
 # partir de um .env de mentira. O cenário declara o próprio ambiente.
 rodar() {
   local script="$1" flags="$2"
+  local -a release_env=(DESKCOMM_RELEASES_LATEST_URL=)
+  # O repositório da fixture é local, mas o origin guard continua REAL.
+  # Nenhum teste precisa fazer fetch na Internet nem trocar a origem do produto.
+  local tag="${DUBLE_RELEASE_TAG:-}"
+  [ -n "$tag" ] || { [ "$script" = install.sh ] && tag=v1.66.1 || tag=v9.9.9; }
+  [ -d "$VPS_PROJ/.git" ] || {
+    /usr/bin/git -C "$VPS_PROJ" init -q -b main &&
+    /usr/bin/git -C "$VPS_PROJ" add -- docker-compose.prod.yml &&
+    /usr/bin/git -C "$VPS_PROJ" -c user.email=fixture@invalid -c user.name=fixture commit -qm fixture
+  }
+  /usr/bin/git -C "$VPS_PROJ" config remote.origin.url https://github.com/OARANHA/elus360.git
+  # `git describe` escolhe a primeira tag elegível no mesmo HEAD; a tag da
+  # fixture não pode mascarar a release de cada cenário (ex.: v9.9.9).
+  if [ "$tag" != v1.66.1 ]; then
+    /usr/bin/git -C "$VPS_PROJ" tag -d v1.66.1 >/dev/null 2>&1 || true
+  fi
+  /usr/bin/git -C "$VPS_PROJ" rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1 ||
+    /usr/bin/git -C "$VPS_PROJ" tag "$tag"
   printf '%s\n%s\n' "$BASE_ENV" "${3-}" > "$VPS_PROJ/.env"
   : > "$VPS_LOG"
   if [ $# -ge 4 ]; then
     printf '%s' "$4" > "$VPS_RAIZ/respostas.txt"
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= \
+      SUPABASE_ACCESS_TOKEN= DUBLE_RELEASE_TAG="$tag" "${release_env[@]}" \
       bash "$VPS_RAIZ/$script" $flags <"$VPS_RAIZ/respostas.txt" 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   else
     (cd "$VPS_PROJ" && env PATH="$VPS_RAIZ/bin:$PATH" DOCKER_LOG="$VPS_LOG" CRONTAB_SANDBOX="$CRONTAB_SANDBOX" \
-      SUPABASE_ACCESS_TOKEN= \
+      SUPABASE_ACCESS_TOKEN= DUBLE_RELEASE_TAG="$tag" "${release_env[@]}" \
       bash "$VPS_RAIZ/$script" $flags 2>&1 || true) | sed -E 's/\x1b\[[0-9;]*m//g'
   fi
 }
@@ -2238,8 +2342,7 @@ STUB
   # sobrevive aos dois caminhos, com rede e sem.
   img_app="$(valor_no_env "$VPS_PROJ/.env" APP_IMAGE)"
   tag_app="${img_app##*:}"
-  for par in "APP_IMAGE:elus360" "WORKER_IMAGE:elus360-worker" \
-             "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
+  for par in "WORKER_IMAGE:elus360-worker" "SCHEDULER_IMAGE:elus360-scheduler" "VOICE_AGENT_IMAGE:elus360-voice-agent"; do
     chave="${par%%:*}"; repo="${par##*:}"
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "${IMG_NS}/${repo}:${tag_app}" ]; then
       printf '  ✗ %s não acompanha a versão do app (%s): %s\n' "$chave" "$tag_app" \
@@ -2247,15 +2350,17 @@ STUB
       printf '     app numa versão e worker em outra é a matriz que ninguém testou.\n'; exit 1
     fi
   done
-  [[ "$tag_app" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { printf '  ✗ APP_IMAGE fora de release numérica ELUS360: %s\n' "$img_app"; exit 1; }
-  esperado="missing"
-  for chave in APP_PULL_POLICY WORKER_PULL_POLICY SCHEDULER_PULL_POLICY VOICE_AGENT_PULL_POLICY; do
+  case "$tag_app" in
+    latest|main|stable) esperado="always" ;;
+    *)                  esperado="missing" ;;
+  esac
+  for chave in APP_PULL_POLICY WORKER_PULL_POLICY SCHEDULER_PULL_POLICY; do
     if [ "$(valor_no_env "$VPS_PROJ/.env" "$chave")" != "$esperado" ]; then
       printf '  ✗ %s devia ser %s para a tag %s: %s\n' "$chave" "$esperado" "$tag_app" \
         "$(grep -E "^${chave}=" "$VPS_PROJ/.env" || echo '(ausente)')"; exit 1
     fi
   done
-  printf '  ✓ as quatro imagens ELUS360 usam a MESMA release (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
+  printf '  ✓ as quatro imagens ELUS saem na MESMA referência (%s), com pull_policy=%s\n' "$tag_app" "$esperado"
 
   # O .env VENCE o compose — e é por isso que este bloco existe. O compose já
   # pinava o WAHA, e o install gravava `WAHA_IMAGE=devlikeapro/waha` (sem tag,
@@ -2431,7 +2536,7 @@ STUB
   if [ "$(valor_no_env "$VPS_PROJ/.env" APP_PULL_POLICY)" = "always" ]; then
     printf '  ✗ tag imutável com pull_policy=always: o CRM só sobe se o GHCR estiver de pé\n'; exit 1
   fi
-  printf '  ✓ com release ELUS360 v1.10.0 publicada no dublê, as quatro imagens são pinadas\n'
+  printf '  ✓ release fictícia ELUS360 v1.10.0 tem quatro imagens pinadas, sem tag móvel\n'
 ) || fail=1
 rm -rf "$TMP_PIN"
 
@@ -2446,12 +2551,8 @@ echo "packaging: a tag do git não basta — as imagens têm de existir"
 # GHCR nasce privado, e repositório público não muda isso.
 TMP_PRIV="$(mktemp -d)"
 (
-  # O remoto daqui é um FIXTURE local, como no teste de pinagem acima, e não o
-  # default do repositório. Enquanto o default apontava para o upstream (com
-  # tags), este caso dependia de rede e passava por acidente; num fork sem tag
-  # publicada a sonda de versão volta vazia, o install cai em `latest` e o aviso
-  # de build local nunca sai — o teste reprovava o fork por acidente de ambiente,
-  # não por defeito. Com o fixture a asserção é determinística.
+  # Release e tag fictícias existem apenas na VPS descartável: a origem canônica
+  # do ELUS continua obrigatória e a API/Git são mockados por esta suite.
   origem="$TMP_PRIV/origem.git"
   git init --quiet --bare "$origem"
   (
@@ -2471,21 +2572,23 @@ case "$1" in
 esac
 exit 0
 STUB
+  export DUBLE_RELEASE_TAG=v1.0.0
   export DUBLE_GHCR=403          # pacote existe mas está PRIVADO
   saida="$(rodar install.sh --yes)"
-  unset DUBLE_GHCR
+  unset DUBLE_GHCR DUBLE_RELEASE_TAG
 
-  # Política ELUS360: privado/403 recusa SEM gerar .env nem compilar na VPS.
-  if ! grep -q "ELUS_DISTRIBUTION_NO_GO" <<<"$saida"; then
-    printf '  ✗ pacote privado não foi recusado pelo instalador ELUS360\n'; exit 1
+  if ! grep -q "ELUS_DISTRIBUTION_NO_GO.*pacote ELUS360 inexistente" <<<"$saida"; then
+    printf '  ✗ com as imagens inalcançáveis, o instalador não bloqueou antes de mutações\n'
+    printf '     a falha deve ocorrer antes de qualquer clone, Docker ou alteração de pin.\n'
+    exit 1
   fi
-  if grep -qE "^APP_IMAGE=" "$VPS_PROJ/.env"; then
-    printf '  ✗ pacote privado alterou o pin do app apesar da recusa\n'; exit 1
+  printf '  ✓ imagens inalcançáveis (403): recusa a instalação, sem fallback\n'
+
+  # Falha fechada: sem quatro imagens publicadas, nem mutação nem build local.
+  if grep -qE '^APP_IMAGE=' "$VPS_PROJ/.env" || [ -s "$VPS_LOG" ]; then
+    printf '  ✗ release privada avançou até gravação de imagem ou Docker\n'; exit 1
   fi
-  if grep -qE "(^| )build( |$)" "$VPS_LOG"; then
-    printf '  ✗ houve build local após 403 (proibido no ELUS360)\n'; exit 1
-  fi
-  printf '  ✓ imagens privadas 403 bloqueiam instalação antes de alterar pins ou construir\n'
+  printf '  ✓ recusou antes de imagens, Docker e qualquer build local\n'
 ) || fail=1
 rm -rf "$TMP_PRIV"
 
@@ -3770,7 +3873,7 @@ NEXT_PUBLIC_APP_URL='https://crm.exemplo.com.br'" 'linha do stdin que não é do
     n_val="$(grep -n 'caddy validate' "$VPS_LOG" | head -1 | cut -d: -f1)"
     # `up -d --no-deps app worker` é a subida do par VAPID recém-criado, antes da
     # decisão de versão: nomeia os dois serviços e não alcança o Caddy.
-    n_up="$(grep -nE '^compose .* up -d --no-build( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | grep -v -- '--no-deps app worker$' | head -1 | cut -d: -f1)"
+    n_up="$(grep -nE '^compose .* up -d( |$)' "$VPS_LOG" | grep -v -- '--force-recreate' | grep -v -- '--no-deps app worker$' | head -1 | cut -d: -f1)"
     falhou=""
     [ -n "$n_val" ] && [ -n "$n_up" ] && [ "$n_val" -lt "$n_up" ] \
       || { printf '    a conferência não veio antes do primeiro up -d (validate=%s up=%s)\n' "$n_val" "$n_up"; falhou=1; }

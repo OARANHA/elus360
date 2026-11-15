@@ -1,6 +1,6 @@
 ---
 name: elus360-contribuir
-description: 'Guia ELUS360 (fork do DeskcommCRM) para contribuir com código e PRs. Use para corrigir bugs, implementar recursos, criar migration, resolver conflitos, revisar CI vermelho, abrir ou atualizar PR e conferir testes. Mede branch e diff contra main, migrações, hooks, escopo, fragmentos de release, provas em tela e riscos antes do envio; não autoriza merge, release ou deploy do fork.'
+description: Guia ELUS360 para contribua no código com branch, testes, segurança, migrations e PR; preserve as instruções do repositório.
 metadata:
   publico: contribuidor externo, dev de agência, fork
   espelho-de: triagem/TRIAGEM.md

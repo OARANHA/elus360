@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Verify exact committed source without writing or committing
-        run: python3 scripts/elus360-v1102-sql-reconcile.py
+        run: python3 scripts/elus360-v1108-sql-reconcile.py
       - name: Verify integration manifest has no unresolved paths
         run: |
           python3 - <<'PY'

@@ -149,7 +149,8 @@ declare -F v_supabase_url >/dev/null
         # The published tag is vX.Y.Z; Docker image tags must be X.Y.Z.
         self.assertIn('VERSAO_ALVO="${ELUS_RELEASE_PREVALIDADA#v}"', source)
         self.assertNotIn('VERSAO_ALVO="$ELUS_RELEASE_PREVALIDADA"', source)
-        self.assertIn('|| ! trio_publicado "$VERSAO_ALVO"', source)
+        self.assertIn('if ! build_local_pedido && ! trio_publicado "$ELUS_RELEASE_NUMERICA"', source)
+        self.assertIn('construir_aqui_e_subir "$VERSAO_ALVO"', source)
         self.assertIn('git fetch --no-tags --quiet origin "refs/tags/v', source)
         self.assertIn('elus360_release_tag_comprovada "v${VERSAO_ALVO}"', source)
         self.assertNotIn('VERSAO_ALVO="$(ultima_release_estavel)"', source)
@@ -166,9 +167,13 @@ declare -F v_supabase_url >/dev/null
         self.assertIn("if ! subir_o_parque; then", update)
         self.assertIn("ELUS_DISTRIBUTION_NO_GO: pull incompleto", update)
         self.assertIn('dc up -d --no-build', common)
-        self.assertIn('return 1\n}', common[common.index('build_local_permitido()'):][:140])
-        self.assertIn("construir_aqui_e_subir()", common)
-        self.assertIn("imagens só podem vir do CI", common)
+        # Build local é uma exceção OPT-IN; não ocorre após falha de pull sem a flag.
+        self.assertIn('build_local_permitido() {\n  build_local_pedido\n}', common)
+        self.assertIn('case "${DESKCOMM_BUILD_LOCAL:-}" in', common)
+        self.assertIn('  1) return 0', common)
+        self.assertIn('construir_aqui_e_subir() {', common)
+        self.assertIn('if ! build_local_pedido; then', common)
+        self.assertIn('ELUS_DISTRIBUTION_NO_GO', common)
 
     def test_four_own_image_defaults_in_compose_and_env(self):
         compose = (ROOT / "docker-compose.prod.yml").read_text()
@@ -188,16 +193,19 @@ declare -F v_supabase_url >/dev/null
         self.assertNotIn("arm64]", workflow)
         self.assertNotIn("setup-qemu-action", workflow)
         self.assertIn('PLATFORMS = ("linux/amd64",)', guard_src)
-        self.assertIn("linux/amd64) ;;", manifest)
-        self.assertNotIn("linux/amd64|linux/arm64", manifest)
+        # CI smoke permanece AMD64, mas runtime aceita ARM64 se imagens existirem.
+        self.assertIn("linux/amd64|linux/arm64", manifest)
+        self.assertIn('aarch64|arm64) printf', manifest)
 
     def test_runtime_amd64_restriction_has_no_dangling_arm_reference(self):
         common = COMMON.read_text()
         manifest = (ROOT / "hostgator-setup-kit" / "_manifestos.sh").read_text()
-        self.assertNotIn("waha_amd64_conhecido_em_arm", common)
+        # A exceção ARM64 é opcional: selecionar WAHA apropriado exige manifesto da plataforma.
+        self.assertIn('imagem_waha_padrao_para_host()', common)
         self.assertIn('sistema="$(uname -s', common)
-        self.assertIn('manifesto_tem_plataforma "${img}:${versao}" linux/amd64 exclusivo', common)
-        self.assertIn('manifesto_tem_plataforma "$ref" "$plataforma" exclusivo', manifest)
+        self.assertIn('aarch64|arm64) printf', common)
+        self.assertIn('manifesto_tem_plataforma "$ref" "$plataforma" compativel', manifest)
+        self.assertIn('"$plataformas" = "$plataforma"', manifest)
         self.assertIn('modo="${3:-compativel}"', manifest)
         self.assertIn('[ "$sistema" = Linux ]', manifest)
 
