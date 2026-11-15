@@ -158,6 +158,17 @@ verificar_arquitetura_do_kit() {
   local arch sistema
   arch="$(uname -m 2>/dev/null || printf desconhecida)"
   sistema="$(uname -s 2>/dev/null || printf desconhecido)"
+  # Single-server ainda usa Supabase pinado com preflight OCI AMD64 fixo.
+  # Sem validação integral das imagens Supabase ARM64, não permitir que
+  # install-single-server.sh avance até Docker ou provisione imagens erradas.
+  # Os outros entrypoints continuam admitindo ARM64 condicionalmente a OCI.
+  if [ "${0##*/}" = install-single-server.sh ] && [ "$sistema" = Linux ]; then
+    case "$arch" in
+      aarch64|arm64)
+        printf 'ELUS_DISTRIBUTION_NO_GO: modo single-server ainda exige Linux amd64; Supabase ARM64 não homologado.\n' >&2
+        return 3 ;;
+    esac
+  fi
   [ "$sistema" = Linux ] && arquitetura_suportada_pelo_kit "$arch" && return 0
   printf 'ELUS_DISTRIBUTION_NO_GO: host %s/%s não suportado; exige Linux amd64 ou arm64.\n' "$sistema" "$arch" >&2
   return 3
