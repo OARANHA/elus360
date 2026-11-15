@@ -66,7 +66,9 @@ dono="$(linha 'recusar_projeto_de_outra_arvore || refuse')"
 fetch="$(linha 'git fetch --tags --quiet origin')"
 manifestos="$(linha 'ELUS_VEREDITO_IMAGENS=')"
 preflight="$(linha 'if ! preflight_plataforma_atualizacao "$TARGET_TAG"')"
-backup="$(linha 'if bash "$KIT_DIR/backup.sh"')"
+# O backup usa BACKUP_ESPERA_LOCK=300 antes de bash; conferir a chamada
+# efetiva sem atrelar a guarda ao prefixo opcional de ambiente.
+backup="$(linha 'bash "$KIT_DIR/backup.sh"; then')"
 test -n "$origem" && test -n "$release" && test -n "$dono" && test -n "$fetch" && test -n "$manifestos" && test -n "$preflight" && test -n "$backup" || { echo '✗ alguma etapa obrigatória desapareceu'; exit 1; }
 test "$origem" -lt "$release" && test "$release" -lt "$dono" && test "$dono" -lt "$fetch" &&
   test "$fetch" -lt "$manifestos" && test "$manifestos" -lt "$preflight" && test "$preflight" -lt "$backup" || { echo '✗ proteção de procedência/arquitetura ocorre após mutações'; exit 1; }
