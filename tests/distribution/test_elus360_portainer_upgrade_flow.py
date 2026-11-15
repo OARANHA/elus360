@@ -12,6 +12,7 @@ import copy
 import importlib.util
 import io
 import os
+import subprocess
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -143,6 +144,27 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
                                 with contextlib.redirect_stderr(io.StringIO()):
                                     rc = redeploy.main(["--release", TAG] + (["--execute"] if execute else []))
         return rc, calls
+
+    def test_contract_version_mismatch_blocks_before_remote_or_schema(self):
+        # v1.108.0 publicada com contrato antigo: a validacao da tag
+        # precisa impedir DDL antes de contactar GitHub, Supabase ou Portainer.
+        script = (ROOT / 'scripts/elus360-portainer-upgrade.sh').read_text(encoding='utf-8')
+        self.assertLess(script.index('contrato de esquema diverge da release'),
+                        script.index('reaplicar_baseline'))
+        self.assertLess(script.index('contrato de esquema diverge da release'),
+                        script.index('python3 scripts/elus360-portainer-redeploy.py --release'))
+        env = dict(os.environ)
+        env.update({
+            'ELUS360_SUPABASE_URL': SUPABASE_URL,
+            'ELUS360_SUPABASE_SERVICE_ROLE_KEY': 'fixture-only-not-real',
+            'ELUS360_PORTAINER_API_KEY': 'fixture-only-not-real',
+        })
+        result = subprocess.run(
+            ['bash', str(ROOT / 'scripts/elus360-portainer-upgrade.sh'), 'v1.108.0', '--execute'],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=10, check=False,
+        )
+        self.assertEqual(result.returncode, 3)
+        self.assertIn('contrato de esquema diverge da release; sem DDL ou redeploy', result.stderr)
 
     def test_workflow_validates_release_before_untrusted_tag_checkout(self):
         """An attacker-supplied ref cannot execute tagged code with deploy secrets."""
