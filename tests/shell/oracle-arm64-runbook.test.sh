@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Evita que o runbook ARM64 histórico volte a oferecer instruções inválidas.
+# Mantém o runbook historico sem comandos operacionais; a decisao superveniente da ADR-0007 prevalece.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 doc="$root/docs/runbooks/oracle-arm64.md"
@@ -12,7 +12,7 @@ done
   echo '✗ runbook ARM64 voltou a ensinar instalação' >&2; exit 1;
 }
 source "$root/hostgator-setup-kit/_manifestos.sh"
-if plataforma_oci_do_host aarch64 Linux > /dev/null 2>&1; then echo '✗ helper OCI aceitou ARM64'; exit 1; fi
+[ "$(plataforma_oci_do_host aarch64 Linux)" = linux/arm64 ] || { echo '✗ helper OCI recusou ARM64 condicional'; exit 1; }
 if plataforma_oci_do_host x86_64 Darwin > /dev/null 2>&1; then echo '✗ helper OCI aceitou macOS'; exit 1; fi
 [ "$(plataforma_oci_do_host x86_64 Linux)" = linux/amd64 ]
-echo '✓ runbook ARM64 desativado, Linux AMD64 permanece suportado'
+echo '✓ runbook historico sem receita, helper admite Linux AMD64/ARM64 condicional'
