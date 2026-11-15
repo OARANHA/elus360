@@ -49,14 +49,15 @@ expect_fail() {
 }
 
 expect_ok 'host amd64' test "$(plataforma_oci_do_host x86_64)" = linux/amd64
-expect_fail 'host ARM64 proibido' ELUS_DISTRIBUTION_NO_GO plataforma_oci_do_host aarch64
+expect_ok 'host ARM64 condicional' test "$(plataforma_oci_do_host aarch64)" = linux/arm64
 expect_fail 'unknown host' riscv64 plataforma_oci_do_host riscv64
 
 export MOCK_RAW="$both" MOCK_FORMAT=$'linux/amd64\nlinux/arm64\nunknown/unknown'
 expect_ok 'index amd64' manifesto_tem_plataforma example/app:1 linux/amd64
-expect_fail 'index ARM64 proibido mesmo em imagem multiarch' inválida manifesto_tem_plataforma example/app:1 linux/arm64
+expect_ok 'index multiarch aceita ARM64 declarado' manifesto_tem_plataforma example/app:1 linux/arm64
 expect_fail 'imagem própria multiarch não cumpre AMD64 exclusivo' ELUS_DISTRIBUTION_NO_GO manifesto_tem_plataforma example/app:1 linux/amd64 exclusivo
 export MOCK_RAW="$amd" MOCK_FORMAT='linux/amd64'
+expect_fail 'imagem AMD64 nao oferece ARM64' linux/arm64 manifesto_tem_plataforma example/app:1 linux/arm64
 expect_ok 'amd-only image satisfaz modo exclusivo' manifesto_tem_plataforma example/app:1 linux/amd64 exclusivo
 export MOCK_RAW="$arm" MOCK_FORMAT='linux/arm64'
 expect_fail 'arm-only image on AMD' linux/amd64 manifesto_tem_plataforma example/app:1 linux/amd64
@@ -86,3 +87,5 @@ unset MOCK_MISSING_IMAGE
 export MOCK_RAW="$amd" MOCK_FORMAT='linux/amd64'
 expect_ok 'all four match' preflight_imagens_crm 1.102.0 linux/amd64
 expect_ok 'all four image tags publicly reachable' trio_publicado 1.102.0
+export MOCK_RAW="$both" MOCK_FORMAT=$'linux/amd64\nlinux/arm64'
+expect_ok 'four image indexes contain ARM64' preflight_imagens_crm 1.102.0 linux/arm64
