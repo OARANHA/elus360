@@ -1296,6 +1296,13 @@ preflight_atualizacao() {  # preflight_atualizacao <versão alvo>
 #
 # → 0 = pode construir aqui.
 build_local_pedido() {
+  # Os entrypoints oficiais ELUS360 so instalam imagens publicadas.
+  # O override de build nao deve dispensar prova de release/GHCR/OCI,
+  # nem acionar compilacao pesada na VPS de clientes.
+  case "${0##*/}" in
+    install.sh|update.sh) return 1 ;;
+  esac
+  # Preserva o contrato do helper para outras ferramentas que o reutilizam.
   case "${DESKCOMM_BUILD_LOCAL:-}" in
     1) return 0 ;;
     *) return 1 ;;
