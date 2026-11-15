@@ -282,6 +282,12 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
     condicao: "github.repository == 'OARANHA/elus360' && github.ref == 'refs/heads/main'",
     efeito: "Confere artefatos e restore em runner efêmero pós-release; pular o gate não comprova homologação.",
   },
+  "elus360-homologacao-integrada.yml::laboratorio": {
+    condicao: "github.repository == 'OARANHA/elus360'",
+    efeito:
+      "Executa o upgrade de imagens da v1.102.0 para a v1.108.1 com Supabase local, " +
+      "WAHA e Redis em runner descartável; sem ele não há prova integrada do upgrade.",
+  },
   "build-elus360.yml::verify-distribution": {
     condicao: "github.repository == 'OARANHA/elus360' && github.event_name == 'pull_request'",
     efeito: "Valida procedência, rollback e AMD64 antes dos builds; um skipped anula a prova.",

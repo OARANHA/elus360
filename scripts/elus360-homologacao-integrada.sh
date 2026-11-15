@@ -9,7 +9,8 @@ release=v1.108.1
 previous=v1.102.0
 release_sha=3d53429a536c2dc585e7c676ef79b4a280871dfd
 previous_sha=2f7f99196183df40524daf2e24203d2a3b35676d
-ns=ghcr.io/oaranha
+source hostgator-setup-kit/_common.sh
+ns="$IMG_NS"
 net=elus-hml
 db=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 env_file="$RUNNER_TEMP/elus-hml.env"
