@@ -1,0 +1,38 @@
+# Gate isolado das imagens publicadas. Nenhum secret de producao.
+name: ELUS360 — homologacao integrada de imagens publicadas
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/elus360-homologacao-integrada.yml"
+      - "scripts/elus360-homologacao-integrada.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  laboratorio:
+    if: github.repository == 'OARANHA/elus360'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.117.0
+      - name: Sintaxe e isolamento do laboratorio
+        run: |
+          set -euo pipefail
+          bash -n scripts/elus360-homologacao-integrada.sh
+          test ! -e .env
+          test ! -e .env.local
+          test ! -e .env.production
+      - name: Upgrade integrado 1.102.0 para 1.108.1, sem producao
+        shell: bash
+        timeout-minutes: 50
+        run: bash scripts/elus360-homologacao-integrada.sh
