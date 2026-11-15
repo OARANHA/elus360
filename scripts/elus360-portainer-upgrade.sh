@@ -14,6 +14,23 @@ MODE="${2:---preflight}"
 [ "$(uname -s)" = Linux ] && [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] ||
   no_go 'somente Linux AMD64'
 [ -s supabase/baseline.sql ] || no_go 'baseline do fork ausente'
+
+# Fail-closed antes de qualquer DDL e do preflight remoto: contrato deve
+# corresponder exatamente a tag. v1.108.0 veio com contrato v1.102.1.
+if ! python3 - "$TAG" <<'PY'
+import json
+import sys
+from pathlib import Path
+try:
+    contract = json.loads(Path('deploy/elus360-schema-contract.json').read_text(encoding='utf-8'))
+    if contract.get('schema_version') != 1 or contract.get('release') != sys.argv[1]:
+        sys.exit(1)
+except (OSError, ValueError):
+    sys.exit(1)
+PY
+then
+  no_go 'contrato de esquema diverge da release; sem DDL ou redeploy'
+fi
 [ -n "${ELUS360_SUPABASE_URL:-}" ] && [ -n "${ELUS360_SUPABASE_SERVICE_ROLE_KEY:-}" ] ||
   no_go 'segredos do gate ausentes'
 [ -n "${ELUS360_PORTAINER_API_KEY:-}" ] || no_go 'token Portainer ausente'
