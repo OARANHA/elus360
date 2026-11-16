@@ -63,4 +63,6 @@ jobs:
       - name: Upgrade integrado 1.102.0 para 1.108.1, sem producao
         shell: bash
         timeout-minutes: 50
+        env:
+          GH_TOKEN: ${{ github.token }} # apenas contents:read, sem secrets de producao
         run: bash scripts/elus360-homologacao-integrada.sh

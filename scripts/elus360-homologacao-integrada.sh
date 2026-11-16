@@ -39,8 +39,14 @@ git fetch --no-tags origin "refs/tags/$previous:refs/tags/$previous" "refs/tags/
 [ "$(git rev-list -n1 "$previous")" = "$previous_sha" ] || no_go 'tag anterior divergente'
 [ "$(git rev-list -n1 "$release")" = "$release_sha" ] || no_go 'tag alvo divergente'
 
-notes="$(curl --fail --silent --show-error --retry 2 "https://api.github.com/repos/OARANHA/elus360/releases/tags/$release")" ||
-  no_go 'release oficial indisponivel'
+# Token efemero de contents:read, nao inclui credenciais de producao.
+[ -n "${GH_TOKEN:-}" ] || no_go 'token de leitura do GitHub ausente no laboratorio'
+notes="$(curl --fail --silent --show-error --retry 2 \
+  -H "Authorization: Bearer $GH_TOKEN" \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  "https://api.github.com/repos/OARANHA/elus360/releases/tags/$release")" ||
+  no_go 'release oficial indisponivel (API autenticada)'
 printf '%s' "$notes" | jq -e --arg t "$release" --arg s "$release_sha" \
   '.tag_name == $t and .target_commitish == $s and .draft == false and .prerelease == false and (.published_at != null)' >/dev/null ||
   no_go 'release nao publicada ou fora do SHA fixado'

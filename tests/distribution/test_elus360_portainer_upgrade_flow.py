@@ -229,6 +229,23 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         self.assertIn("backup restauravel verificado e obrigatorio", result.stderr)
         self.assertNotIn("ELUS360_SCHEMA_GREEN", result.stdout)
 
+    def test_integrated_lab_uses_read_only_github_token(self):
+        script = (ROOT / "scripts/elus360-homologacao-integrada.sh").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/elus360-homologacao-integrada.yml").read_text(encoding="utf-8")
+        self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn('Authorization: Bearer $GH_TOKEN', script)
+        self.assertIn("token de leitura do GitHub ausente no laboratorio", script)
+        self.assertIn(".target_commitish == $s", script)
+        self.assertIn("digest nao coincide com release oficial", script)
+
+    def test_e2e_preflights_supabase_port_without_killing_other_processes(self):
+        workflow = (ROOT / ".github/workflows/e2e.yml").read_text(encoding="utf-8")
+        self.assertIn('sockets="$(ss -Htan)"', workflow)
+        self.assertIn("$4 ~ /:54322$/", workflow)
+        self.assertIn("porta ocupada apos 60s", workflow)
+        self.assertIn("supabase start -x studio,postgres-meta", workflow)
+
     def test_happy_path_upgrades_from_previous_sha_and_preserves_secrets(self):
         rc, gates = self.run_controller()
         self.assertEqual(rc, 0)
