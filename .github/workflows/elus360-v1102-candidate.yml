@@ -82,10 +82,17 @@ jobs:
       - run: pnpm lint
       - run: pnpm lint:channels
 
-  unit:
-    name: Full unit suite
+  # Mesma cobertura do CI geral: seis partes do projeto "produto" e uma
+  # para "cercas". A suite monolitica atingiu 45 min no run 43913188778.
+  # fail-fast false garante que todos os shards informem seu resultado.
+  unit-shards:
+    name: Full unit suite - parte ${{ matrix.parte }}/7
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,7 +100,28 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/preparar-node
         timeout-minutes: 5
-      - run: pnpm test:unit
+      - name: Unit tests - produto (parte ${{ matrix.parte }}/6)
+        if: matrix.parte != 7
+        run: pnpm test:unit --project produto --shard=${{ matrix.parte }}/6
+      - name: Unit tests - cercas estruturais
+        if: matrix.parte == 7
+        run: pnpm test:unit --project cercas
+
+  # Preserva o check publico Full unit suite e recusa qualquer parte ausente,
+  # cancelada, skipped ou falha. Nao eleva o timeout monolitico nem omite testes.
+  unit:
+    name: Full unit suite
+    needs: [unit-shards]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Exigir sete partes aprovadas
+        env:
+          SHARDS_RESULT: ${{ needs.unit-shards.result }}
+        run: |
+          echo "unit-shards=$SHARDS_RESULT"
+          test "$SHARDS_RESULT" = success
 
   governance:
     name: ELUS governance and migration collision

@@ -42,6 +42,23 @@ class IntegratedCandidate(unittest.TestCase):
         candidate = (ROOT / ".github/workflows/elus360-v1102-candidate.yml").read_text()
         self.assertIn("pull_request:", candidate)
 
+    def test_candidate_unit_suite_is_bounded_complete_and_fail_closed(self):
+        candidate = (ROOT / ".github/workflows/elus360-v1102-candidate.yml").read_text()
+        # O run 43913188778 foi cancelado ao atingir os 45 minutos da suíte
+        # monolítica; reutilizar a partição comprovada do CI principal.
+        self.assertIn("unit-shards:", candidate)
+        self.assertIn("parte: [1, 2, 3, 4, 5, 6, 7]", candidate)
+        self.assertIn("fail-fast: false", candidate)
+        self.assertIn("if: matrix.parte != 7", candidate)
+        self.assertIn("if: matrix.parte == 7", candidate)
+        self.assertIn("pnpm test:unit --project produto --shard=${{ matrix.parte }}/6", candidate)
+        self.assertIn("pnpm test:unit --project cercas", candidate)
+        # Check estável + agregação que exige SUCCESS de TODOS os shards.
+        self.assertIn("unit:\n    name: Full unit suite\n    needs: [unit-shards]", candidate)
+        self.assertIn("SHARDS_RESULT: ${{ needs.unit-shards.result }}", candidate)
+        self.assertIn('test "$SHARDS_RESULT" = success', candidate)
+        self.assertNotIn("timeout-minutes: 45", candidate)
+
     def test_merged_bash_syntax(self):
         for name in ("_common.sh", "_manifestos.sh", "install.sh", "update.sh", "agent.sh"):
             with self.subTest(script=name):
