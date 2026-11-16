@@ -22,6 +22,34 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Diagnosticar HTTP publico do controller (sem credenciais)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from urllib.error import HTTPError
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          endpoints = [
+              ("github-release", "https://api.github.com/repos/OARANHA/elus360/releases/tags/v1.108.1"),
+              ("github-compare", "https://api.github.com/repos/OARANHA/elus360/compare/main...v1.108.1"),
+              ("github-main", "https://api.github.com/repos/OARANHA/elus360/branches/main"),
+              ("github-tag", "https://api.github.com/repos/OARANHA/elus360/git/ref/tags/v1.108.1"),
+              ("portainer-status", "https://ops-vigia.wandora.com.br/api/status"),
+              ("portainer-stacks-anonymous", "https://ops-vigia.wandora.com.br/api/stacks/5"),
+          ]
+          for label, url in endpoints:
+              try:
+                  with build_opener(NoRedirect()).open(
+                      Request(url, headers={"Accept": "application/json"}), timeout=15
+                  ) as resp:
+                      print(f"ELUS_HTTP_PROBE {label} HTTP {resp.status}")
+              except HTTPError as exc:
+                  print(f"ELUS_HTTP_PROBE {label} HTTP {exc.code}")
+              except Exception:
+                  print(f"ELUS_HTTP_PROBE {label} TRANSPORT_ERROR")
+          PY
       - uses: supabase/setup-cli@v3
         with:
           version: 2.117.0
