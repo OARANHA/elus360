@@ -97,3 +97,35 @@ descartáveis nem ao aceite funcional na instalação. O workflow existente
 sintético, mas declara expressamente que não verifica a migração completa de
 Supabase/Portainer. Permanece **NO-GO para produção** sem homologação integrada
 e autorização de deploy separada.
+
+## Correção do transporte — 16/11/2026 (proposta para release posterior)
+
+O operador confirmou que o transporte oficial de Portainer Vigia é a capacidade
+existente **Remote-Ops-MCP**, conexão nomeada `vigia-elus`. A rota alternativa
+`GitHub Actions -> HTTPS direto ao Portainer` introduzida no controlador da
+PR #27 recebeu HTTP 403 até em `/api/status` nos runners externos, embora
+o MCP e o operador possam acessar a stack. Não afrouxar firewall/WAF para
+contornar uma mudança indevida de transporte.
+
+O workflow `.github/workflows/elus360-portainer-upgrade.yml` agora executa
+apenas `bash scripts/elus360-portainer-upgrade.sh <release> --schema-only`,
+após validar a release oficial e o SHA de `main` **antes** do checkout com
+segredos. A reconciliação do `supabase/baseline.sql`, o reload PostgREST e o
+schema gate ocorrem no executor protegido; **nenhuma API do Portainer é
+chamada pelo workflow** e o runner não recebe chave de Portainer.
+
+Depois de `ELUS360_SCHEMA_GREEN`, a implantação continua como **gate
+administrativo independente**, exclusivamente por
+`Remote-Ops-MCP.portainer_stack_update_env(connection='vigia-elus', stack_id=5,
+confirm_stack_name='elus', changes=[APP_IMAGE, WORKER_IMAGE, SCHEDULER_IMAGE],
+replace_all=false, prune=false)`. Antes de executar, capturar em canal seguro
+as referências/digests anteriores para rollback, verificar release/SHA,
+conferir `GitConfig` e variáveis da stack sem alteração concorrente, preservar
+segredos, obter autorização administrativa e verificar resultado sem repetir
+a mutação após timeout. Após a implantação, conferir contêineres e
+`/api/v1/health` com SHA exato da release. **GREEN do schema não é deploy.**
+
+As alterações de script nesta PR não modificam a tag imutável v1.108.1.
+O novo workflow requer merge, testes e nova release com tag==main
+antes de poder executar com os segredos de produção. O `--execute` legado
+continua fora do workflow oficial e não deve ser usado para o ambiente Vigia.

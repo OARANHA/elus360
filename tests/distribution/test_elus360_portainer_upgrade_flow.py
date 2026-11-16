@@ -171,7 +171,7 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
         before = workflow.index("name: Validar release e SHA antes de executar codigo da tag")
         checkout = workflow.index("ref: ${{ inputs.release }}")
-        privileged = workflow.index("name: Reconciliar esquema, validar contrato, implantar e conferir runtime")
+        privileged = workflow.index("name: Reconciliar esquema e validar contrato; sem deploy Portainer")
         self.assertLess(before, checkout)
         self.assertLess(checkout, privileged)
         preflight = workflow[before:checkout]
@@ -183,6 +183,26 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         self.assertIn('test "$tag_type" = commit', preflight)
         self.assertNotIn("ELUS360_SUPABASE_SERVICE_ROLE_KEY", preflight)
         self.assertNotIn("ELUS360_PORTAINER_API_KEY", preflight)
+
+    def test_production_workflow_delegates_portainer_to_remote_ops_mcp(self):
+        workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
+        script = (ROOT / "scripts/elus360-portainer-upgrade.sh").read_text(encoding="utf-8")
+        self.assertIn('bash scripts/elus360-portainer-upgrade.sh "$RELEASE" --schema-only', workflow)
+        self.assertNotIn('bash scripts/elus360-portainer-upgrade.sh "$RELEASE" --execute', workflow)
+        self.assertNotIn("ELUS360_PORTAINER_API_KEY: ${{ secrets.", workflow)
+        self.assertIn('if [ "$MODE" = --schema-only ]; then', script)
+        self.assertIn("ELUS360_SCHEMA_GREEN:", script)
+        self.assertIn("nenhuma imagem ou stack modificada", script)
+        # A tag divergente falha ANTES de qualquer verificacao, DDL ou acesso Portainer.
+        env = dict(os.environ)
+        env.pop("ELUS360_PORTAINER_API_KEY", None)
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/elus360-portainer-upgrade.sh"),
+             "v1.108.0", "--schema-only"],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=10, check=False
+        )
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("contrato de esquema diverge da release", result.stderr)
 
     def test_happy_path_upgrades_from_previous_sha_and_preserves_secrets(self):
         rc, gates = self.run_controller()

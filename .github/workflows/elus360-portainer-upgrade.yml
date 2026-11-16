@@ -1,6 +1,6 @@
-# Fork-only hosted Supabase + Portainer Vigia release upgrade.
+# Fork-only hosted Supabase schema reconciliation. Portainer via Remote-Ops-MCP only.
 # NO automatic push/tag trigger, NO local builds on the VPS.
-name: ELUS360 — upgrade Portainer com schema antes das imagens (manual)
+name: ELUS360 — reconciliar schema antes do deploy MCP (manual)
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
         type: string
         required: true
       authorization:
-        description: 'Digite DEPLOY-ELUS360 para autorizar banco + Portainer'
+        description: 'Digite DEPLOY-ELUS360 para autorizar reconciliacao do banco; Portainer exige gate MCP separado'
         type: string
         required: true
       backup_policy:
@@ -94,16 +94,15 @@ jobs:
           test -s supabase/baseline.sql
           bash -n scripts/elus360-portainer-upgrade.sh
           python3 -m unittest discover -s tests/distribution -p 'test_elus360_portainer_*.py' -v
-      - name: Reconciliar esquema, validar contrato, implantar e conferir runtime
+      - name: Reconciliar esquema e validar contrato; sem deploy Portainer
         env:
           ELUS360_SUPABASE_URL: ${{ secrets.ELUS360_SUPABASE_URL }}
           ELUS360_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.ELUS360_SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_ADMIN_URL: ${{ secrets.ELUS360_SUPABASE_DB_ADMIN_URL }}
-          ELUS360_PORTAINER_API_KEY: ${{ secrets.ELUS360_PORTAINER_API_KEY }}
           ELUS360_BACKUP_POLICY: ${{ inputs.backup_policy }}
           ELUS360_DEPLOY_APPROVAL: DEPLOY-ELUS360:${{ inputs.release }}
           RELEASE: ${{ inputs.release }}
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/elus360-portainer-upgrade.sh "$RELEASE" --execute
+          bash scripts/elus360-portainer-upgrade.sh "$RELEASE" --schema-only
