@@ -76,8 +76,9 @@ não usa as imagens do Deskcomm upstream nem modifica a stack por outro caminho.
 **Limites de aceite:** O fluxo **não é transação atômica** entre banco, Git e
 Portainer. A política `ELUS360_BACKUP_POLICY=verified` é uma declaração do
 operador, **não uma verificação automática de backup**; não confundir confirmação
-textual com arquivo recuperável. A opção `waived` requer decisão explícita
-e não implica que a reversão de schema seja segura. Antes de implantar, confirmar
+textual com arquivo recuperável. A opção `waived` foi removida: o workflow
+recusa renúncia ao backup. Antes de executar DDL, exigir evidência de restauração
+real em banco isolado, plano de retorno e inventário de schema; confirmar
 cópia recuperável, esquema compatível com rollback de imagem, imagens/digests
 anteriores e sequência de parada segura. Após um erro de rede na atualização,
 **nunca repetir a mutação sem reconciliar a stack e o runtime**.

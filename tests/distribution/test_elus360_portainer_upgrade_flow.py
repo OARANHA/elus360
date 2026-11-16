@@ -204,6 +204,31 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn("contrato de esquema diverge da release", result.stderr)
 
+    def test_schema_only_rejects_unverified_backup_policy_before_ddl(self):
+        workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
+        self.assertIn("options: [verified]", workflow)
+        self.assertNotIn("options: [verified, waived]", workflow)
+        self.assertNotIn("waiver_confirmation:", workflow)
+        self.assertNotIn("DISPENSO-BACKUP", workflow)
+        # Um valor legado/forjado nao pode liberar um script com DDL. A URL e
+        # a chave sao dubles locais; nenhuma requisicao ocorre antes da guarda.
+        env = dict(os.environ)
+        env.update({
+            "ELUS360_SUPABASE_URL": "https://example.supabase.co",
+            "ELUS360_SUPABASE_SERVICE_ROLE_KEY": "fixture-not-a-secret",
+            "ELUS360_DEPLOY_APPROVAL": "DEPLOY-ELUS360:v1.108.1",
+            "ELUS360_BACKUP_POLICY": "waived",
+        })
+        env.pop("ELUS360_PORTAINER_API_KEY", None)
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/elus360-portainer-upgrade.sh"),
+             "v1.108.1", "--schema-only"],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=10, check=False,
+        )
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("backup restauravel verificado e obrigatorio", result.stderr)
+        self.assertNotIn("ELUS360_SCHEMA_GREEN", result.stdout)
+
     def test_happy_path_upgrades_from_previous_sha_and_preserves_secrets(self):
         rc, gates = self.run_controller()
         self.assertEqual(rc, 0)

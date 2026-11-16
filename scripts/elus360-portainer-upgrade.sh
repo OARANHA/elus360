@@ -51,11 +51,10 @@ fi
 
 [ "${ELUS360_DEPLOY_APPROVAL:-}" = "DEPLOY-ELUS360:$TAG" ] ||
   no_go 'aprovacao especifica da release ausente'
-# No silent backup bypass. Operational owner must explicitly acknowledge policy.
-case "${ELUS360_BACKUP_POLICY:-}" in
-  verified|waived) ;;
-  *) no_go 'defina ELUS360_BACKUP_POLICY=verified ou waived explicitamente' ;;
-esac
+# Backup real e restauracao isolada sao gate operacional obrigatorio.
+# A flag verified e atestado do operador, NAO comprovacao automatica do restore.
+[ "${ELUS360_BACKUP_POLICY:-}" = verified ] ||
+  no_go 'backup restauravel verificado e obrigatorio; waived proibido'
 [ -n "${SUPABASE_DB_ADMIN_URL:-}" ] || no_go 'admin URL de esquema ausente'
 command -v docker >/dev/null 2>&1 || no_go 'docker requerido para psql efemero'
 # The database host must belong to the same Supabase project as the API gate.

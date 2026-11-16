@@ -13,14 +13,10 @@ on:
         type: string
         required: true
       backup_policy:
-        description: 'Decisão do operador sobre backup: verified ou waived'
+        description: 'Backup com restauração comprovada em ambiente isolado; evidência operacional obrigatória'
         type: choice
-        options: [verified, waived]
+        options: [verified]
         required: true
-      waiver_confirmation:
-        description: 'Se waived, digite DISPENSO-BACKUP; caso contrário deixe vazio'
-        type: string
-        required: false
 
 permissions:
   contents: read
@@ -40,13 +36,12 @@ jobs:
         env:
           TAG: ${{ inputs.release }}
           POLICY: ${{ inputs.backup_policy }}
-          WAIVER: ${{ inputs.waiver_confirmation }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::Release invalida'; exit 3; }
-          if [ "$POLICY" = waived ] && [ "$WAIVER" != DISPENSO-BACKUP ]; then
-            echo '::error::Renuncia ao backup exige texto exato'; exit 3
+          if [ "$POLICY" != verified ]; then
+            echo '::error::Backup restauravel verificado e obrigatorio antes de DDL'; exit 3
           fi
       # Launch logic is trusted from protected main. NEVER execute a script
       # from the caller-provided tag before proving it resolves to this main.
