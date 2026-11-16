@@ -50,7 +50,7 @@ vi.mock("@/hooks/inbox/useConversationCounts", () => ({
 }));
 
 const VALUE: InboxFiltersValue = { tab: "unassigned", search: "", onlyUnread: false };
-const GATILHO = "Filtrar por tag";
+const GATILHO = /^Filtrar por tag: /;
 
 /**
  * ⚠️ O GATILHO DEIXOU DE SER UM `Select` (#1274) — e com ele mudou o PAPEL que a
