@@ -172,3 +172,54 @@ continua separado via Remote-Ops-MCP.
 válida com `main == tag`; não retaggear `v1.108.1` e não usar a PR para
 declarar que o gate de uma release imutável foi retroativamente modificado.
 
+
+## Inventário de catálogo read-only — PR #42 (16/11/2026)
+
+Nova consulta versionada: `scripts/elus360-schema-catalog-readonly.sql`. Ela
+retorna 32 presenças verificáveis do runtime de **contatos com vários
+telefones** e **setores/filas**: tabelas, colunas, assinaturas de funções,
+policies, referência da policy `conversations_select` ao escopo de setor,
+triggers habilitados, FK validada, PK, índices válidos e RLS habilitada.
+Não consulta registros de tenants e não contém DDL. Execute como consulta
+no SQL Editor autorizado ou em um cliente PostgreSQL **de somente leitura**.
+Resultado `present=false` significa **NO-GO** para habilitar o respectivo
+módulo; resultado inteiro `true` ainda é insuficiente para aceitar deploy.
+
+**Evidência real de 16/11/2026:** Supabase hospedado com 57 migrations no
+registro; os nomes oficiais `0801`, `9043`, `9062` e `9214` não figuravam
+no histórico. Inventário executado via consulta SELECT em `pg_catalog`:
+**3/32 presentes e 29/32 ausentes**. Presentes: as tabelas
+`public.contacts`, `public.conversations` e a *assinatura* de
+`fn_channel_routing_claim(uuid,uuid,uuid,uuid,jsonb,text)`. A função pode ser
+a versão anterior sem guarda de setor; a simples existência **não prova
+compatibilidade semântica**. O registro de migrations também não comprova,
+sozinho, ausência ou presença de DDL porque instalações por baseline não
+reconstituem necessariamente o ledger.
+
+**Dependências e riscos antes de reconciliação:**
+- `0801` cria setores, membros, FKs compostas, RLS e privilégios; exige as
+  chaves existentes de `organizations` e `user_organizations`.
+- `9043` cria telefones extras, índices de unicidade, triggers e funções; faz
+  backfill de `contacts` consultando `messages`/`channel_sessions`,
+  desligando temporariamente o trigger de `updated_at` dentro de um bloco.
+  Pode exigir análise de conflitos de números e bloqueios de escrita.
+- `9048` e `9241` dependem dos telefones extras; `9062` depende de
+  `0801` e troca a PK de membros para permitir vários setores, acrescentando
+  FK composta e substituindo `fn_channel_routing_claim`.
+- `9084` acrescenta cor dos setores; `9214` depende de `9062` e substitui
+  `conversations_select` (RLS), o que exige cenários negativos cross-tenant
+  e equivalência funcional com a policy vigente. **Não reaplicar isoladamente
+  apenas a coluna ou a última policy**.
+- Há outras divergências entre o baseline completo e o catálogo hospedado;
+  este inventário **não** significa que as sete migrations acima constituam
+  o plano de upgrade completo. Inspecionar a cadeia total, conflitos de objetos,
+  segurança/permissions, custo operacional de DDL e dados em clone de staging.
+
+**Critério de promoção:** prova de backup e restauração no ponto de corte,
+drift reconciliado por migrations oficiais testadas em clone isolado, funções
+e RLS semanticamente verificadas, contrato PostgREST ampliado GREEN, imagens
+publicadas para uma **nova tag igual ao SHA da main**, aprovação de operação
+e deploy via Remote-Ops-MCP. `--schema-only` executa DDL; nunca usá-lo
+como substituto deste SELECT. Nenhuma alteração foi aplicada no banco nesta
+auditoria.
+
