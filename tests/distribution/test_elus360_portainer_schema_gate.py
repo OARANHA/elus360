@@ -31,6 +31,35 @@ class GateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             gate.validate_contract(config, "v1.102.1")
 
+    def test_release_requires_phone_and_sector_runtime_dependencies(self):
+        contract = json.loads((ROOT / "deploy" / "elus360-schema-contract.json").read_text())
+        tables = gate.validate_contract(contract, "v1.108.1")
+        self.assertEqual(len(tables), 11)
+        self.assertTrue({"phone_type", "phone_whatsapp"} <= set(tables["contacts"]))
+        self.assertIn("sector_id", tables["conversations"])
+        self.assertTrue({"id", "organization_id", "contact_id", "phone_number",
+                         "tipo", "whatsapp", "wa_lid"} <= set(tables["contact_phones"]))
+        self.assertTrue({"id", "organization_id", "name", "schedule"}
+                        <= set(tables["attendant_sectors"]))
+        self.assertTrue({"organization_id", "user_id", "sector_id"}
+                        <= set(tables["attendant_sector_members"]))
+
+    def test_absent_phone_and_sector_tables_fail_closed_without_rows(self):
+        contract = json.loads((ROOT / "deploy" / "elus360-schema-contract.json").read_text())
+        tables = gate.validate_contract(contract, "v1.108.1")
+        selected = []
+        def opener(req, timeout):
+            parsed = urlsplit(req.full_url)
+            selected.append((parsed.path, parse_qs(parsed.query)))
+            if parsed.path in ("/rest/v1/contact_phones", "/rest/v1/attendant_sectors"):
+                raise HTTPError(req.full_url, 404, "module not installed", {}, None)
+            return FakeResponse()
+        failures = gate.check_schema("https://abcdefghijklmnopqrst.supabase.co", "fake", tables, opener)
+        self.assertEqual(failures, ["contact_phones: HTTP 404", "attendant_sectors: HTTP 404"])
+        self.assertEqual(len(selected), len(tables))
+        self.assertTrue(all(req["limit"] == ["0"] for _, req in selected))
+        self.assertFalse(any("fake" in repr(req) for req in selected))
+
     def test_zero_rows_and_no_secret_in_url(self):
         urls = []
         def opener(req, timeout):

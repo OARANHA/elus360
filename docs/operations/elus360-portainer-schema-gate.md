@@ -130,3 +130,45 @@ As alterações de script nesta PR não modificam a tag imutável v1.108.1.
 O novo workflow requer merge, testes e nova release com tag==main
 antes de poder executar com os segredos de produção. O `--execute` legado
 continua fora do workflow oficial e não deve ser usado para o ambiente Vigia.
+
+## Ampliação do contrato de runtime — PR #42 (16/11/2026)
+
+O gate antigo da tag imutável `v1.108.1` conferiu apenas **8 tabelas /
+43 colunas** e passou no Supabase hospedado. Isso **não era equivalência ao
+baseline**: uma verificação de catálogo identificou, no mesmo banco, ausência
+dos campos `contacts.phone_type`, `contacts.phone_whatsapp` e
+`conversations.sector_id`; das tabelas `contact_phones`,
+`attendant_sectors` e `attendant_sector_members`; e das funções de
+telefone e escopo de setor. A API da release já usa essas estruturas.
+
+A PR #42 amplia o manifesto read-only para **11 tabelas e 60 colunas**,
+cobrando os campos efetivamente usados pelos módulos (inclui
+`attendant_sectors.schedule`). O verificador continua utilizando PostgREST
+`select=...&limit=0` e não lê dados de clientes. A ausência de tabela/coluna
+retorna `SCHEMA_NO_GO`; um `GREEN` ampliado ainda não certifica
+functions/policies/triggers/grants, dados migrados ou rollback de DDL.
+
+As definições oficiais já existem nas migrations do fork:
+- `20261029091541_9043_ficha_com_varios_telefones.sql` — campos,
+  tabela, constraints, triggers e funções dos telefones. Inclui backfill,
+  exigindo análise antes de qualquer execução em base populada.
+- `20261026220000_0801_setores_de_atendimento.sql` — tabelas,
+  FKs, policies e grants dos setores.
+- `20261031180000_9062_fila_de_atendimento_destino_e_horario.sql` —
+  `conversations.sector_id`, FK composta e agenda; depende de 0801.
+- `20261105191500_9214_conversas_do_setor.sql` — ampliação das políticas
+  de visibilidade e funções; depende das anteriores.
+
+**Não criar um provider SQL alternativo nem aplicar somente as colunas**:
+isso deixaria triggers, relações e isolamento incompletos. Antes do próximo
+upgrade em produção, comparar o catálogo atual com o conjunto de migrations,
+ensaiar a reconciliação em clone isolado compatível com dados existentes e
+verificar backup operacional correspondente ao ponto de corte. O
+`--schema-only` **executa DDL**; não é diagnóstico. O deploy de imagens
+continua separado via Remote-Ops-MCP.
+
+**Atenção à origem:** esse manifesto reforçado está na PR, NÃO na tag
+`v1.108.1` já publicada. Após merge deverá existir uma nova release
+válida com `main == tag`; não retaggear `v1.108.1` e não usar a PR para
+declarar que o gate de uma release imutável foi retroativamente modificado.
+
