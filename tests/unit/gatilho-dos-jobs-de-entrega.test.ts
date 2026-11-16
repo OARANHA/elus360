@@ -337,7 +337,23 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
   "elus360-v1102-candidate.yml::sql-source-parity": { condicao: null, efeito: "Paridade SQL da candidata." },
   "elus360-v1102-candidate.yml::typecheck": { condicao: null, efeito: "TypeScript global da candidata." },
   "elus360-v1102-candidate.yml::lint": { condicao: null, efeito: "Lint da candidata." },
-  "elus360-v1102-candidate.yml::unit": { condicao: null, efeito: "Suíte unitária integral." },
+  // A candidata executa seis shards de produto e todas as cercas no sétimo.
+  // O agregador só é confiável porque roda MESMO se um shard falha ou é pulado:
+  // a sua condição precisa ser exatamente a expressão abaixo (não um prefixo).
+  "elus360-v1102-candidate.yml::unit-shards": {
+    condicao: null,
+    efeito:
+      "A matriz executa toda a suite: 6 shards do produto e o projeto cercas. " +
+      "Se o job sumir ou for desabilitado, o agregado perde a evidencia.",
+  },
+  "elus360-v1102-candidate.yml::unit": {
+    condicao: "${{ always() }}",
+    efeito:
+      "Full unit suite e o check publico que reprova qualquer resultado diferente " +
+      "de success dos sete shards, inclusive skipped e cancelled. " +
+      "always() e obrigatorio para avaliar falhas anteriores; uma condicao " +
+      "extra pode tornar a verificacao skipped e falsamente verde.",
+  },
   "elus360-v1102-candidate.yml::governance": { condicao: null, efeito: "Governança e migrations." },
   "elus360-v1102-candidate.yml::build": { condicao: null, efeito: "Build Next.js." },
   "elus360-v1102-candidate.yml::shell": { condicao: null, efeito: "Instalação e shell." },
