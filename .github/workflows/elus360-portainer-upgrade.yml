@@ -71,7 +71,7 @@ jobs:
             no_go 'SHA da main indisponivel'
           test "$tag_sha" = "$EXPECTED_SHA" && test "$main_sha" = "$EXPECTED_SHA" ||
             no_go 'a release nao corresponde ao SHA da main selecionada'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Tag validated against official published release + protected main
           # BEFORE checkout or execution of any release-provided code.
