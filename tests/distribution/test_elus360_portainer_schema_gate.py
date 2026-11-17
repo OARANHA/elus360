@@ -23,17 +23,20 @@ class FakeResponse:
 class GateTests(unittest.TestCase):
     def test_current_contract_exact_release(self):
         config = json.loads((ROOT / "deploy" / "elus360-schema-contract.json").read_text())
-        tables = gate.validate_contract(config, "v1.108.1")
+        tables = gate.validate_contract(config, "v1.108.3")
         self.assertIn("importacoes_de_historico", tables)
         self.assertIn("runtime_confirmation", tables["system_version"])
         with self.assertRaises(ValueError):
             gate.validate_contract(config, "v1.102.0")
         with self.assertRaises(ValueError):
             gate.validate_contract(config, "v1.102.1")
+        # v1.108.2 ja foi publicada com controller/contrato antigo.
+        with self.assertRaises(ValueError):
+            gate.validate_contract(config, "v1.108.2")
 
     def test_release_requires_phone_and_sector_runtime_dependencies(self):
         contract = json.loads((ROOT / "deploy" / "elus360-schema-contract.json").read_text())
-        tables = gate.validate_contract(contract, "v1.108.1")
+        tables = gate.validate_contract(contract, "v1.108.3")
         self.assertEqual(len(tables), 11)
         self.assertTrue({"phone_type", "phone_whatsapp"} <= set(tables["contacts"]))
         self.assertIn("sector_id", tables["conversations"])
@@ -46,7 +49,7 @@ class GateTests(unittest.TestCase):
 
     def test_absent_phone_and_sector_tables_fail_closed_without_rows(self):
         contract = json.loads((ROOT / "deploy" / "elus360-schema-contract.json").read_text())
-        tables = gate.validate_contract(contract, "v1.108.1")
+        tables = gate.validate_contract(contract, "v1.108.3")
         selected = []
         def opener(req, timeout):
             parsed = urlsplit(req.full_url)
