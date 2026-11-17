@@ -216,13 +216,13 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         env.update({
             "ELUS360_SUPABASE_URL": "https://example.supabase.co",
             "ELUS360_SUPABASE_SERVICE_ROLE_KEY": "fixture-not-a-secret",
-            "ELUS360_DEPLOY_APPROVAL": "DEPLOY-ELUS360:v1.108.1",
+            "ELUS360_DEPLOY_APPROVAL": "DEPLOY-ELUS360:v1.108.3",
             "ELUS360_BACKUP_POLICY": "waived",
         })
         env.pop("ELUS360_PORTAINER_API_KEY", None)
         result = subprocess.run(
             ["bash", str(ROOT / "scripts/elus360-portainer-upgrade.sh"),
-             "v1.108.1", "--schema-only"],
+             "v1.108.3", "--schema-only"],
             cwd=ROOT, env=env, capture_output=True, text=True, timeout=10, check=False,
         )
         self.assertEqual(result.returncode, 3)
