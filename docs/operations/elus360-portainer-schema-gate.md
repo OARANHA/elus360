@@ -168,8 +168,10 @@ verificar backup operacional correspondente ao ponto de corte. O
 continua separado via Remote-Ops-MCP.
 
 **Atenção à origem:** esse manifesto reforçado está na PR, NÃO na tag
-`v1.108.1` já publicada. Após merge deverá existir uma nova release
-válida com `main == tag`; não retaggear `v1.108.1` e não usar a PR para
+`v1.108.1` já publicada. A `v1.108.2` também foi publicada a partir
+do mesmo SHA de `v1.108.1`, sem o contrato reforçado desta PR. Após merge
+publicar `v1.108.3` com `main == tag`, sem mover nenhuma tag anterior;
+não usar a PR para
 declarar que o gate de uma release imutável foi retroativamente modificado.
 
 
