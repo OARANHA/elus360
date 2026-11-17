@@ -10,7 +10,7 @@ no_go() { printf 'ELUS_DISTRIBUTION_NO_GO: %s\n' "$1" >&2; exit 3; }
 TAG="${1:-}"
 MODE="${2:---preflight}"
 [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || no_go 'release invalida'
-[[ "$MODE" = --preflight || "$MODE" = --execute ]] || no_go 'modo invalido'
+[[ "$MODE" = --preflight || "$MODE" = --execute || "$MODE" = --schema-only ]] || no_go 'modo invalido'
 [ "$(uname -s)" = Linux ] && [[ "$(uname -m)" =~ ^(x86_64|amd64)$ ]] ||
   no_go 'somente Linux AMD64'
 [ -s supabase/baseline.sql ] || no_go 'baseline do fork ausente'
@@ -33,22 +33,28 @@ then
 fi
 [ -n "${ELUS360_SUPABASE_URL:-}" ] && [ -n "${ELUS360_SUPABASE_SERVICE_ROLE_KEY:-}" ] ||
   no_go 'segredos do gate ausentes'
-[ -n "${ELUS360_PORTAINER_API_KEY:-}" ] || no_go 'token Portainer ausente'
-# Preflight official release, schema and Portainer current stack without any DDL.
-if [ "$MODE" = --execute ]; then
-  python3 scripts/elus360-portainer-redeploy.py --release "$TAG" --pre-migration
+# O schema-only e o unico modo que o workflow oficial executa.
+# Nunca conectar ao Portainer diretamente a partir de um runner GitHub.
+# O deploy da stack e feito em gate administrativo separado pelo Remote-Ops-MCP.
+if [ "$MODE" = --schema-only ]; then
+  printf 'ELUS360_SCHEMA_ONLY: sem HTTP Portainer; deploy separado via Remote-Ops-MCP\n'
 else
-  python3 scripts/elus360-portainer-redeploy.py --release "$TAG"
-  exit 0
+  [ -n "${ELUS360_PORTAINER_API_KEY:-}" ] || no_go 'token Portainer ausente'
+  # Caminho legado: fora do workflow de producao; exige aprovacao distinta.
+  if [ "$MODE" = --execute ]; then
+    python3 scripts/elus360-portainer-redeploy.py --release "$TAG" --pre-migration
+  else
+    python3 scripts/elus360-portainer-redeploy.py --release "$TAG"
+    exit 0
+  fi
 fi
 
 [ "${ELUS360_DEPLOY_APPROVAL:-}" = "DEPLOY-ELUS360:$TAG" ] ||
   no_go 'aprovacao especifica da release ausente'
-# No silent backup bypass. Operational owner must explicitly acknowledge policy.
-case "${ELUS360_BACKUP_POLICY:-}" in
-  verified|waived) ;;
-  *) no_go 'defina ELUS360_BACKUP_POLICY=verified ou waived explicitamente' ;;
-esac
+# Backup real e restauracao isolada sao gate operacional obrigatorio.
+# A flag verified e atestado do operador, NAO comprovacao automatica do restore.
+[ "${ELUS360_BACKUP_POLICY:-}" = verified ] ||
+  no_go 'backup restauravel verificado e obrigatorio; waived proibido'
 [ -n "${SUPABASE_DB_ADMIN_URL:-}" ] || no_go 'admin URL de esquema ausente'
 command -v docker >/dev/null 2>&1 || no_go 'docker requerido para psql efemero'
 # The database host must belong to the same Supabase project as the API gate.
@@ -91,6 +97,10 @@ pg_container postgres:17-alpine psql "$(url_do_schema)" -X -v ON_ERROR_STOP=1 \
   no_go 'nao foi possivel solicitar recarga do PostgREST'
 python3 scripts/elus360-portainer-schema-gate.py --release "$TAG" ||
   no_go 'schema contract falhou apos baseline'
-# Last chance: only the official deploy script can mutate stack 5 and it
-# re-checks GitHub release, schema, Portainer config SHA and digest pins.
+if [ "$MODE" = --schema-only ]; then
+  printf 'ELUS360_SCHEMA_GREEN: %s; nenhuma imagem ou stack modificada; liberar apenas apos validacao do runtime por Remote-Ops-MCP\n' "$TAG"
+  exit 0
+fi
+# Caminho legado: nunca invocado pelo workflow de producao.
+# A integracao Remote-Ops-MCP constitui gate administrativo externo separado.
 python3 scripts/elus360-portainer-redeploy.py --release "$TAG" --execute

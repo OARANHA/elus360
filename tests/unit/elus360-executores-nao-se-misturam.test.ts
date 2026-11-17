@@ -22,6 +22,15 @@ describe("ELUS360 — contratos dos executores obrigatórios", () => {
     expect(oficial).toMatch(/- name: ELUS operational tests \(node:test\)[\s\S]*?run: pnpm test:operational/);
     expect(oficial).toContain("pnpm test:unit --project produto --shard=");
     expect(candidata).toContain("pnpm test:operational");
-    expect(candidata).toContain("- run: pnpm test:unit");
+    // A candidata usa sete partes limitadas, em vez de uma suite monolitica
+    // cancelada aos 45 minutos (run 43913188778).
+    expect(candidata).toContain("unit-shards:");
+    expect(candidata).toContain("parte: [1, 2, 3, 4, 5, 6, 7]");
+    expect(candidata).toContain("pnpm test:unit --project produto --shard=${{ matrix.parte }}/6");
+    expect(candidata).toContain("pnpm test:unit --project cercas");
+    // O check Full unit suite segue obrigatório e reprova shard skipped/cancelado.
+    expect(candidata).toContain("needs: [unit-shards]");
+    expect(candidata).toContain("if: ${{ always() }}");
+    expect(candidata).toContain('test "$SHARDS_RESULT" = success');
   });
 });

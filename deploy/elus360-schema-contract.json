@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "release": "v1.108.1",
-  "description": "Contrato minimo pos-migrations para a release v1.108.1 do fork ELUS360. Mantem as oito interfaces criticas existentes; staging integrado, compatibilidade de schema operacional e backup exigem verificacoes separadas. O contrato deve ser validado antes de qualquer DDL ou redeploy.",
+  "release": "v1.108.3",
+  "description": "Contrato de compatibilidade operacional pos-migrations da v1.108.3 do fork ELUS360. Inclui requisitos de contatos, telefones extras e setores presentes no codigo da release alem das oito interfaces anteriores; nao substitui auditoria completa, backup nem homologacao integrada. As tags imutaveis v1.108.1 e v1.108.2 nao contem este contrato reforcado; somente uma nova release no SHA da main apos merge o incluira.",
   "tables": {
     "contacts": [
       "id",
@@ -14,7 +14,9 @@
       "complement",
       "district",
       "city",
-      "state"
+      "state",
+      "phone_type",
+      "phone_whatsapp"
     ],
     "conversations": [
       "id",
@@ -22,7 +24,8 @@
       "contact_id",
       "last_message_at",
       "last_message_preview",
-      "unread_count_for_assignee"
+      "unread_count_for_assignee",
+      "sector_id"
     ],
     "importacoes_de_historico": [
       "id",
@@ -61,6 +64,26 @@
       "id",
       "organization_id",
       "reminder_meta_template_id"
+    ],
+    "contact_phones": [
+      "id",
+      "organization_id",
+      "contact_id",
+      "phone_number",
+      "tipo",
+      "whatsapp",
+      "wa_lid"
+    ],
+    "attendant_sectors": [
+      "id",
+      "organization_id",
+      "name",
+      "schedule"
+    ],
+    "attendant_sector_members": [
+      "organization_id",
+      "user_id",
+      "sector_id"
     ]
   }
 }

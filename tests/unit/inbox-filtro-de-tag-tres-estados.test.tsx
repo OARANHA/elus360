@@ -56,7 +56,7 @@ vi.mock("@/hooks/inbox/useConversationCounts", () => ({
   useConversationCounts: () => ({ data: { fila: 1 } }),
 }));
 
-const GATILHO = "Filtrar por tag";
+const GATILHO = /^Filtrar por tag: /;
 const gatilho = () => screen.queryByLabelText(GATILHO);
 const base: InboxFiltersValue = { tab: "unassigned", search: "", onlyUnread: false };
 
@@ -77,6 +77,20 @@ async function abreOMenu() {
   await user.click(screen.getByRole("button", { name: GATILHO }));
   return user;
 }
+
+describe("nome acessivel inclui valor visivel da etiqueta (WCAG 2.5.3)", () => {
+  it("mantem o texto visivel com e sem filtro", () => {
+    tagsRef.current = ["vip", "retorno"];
+    tagsDoContatoRef.current = [];
+    const onChange = vi.fn();
+    const { rerender } = render(<InboxFilters value={base} onChange={onChange} />);
+    const vazio = screen.getByRole("button", { name: /^Filtrar por tag: Todas as tags$/ });
+    expect(vazio).toHaveTextContent("Todas as tags");
+    rerender(<InboxFilters value={{ ...base, tag: ["vip", "retorno"] }} onChange={onChange} />);
+    const escolhido = screen.getByRole("button", { name: /^Filtrar por tag: vip\+1$/ });
+    expect(escolhido).toHaveTextContent("vip+1");
+  });
+});
 
 describe("(a) ainda não sei — org nula / consultas em voo", () => {
   it("com filtro aplicado: o gatilho está na tela, mostra a etiqueta e limpa", async () => {

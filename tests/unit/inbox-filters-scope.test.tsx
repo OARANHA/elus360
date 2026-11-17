@@ -231,9 +231,9 @@ describe("InboxFilters — seletor de número e o filtro órfão", () => {
     );
     // ⚠️ `getByLabelText` continua valendo (#1274): o seletor deixou de ser um
     // `Select` (que era `role="combobox"`) e virou um botão de menu, mas o RÓTULO
-    // ACESSÍVEL é o mesmo — e é por ele que se procura o controle, e por ele que
-    // o dicionário de tradução o indexa.
-    const seletor = screen.getByLabelText("Filtrar por tag");
+    // ACESSÍVEL preserva o prefixo estável e inclui o texto visível (WCAG 2.5.3).
+    // Procuramos o prefixo, sem perder a asserção do valor órfão abaixo.
+    const seletor = screen.getByLabelText(/^Filtrar por tag: /);
     expect(seletor).toBeInTheDocument();
     expect(seletor).toHaveTextContent("etiqueta-orfa");
   });
@@ -248,14 +248,14 @@ describe("InboxFilters — seletor de número e o filtro órfão", () => {
     setOrg("manager", "all");
     tagsDoContatoRef.current = ["vip"];
     render(<InboxFilters value={VALUE} onChange={() => {}} />);
-    expect(screen.getByLabelText("Filtrar por tag")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Filtrar por tag: /)).toBeInTheDocument();
   });
 
   it("marcador que só existe na CONVERSA faz o seletor aparecer", () => {
     setOrg("manager", "all");
     tagsRef.current = ["reclamacao"];
     render(<InboxFilters value={VALUE} onChange={() => {}} />);
-    expect(screen.getByLabelText("Filtrar por tag")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Filtrar por tag: /)).toBeInTheDocument();
   });
 
   it("CONTROLE: sem vocabulário e SEM filtro, o seletor de tag não aparece", () => {
@@ -264,7 +264,7 @@ describe("InboxFilters — seletor de número e o filtro órfão", () => {
     setOrg("manager", "all");
     tagsRef.current = [];
     render(<InboxFilters value={VALUE} onChange={() => {}} />);
-    expect(screen.queryByLabelText("Filtrar por tag")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Filtrar por tag: /)).not.toBeInTheDocument();
   });
 
   it("filtro que casa com a lista: nada de 'Número removido'", () => {

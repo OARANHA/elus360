@@ -1,0 +1,68 @@
+# Gate isolado das imagens publicadas. Nenhum secret de producao.
+name: ELUS360 — homologacao integrada de imagens publicadas
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/elus360-homologacao-integrada.yml"
+      - "scripts/elus360-homologacao-integrada.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  laboratorio:
+    if: github.repository == 'OARANHA/elus360'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Diagnosticar HTTP publico do controller (sem credenciais)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from urllib.error import HTTPError
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          endpoints = [
+              ("github-release", "https://api.github.com/repos/OARANHA/elus360/releases/tags/v1.108.1"),
+              ("github-compare", "https://api.github.com/repos/OARANHA/elus360/compare/main...v1.108.1"),
+              ("github-main", "https://api.github.com/repos/OARANHA/elus360/branches/main"),
+              ("github-tag", "https://api.github.com/repos/OARANHA/elus360/git/ref/tags/v1.108.1"),
+              ("portainer-status", "https://ops-vigia.wandora.com.br/api/status"),
+              ("portainer-stacks-anonymous", "https://ops-vigia.wandora.com.br/api/stacks/5"),
+          ]
+          for label, url in endpoints:
+              try:
+                  with build_opener(NoRedirect()).open(
+                      Request(url, headers={"Accept": "application/json"}), timeout=15
+                  ) as resp:
+                      print(f"ELUS_HTTP_PROBE {label} HTTP {resp.status}")
+              except HTTPError as exc:
+                  print(f"ELUS_HTTP_PROBE {label} HTTP {exc.code}")
+              except Exception:
+                  print(f"ELUS_HTTP_PROBE {label} TRANSPORT_ERROR")
+          PY
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.117.0
+      - name: Sintaxe e isolamento do laboratorio
+        run: |
+          set -euo pipefail
+          bash -n scripts/elus360-homologacao-integrada.sh
+          test ! -e .env
+          test ! -e .env.local
+          test ! -e .env.production
+      - name: Upgrade integrado 1.102.0 para 1.108.1, sem producao
+        shell: bash
+        timeout-minutes: 50
+        env:
+          GH_TOKEN: ${{ github.token }} # apenas contents:read, sem secrets de producao
+        run: bash scripts/elus360-homologacao-integrada.sh

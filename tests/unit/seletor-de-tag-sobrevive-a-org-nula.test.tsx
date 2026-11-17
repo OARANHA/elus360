@@ -54,7 +54,7 @@ vi.mock("@/hooks/inbox/useConversationCounts", () => ({
   useConversationCounts: () => ({ data: { unassigned: 1 } }),
 }));
 
-const GATILHO = "Filtrar por tag";
+const GATILHO = /^Filtrar por tag: /;
 /** O gatilho deixou de ser um `Select` (#1274): é botão com `aria-label`. */
 const gatilho = () => screen.queryByLabelText(GATILHO);
 const base: InboxFiltersValue = { tab: "unassigned", search: "", onlyUnread: false };

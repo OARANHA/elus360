@@ -65,7 +65,8 @@ vi.mock("@/hooks/inbox/useConversationCounts", () => ({
   useConversationCounts: h.contagens,
 }));
 
-const GATILHO = "Filtrar por tag";
+// O nome acessivel inclui o texto visivel (WCAG 2.5.3).
+const GATILHO = /^Filtrar por tag: /;
 const BUSCA = "Buscar etiqueta";
 
 const VALUE: InboxFiltersValue = { tab: "unassigned", search: "", onlyUnread: false };

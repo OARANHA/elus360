@@ -271,6 +271,10 @@ export function InboxFilters({ value, onChange, filas: filasDaOrganizacao }: Pro
     () => marcadoresEscolhidos(typeof value.tag === "string" ? [value.tag] : (value.tag ?? [])),
     [value.tag],
   );
+  // WCAG 2.5.3: nome acessivel inclui o texto visivel (sem tag ou chip + contagem).
+  const tagExibida = etiquetas[0] ?? t("Todas as tags");
+  const nomeDoFiltroDeTag = t("Filtrar por tag") + ": " + tagExibida +
+    (etiquetas.length > 1 ? "+" + (etiquetas.length - 1) : "");
   // Os MESMOS filtros que a lista aplicou. Badge que conta o que a aba não mostra
   // manda o atendente procurar trabalho que não existe — a regra já estava escrita
   // na rota; faltava alcançar os filtros ao lado da aba.
@@ -614,7 +618,7 @@ export function InboxFilters({ value, onChange, filas: filasDaOrganizacao }: Pro
                   `DropdownMenuCheckboxItem` marca e NÃO fecha, que é a
                   diferença entre um filtro de duas etiquetas e um formulário.
 
-                  O gatilho continua com `aria-label="Filtrar por tag"` e a MESMA
+                  O gatilho preserva a finalidade no prefixo acessivel e a MESMA
                   aparência de cápsula, porque quem procura este controle no
                   Inbox (e o teste `inbox-filtro-de-tag-nao-desmonta`, que
                   vigia a desmontagem) não pode ver o filtro mudar de figura.
@@ -627,7 +631,7 @@ export function InboxFilters({ value, onChange, filas: filasDaOrganizacao }: Pro
                       "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       etiquetas.length > 0 && "border-accent bg-accent-soft text-accent",
                     )}
-                    aria-label={t("Filtrar por tag")}
+                    aria-label={nomeDoFiltroDeTag}
                   >
                     {etiquetas.length > 0 ? (
                       <span className="inline-flex items-center gap-1">

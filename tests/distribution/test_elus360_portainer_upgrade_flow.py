@@ -171,7 +171,7 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
         before = workflow.index("name: Validar release e SHA antes de executar codigo da tag")
         checkout = workflow.index("ref: ${{ inputs.release }}")
-        privileged = workflow.index("name: Reconciliar esquema, validar contrato, implantar e conferir runtime")
+        privileged = workflow.index("name: Reconciliar esquema e validar contrato; sem deploy Portainer")
         self.assertLess(before, checkout)
         self.assertLess(checkout, privileged)
         preflight = workflow[before:checkout]
@@ -183,6 +183,68 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         self.assertIn('test "$tag_type" = commit', preflight)
         self.assertNotIn("ELUS360_SUPABASE_SERVICE_ROLE_KEY", preflight)
         self.assertNotIn("ELUS360_PORTAINER_API_KEY", preflight)
+
+    def test_production_workflow_delegates_portainer_to_remote_ops_mcp(self):
+        workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
+        script = (ROOT / "scripts/elus360-portainer-upgrade.sh").read_text(encoding="utf-8")
+        self.assertIn('bash scripts/elus360-portainer-upgrade.sh "$RELEASE" --schema-only', workflow)
+        self.assertNotIn('bash scripts/elus360-portainer-upgrade.sh "$RELEASE" --execute', workflow)
+        self.assertNotIn("ELUS360_PORTAINER_API_KEY: ${{ secrets.", workflow)
+        self.assertIn('if [ "$MODE" = --schema-only ]; then', script)
+        self.assertIn("ELUS360_SCHEMA_GREEN:", script)
+        self.assertIn("nenhuma imagem ou stack modificada", script)
+        # A tag divergente falha ANTES de qualquer verificacao, DDL ou acesso Portainer.
+        env = dict(os.environ)
+        env.pop("ELUS360_PORTAINER_API_KEY", None)
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/elus360-portainer-upgrade.sh"),
+             "v1.108.0", "--schema-only"],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=10, check=False
+        )
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("contrato de esquema diverge da release", result.stderr)
+
+    def test_schema_only_rejects_unverified_backup_policy_before_ddl(self):
+        workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
+        self.assertIn("options: [verified]", workflow)
+        self.assertNotIn("options: [verified, waived]", workflow)
+        self.assertNotIn("waiver_confirmation:", workflow)
+        self.assertNotIn("DISPENSO-BACKUP", workflow)
+        # Um valor legado/forjado nao pode liberar um script com DDL. A URL e
+        # a chave sao dubles locais; nenhuma requisicao ocorre antes da guarda.
+        env = dict(os.environ)
+        env.update({
+            "ELUS360_SUPABASE_URL": "https://example.supabase.co",
+            "ELUS360_SUPABASE_SERVICE_ROLE_KEY": "fixture-not-a-secret",
+            "ELUS360_DEPLOY_APPROVAL": "DEPLOY-ELUS360:v1.108.3",
+            "ELUS360_BACKUP_POLICY": "waived",
+        })
+        env.pop("ELUS360_PORTAINER_API_KEY", None)
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/elus360-portainer-upgrade.sh"),
+             "v1.108.3", "--schema-only"],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=10, check=False,
+        )
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("backup restauravel verificado e obrigatorio", result.stderr)
+        self.assertNotIn("ELUS360_SCHEMA_GREEN", result.stdout)
+
+    def test_integrated_lab_uses_read_only_github_token(self):
+        script = (ROOT / "scripts/elus360-homologacao-integrada.sh").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/elus360-homologacao-integrada.yml").read_text(encoding="utf-8")
+        self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn('Authorization: Bearer $GH_TOKEN', script)
+        self.assertIn("token de leitura do GitHub ausente no laboratorio", script)
+        self.assertIn(".target_commitish == $s", script)
+        self.assertIn("digest nao coincide com release oficial", script)
+
+    def test_e2e_preflights_supabase_port_without_killing_other_processes(self):
+        workflow = (ROOT / ".github/workflows/e2e.yml").read_text(encoding="utf-8")
+        self.assertIn('sockets="$(ss -Htan)"', workflow)
+        self.assertIn("$4 ~ /:54322$/", workflow)
+        self.assertIn("porta ocupada apos 60s", workflow)
+        self.assertIn("supabase start -x studio,postgres-meta", workflow)
 
     def test_happy_path_upgrades_from_previous_sha_and_preserves_secrets(self):
         rc, gates = self.run_controller()
