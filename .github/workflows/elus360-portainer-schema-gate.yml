@@ -4,6 +4,9 @@ on:
     paths:
       - 'deploy/elus360-schema-contract.json'
       - 'scripts/elus360-portainer-schema-gate.py'
+      - 'scripts/elus360-isolated-rehearsal-plan.py'
+      - 'tests/distribution/test_elus360_isolated_rehearsal_plan.py'
+      - 'docs/operations/elus360-schema-rehearsal-isolated.md'
       - 'tests/distribution/test_elus360_portainer_schema_gate.py'
       - 'tests/distribution/test_elus360_portainer_redeploy.py'
       - 'tests/distribution/test_elus360_portainer_upgrade_flow.py'
@@ -28,6 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests/distribution -p 'test_elus360_portainer_*.py' -v
+          python3 -m unittest discover -s tests/distribution -p 'test_elus360_isolated_rehearsal_plan.py' -v
           bash -n scripts/elus360-portainer-upgrade.sh
   production-preflight:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'OARANHA/elus360'
