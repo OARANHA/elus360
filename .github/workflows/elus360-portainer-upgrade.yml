@@ -91,6 +91,7 @@ jobs:
           python3 -m unittest discover -s tests/distribution -p 'test_elus360_portainer_*.py' -v
       - name: Reconciliar esquema e validar contrato; sem deploy Portainer
         env:
+          GH_TOKEN: ${{ github.token }}
           ELUS360_SUPABASE_URL: ${{ secrets.ELUS360_SUPABASE_URL }}
           ELUS360_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.ELUS360_SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_ADMIN_URL: ${{ secrets.ELUS360_SUPABASE_DB_ADMIN_URL }}
