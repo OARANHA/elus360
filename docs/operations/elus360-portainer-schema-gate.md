@@ -169,10 +169,11 @@ continua separado via Remote-Ops-MCP.
 
 **Atenção à origem:** esse manifesto reforçado está na PR, NÃO na tag
 `v1.108.1` já publicada. A `v1.108.2` também foi publicada a partir
-do mesmo SHA de `v1.108.1`, sem o contrato reforçado desta PR. Após merge
-publicar `v1.108.3` com `main == tag`, sem mover nenhuma tag anterior;
-não usar a PR para
-declarar que o gate de uma release imutável foi retroativamente modificado.
+do mesmo SHA de `v1.108.1`, sem o contrato reforçado desta PR. A `v1.108.3`
+foi publicada após o merge da PR #42, com contrato ampliado, mas o
+workflow de reconciliação falhou antes de DDL (incidente abaixo). Não mover
+nenhuma tag anterior nem alegar que o gate de uma release imutável foi
+retroativamente modificado.
 
 
 ## Inventário de catálogo read-only — PR #42 (16/11/2026)
@@ -225,3 +226,30 @@ e deploy via Remote-Ops-MCP. `--schema-only` executa DDL; nunca usá-lo
 como substituto deste SELECT. Nenhuma alteração foi aplicada no banco nesta
 auditoria.
 
+
+## Incidente de 18/11/2026 — segundo preflight falhou sem aplicar DDL
+
+O workflow de producao `ELUS360 — reconciliar schema antes do deploy MCP`,
+run [#44244937187](https://github.com/OARANHA/elus360/actions/runs/44244937187),
+verificou previamente a release `v1.108.3` por GitHub API autenticada,
+conferiu SHA/main/tag, concluiu 26/26 testes e iniciou `--schema-only`.
+A etapa entao retornou `ELUS_DISTRIBUTION_NO_GO: tag nao publicada ou fora da main`.
+O script chamava `elus360_release_tag_comprovada`, helper de instalacao
+self-host que consulta novamente a API por `curl` **sem autenticacao** e
+retorna apenas falha generica. A divergencia precisa da segunda consulta
+nao foi logada; nao confundir suspeita de rate limit com causa comprovada.
+A publicacao e igualdade de SHA foram confirmadas independentemente pela
+API GitHub. Nenhuma migration ou alteracao Portainer foi executada no run.
+
+A correcao proposta para a release **v1.108.4** preserva o helper canonico
+para os modos legados, mas em `--schema-only` requer o ambiente GitHub Actions
+na `main`, `GH_TOKEN` de leitura, GitHub Release oficial nao-draft,
+ref Git diretamente em commit e **SHA da tag == SHA do workflow == SHA da
+main remota**, bem como equivalencia com o checkout local. A sequencia
+passa pelo gate antes de extensoes, `reaplicar_baseline` ou Portainer;
+nenhuma credencial e escrita em URL ou log. A ausencia de token ou uma
+inconsistencia resulta em NO-GO, sem DDL.
+
+A correção exige **nova release numerada** apos merge e testes: as tags
+`v1.108.3` e anteriores nao podem ser sobrescritas. A release, mesmo com
+preflight GREEN, nao substitui a homologacao de RLS e dados existente.
