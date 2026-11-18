@@ -75,7 +75,35 @@ PY
 
 # Exact source before database mutation. Never use upstream Deskcomm releases.
 source hostgator-setup-kit/_common.sh
-elus360_release_tag_comprovada "$TAG" || no_go 'tag nao publicada ou fora da main'
+if [ "$MODE" = --schema-only ]; then
+  # Workflow_dispatch already checked release/main before checkout (without secrets).
+  # Recheck via authenticated GitHub CLI; the generic self-host helper uses
+  # anonymous curl and can fail on API rate limits despite a valid release.
+  [ "${GITHUB_ACTIONS:-}" = true ] && [ "${GITHUB_REPOSITORY:-}" = OARANHA/elus360 ] &&
+    [ "${GITHUB_REF:-}" = refs/heads/main ] || no_go 'schema-only exige workflow oficial na main'
+  [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || no_go 'SHA do workflow invalido'
+  [ -n "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1 ||
+    no_go 'token GitHub de leitura ausente para verificar release'
+  release_ok="$(gh api "repos/OARANHA/elus360/releases/tags/$TAG" \
+    --jq '.draft == false and .prerelease == false and .published_at != null' 2>/dev/null)" ||
+    no_go 'release oficial indisponivel na verificacao autenticada'
+  [ "$release_ok" = true ] || no_go 'release nao publicada ou prerelease'
+  tag_ref="$(gh api "repos/OARANHA/elus360/git/ref/tags/$TAG" \
+    --jq '.object.type + " " + .object.sha' 2>/dev/null)" ||
+    no_go 'ref da tag nao encontrado na verificacao autenticada'
+  read -r tag_type tag_sha <<< "$tag_ref"
+  [ "$tag_type" = commit ] && [[ "$tag_sha" =~ ^[0-9a-f]{40}$ ]] ||
+    no_go 'tag nao aponta diretamente para commit valido'
+  main_sha="$(gh api "repos/OARANHA/elus360/branches/main" --jq '.commit.sha' 2>/dev/null)" ||
+    no_go 'SHA da main indisponivel na verificacao autenticada'
+  [ "$tag_sha" = "$main_sha" ] && [ "$tag_sha" = "$GITHUB_SHA" ] ||
+    no_go 'tag, workflow e main divergem; sem DDL'
+  [ "$(git rev-parse --verify "refs/tags/$TAG")" = "$tag_sha" ] ||
+    no_go 'tag local diverge do GitHub autenticado'
+else
+  # O instalador/updater self-host continua usando a verificacao canonica.
+  elus360_release_tag_comprovada "$TAG" || no_go 'tag nao publicada ou fora da main'
+fi
 [ "$(git rev-parse HEAD)" = "$(git rev-list -n1 "$TAG")" ] ||
   no_go 'execute o upgrade do checkout exato da release'
 [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$(git rev-parse HEAD)" ] ||

@@ -1910,20 +1910,22 @@ jobs:
           set -euo pipefail
           mv supabase/migrations /tmp/migrations-off
           mkdir -p supabase/migrations
-          # Um socket aberto antes da reserva da faixa efemera pode ocupar 54322.
-          # Aguardar ate 60s; sem matar processos ou mudar a porta do banco.
+          # Apenas LISTEN impede o bind de localhost:54322. Uma conexao
+          # ESTAB com porta local efemera 54322 (ex.: 10.x.x.x:54322)
+          # nao prova servidor ocupando a porta no loopback. Run 44261952661.
+          # Aguardar ate 60s se houver listener, sem matar processos.
           for tentativa_porta in $(seq 1 12); do
             sockets="$(ss -Htan)" || { echo "::error::ss indisponivel ao conferir porta 54322"; exit 1; }
-            if ! awk '$4 ~ /:54322$/ { ocupada=1 } END { exit !ocupada }' <<< "$sockets"; then
+            if ! awk '$1 == "LISTEN" && $4 ~ /:54322$/ { ocupada=1 } END { exit !ocupada }' <<< "$sockets"; then
               break
             fi
             echo "::warning title=Supabase 54322 ocupada::aguardando liberacao 5s (${tentativa_porta}/12)"
             sleep 5
           done
           sockets="$(ss -Htan)" || { echo "::error::ss indisponivel ao conferir porta 54322"; exit 1; }
-          if awk '$4 ~ /:54322$/ { ocupada=1 } END { exit !ocupada }' <<< "$sockets"; then
+          if awk '$1 == "LISTEN" && $4 ~ /:54322$/ { ocupada=1 } END { exit !ocupada }' <<< "$sockets"; then
             echo "::error title=Supabase 54322 indisponivel::porta ocupada apos 60s; sem encerrar processo externo"
-            awk '$4 ~ /:54322$/ { print $1, $4 }' <<< "$sockets" | head -15
+            awk '$1 == "LISTEN" && $4 ~ /:54322$/ { print $1, $4 }' <<< "$sockets" | head -15
             exit 1
           fi
           esperas=(0 20 60 120)

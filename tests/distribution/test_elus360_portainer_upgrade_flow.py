@@ -204,6 +204,97 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn("contrato de esquema diverge da release", result.stderr)
 
+    def test_schema_only_uses_authenticated_github_gate_before_ddl(self):
+        # Regressao do run 44244937187: a validacao inicial passou com
+        # GH_TOKEN; a checagem secundaria anonima do helper recusou a tag.
+        workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
+        script = (ROOT / "scripts/elus360-portainer-upgrade.sh").read_text(encoding="utf-8")
+        privileged_step = workflow.split("name: Reconciliar esquema e validar contrato; sem deploy Portainer", 1)[1]
+        self.assertIn("GH_TOKEN: " + "$" + "{{ github.token }}", privileged_step)
+        self.assertIn('if [ "$MODE" = --schema-only ]; then', script)
+        self.assertIn('gh api "repos/OARANHA/elus360/releases/tags/$TAG"', script)
+        self.assertIn('gh api "repos/OARANHA/elus360/git/ref/tags/$TAG"', script)
+        self.assertIn('gh api "repos/OARANHA/elus360/branches/main"', script)
+        self.assertIn('[ "$tag_sha" = "$main_sha" ] && [ "$tag_sha" = "$GITHUB_SHA" ]', script)
+        self.assertIn('elus360_release_tag_comprovada "$TAG"', script)  # mantido no fluxo legado
+        self.assertLess(script.index('tag, workflow e main divergem; sem DDL'),
+                        script.index("reaplicar_baseline"))
+
+    def test_schema_only_authenticated_preflight_mocks_never_reach_real_ddl(self):
+        import tempfile
+        sha = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            tools_dir = Path(tmp)
+            mock_commands = {
+                "gh": """#!/bin/sh
+case "$*" in
+  *"releases/tags/v1.108.4"*) echo true ;;
+  *"git/ref/tags/v1.108.4"*) echo "commit $MOCK_SHA" ;;
+  *"branches/main"*) echo "$MOCK_MAIN_SHA" ;;
+  *) exit 42 ;;
+esac
+""",
+                "git": """#!/bin/sh
+case "$1" in
+  rev-parse|rev-list) echo "$MOCK_SHA" ;;
+  ls-remote) printf '%s\trefs/heads/main\n' "$MOCK_SHA" ;;
+  *) exit 42 ;;
+esac
+""",
+                "docker": """#!/bin/sh
+printf 'docker-mocked\n' >> "$MOCK_DOCKER_LOG"
+exit 41
+""",
+            }
+            for name, code in mock_commands.items():
+                executable = tools_dir / name
+                executable.write_text(code, encoding="utf-8")
+                executable.chmod(0o755)
+            docker_log = tools_dir / "docker-invocations"
+            env = dict(os.environ)
+            env.update({
+                "PATH": str(tools_dir) + os.pathsep + env.get("PATH", ""),
+                "MOCK_SHA": sha,
+                "MOCK_MAIN_SHA": sha,
+                "MOCK_DOCKER_LOG": str(docker_log),
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_REPOSITORY": "OARANHA/elus360",
+                "GITHUB_REF": "refs/heads/main",
+                "GITHUB_SHA": sha,
+                "GH_TOKEN": "fixture-only-token",
+                "ELUS360_SUPABASE_URL": "https://abcdefghijklmnopqrst.supabase.co",
+                "ELUS360_SUPABASE_SERVICE_ROLE_KEY": "fixture-only-not-real",
+                "SUPABASE_DB_ADMIN_URL": "postgresql://postgres@db.abcdefghijklmnopqrst.supabase.co:5432/postgres",
+                "ELUS360_BACKUP_POLICY": "verified",
+                "ELUS360_DEPLOY_APPROVAL": "DEPLOY-ELUS360:v1.108.4",
+            })
+            command = ["bash", str(ROOT / "scripts/elus360-portainer-upgrade.sh"),
+                       "v1.108.4", "--schema-only"]
+
+            without_token = dict(env)
+            without_token.pop("GH_TOKEN")
+            blocked = subprocess.run(command, cwd=ROOT, env=without_token,
+                                     capture_output=True, text=True, timeout=10, check=False)
+            self.assertEqual(blocked.returncode, 3)
+            self.assertIn("token GitHub de leitura ausente", blocked.stderr)
+            self.assertFalse(docker_log.exists(), "DDL tentado sem token")
+
+            divergent = dict(env)
+            divergent["MOCK_MAIN_SHA"] = "b" * 40
+            blocked = subprocess.run(command, cwd=ROOT, env=divergent,
+                                     capture_output=True, text=True, timeout=10, check=False)
+            self.assertEqual(blocked.returncode, 3)
+            self.assertIn("tag, workflow e main divergem; sem DDL", blocked.stderr)
+            self.assertFalse(docker_log.exists(), "DDL tentado com SHA divergente")
+
+            # Stub falha em docker sem rede e SEM psql real. Chegar ao guard
+            # de extensoes comprova que o gate autenticado passa.
+            result = subprocess.run(command, cwd=ROOT, env=env,
+                                    capture_output=True, text=True, timeout=10, check=False)
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("extensoes Supabase nao puderam ser verificadas", result.stderr)
+            self.assertTrue(docker_log.exists(), "preflight autenticado nao chegou ao stub")
+
     def test_schema_only_rejects_unverified_backup_policy_before_ddl(self):
         workflow = (ROOT / ".github/workflows/elus360-portainer-upgrade.yml").read_text(encoding="utf-8")
         self.assertIn("options: [verified]", workflow)
@@ -216,13 +307,13 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         env.update({
             "ELUS360_SUPABASE_URL": "https://example.supabase.co",
             "ELUS360_SUPABASE_SERVICE_ROLE_KEY": "fixture-not-a-secret",
-            "ELUS360_DEPLOY_APPROVAL": "DEPLOY-ELUS360:v1.108.3",
+            "ELUS360_DEPLOY_APPROVAL": "DEPLOY-ELUS360:v1.108.4",
             "ELUS360_BACKUP_POLICY": "waived",
         })
         env.pop("ELUS360_PORTAINER_API_KEY", None)
         result = subprocess.run(
             ["bash", str(ROOT / "scripts/elus360-portainer-upgrade.sh"),
-             "v1.108.3", "--schema-only"],
+             "v1.108.4", "--schema-only"],
             cwd=ROOT, env=env, capture_output=True, text=True, timeout=10, check=False,
         )
         self.assertEqual(result.returncode, 3)
@@ -245,6 +336,27 @@ class OfflineUpgradeFlowTests(unittest.TestCase):
         self.assertIn("$4 ~ /:54322$/", workflow)
         self.assertIn("porta ocupada apos 60s", workflow)
         self.assertIn("supabase start -x studio,postgres-meta", workflow)
+        predicate = '$1 == "LISTEN" && $4 ~ /:54322$/ { ocupada=1 } END { exit !ocupada }'
+        self.assertEqual(workflow.count("awk '" + predicate + "'"), 2)
+        self.assertIn("""awk '$1 == "LISTEN" && $4 ~ /:54322$/ { print $1, $4 }'""", workflow)
+        # A falha real do runner 44261952661 foi conexao ESTAB local
+        # 10.1.1.113:54322, nao listener do Supabase no loopback.
+        samples = [
+            ("ESTAB 0 0 10.1.1.113:54322 140.82.113.3:443\n", False),
+            ("LISTEN 0 128 127.0.0.1:54322 0.0.0.0:*\n", True),
+            ("LISTEN 0 128 0.0.0.0:54322 0.0.0.0:*\n", True),
+            ("LISTEN 0 128 [::1]:54322 [::]:*\n", True),
+            ("ESTAB 0 0 10.1.1.113:54322 140.82.113.3:443\n"
+             "LISTEN 0 128 127.0.0.1:54322 0.0.0.0:*\n", True),
+        ]
+        for sockets, occupied in samples:
+            with self.subTest(sockets=sockets):
+                check = subprocess.run(
+                    ["awk", predicate], input=sockets, capture_output=True,
+                    text=True, timeout=3, check=False,
+                )
+                self.assertEqual(check.returncode, 0 if occupied else 1)
+
 
     def test_happy_path_upgrades_from_previous_sha_and_preserves_secrets(self):
         rc, gates = self.run_controller()

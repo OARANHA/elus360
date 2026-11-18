@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "release": "v1.108.3",
-  "description": "Contrato de compatibilidade operacional pos-migrations da v1.108.3 do fork ELUS360. Inclui requisitos de contatos, telefones extras e setores presentes no codigo da release alem das oito interfaces anteriores; nao substitui auditoria completa, backup nem homologacao integrada. As tags imutaveis v1.108.1 e v1.108.2 nao contem este contrato reforcado; somente uma nova release no SHA da main apos merge o incluira.",
+  "release": "v1.108.4",
+  "description": "Contrato de compatibilidade operacional pos-migrations da v1.108.4 do fork ELUS360. Inclui requisitos de contatos, telefones extras e setores presentes no codigo da release alem das oito interfaces anteriores; nao substitui auditoria completa, backup nem homologacao integrada. A v1.108.3 falhou antes de DDL por verificacao secundaria anonima da release no script de schema-only; esta versao usa GitHub API autenticada no workflow oficial e preserva validacao SHA/main/tag antes de DDL.",
   "tables": {
     "contacts": [
       "id",
