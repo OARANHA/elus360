@@ -336,6 +336,27 @@ exit 41
         self.assertIn("$4 ~ /:54322$/", workflow)
         self.assertIn("porta ocupada apos 60s", workflow)
         self.assertIn("supabase start -x studio,postgres-meta", workflow)
+        predicate = '$1 == "LISTEN" && $4 ~ /:54322$/ { ocupada=1 } END { exit !ocupada }'
+        self.assertEqual(workflow.count("awk '" + predicate + "'"), 2)
+        self.assertIn("awk '$1 == \\"LISTEN\\" && $4 ~ /:54322$/ { print $1, $4 }'", workflow)
+        # A falha real do runner 44261952661 foi conexao ESTAB local
+        # 10.1.1.113:54322, nao listener do Supabase no loopback.
+        samples = [
+            ("ESTAB 0 0 10.1.1.113:54322 140.82.113.3:443\\n", False),
+            ("LISTEN 0 128 127.0.0.1:54322 0.0.0.0:*\\n", True),
+            ("LISTEN 0 128 0.0.0.0:54322 0.0.0.0:*\\n", True),
+            ("LISTEN 0 128 [::1]:54322 [::]:*\\n", True),
+            ("ESTAB 0 0 10.1.1.113:54322 140.82.113.3:443\\n"
+             "LISTEN 0 128 127.0.0.1:54322 0.0.0.0:*\\n", True),
+        ]
+        for sockets, occupied in samples:
+            with self.subTest(sockets=sockets):
+                check = subprocess.run(
+                    ["awk", predicate], input=sockets, capture_output=True,
+                    text=True, timeout=3, check=False,
+                )
+                self.assertEqual(check.returncode, 0 if occupied else 1)
+
 
     def test_happy_path_upgrades_from_previous_sha_and_preserves_secrets(self):
         rc, gates = self.run_controller()
