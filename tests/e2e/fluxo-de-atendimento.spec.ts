@@ -250,10 +250,16 @@ test("liga o módulo, cria um roteiro pela tela, o cliente responde pelo WhatsAp
       // exposta evita force e conserva a ação real de fechar clicando no fundo.
       const pontoLivre = await page.locator(".react-flow__pane").evaluate((pane) => {
         const r = pane.getBoundingClientRect();
-        for (const fy of [0.6, 0.8, 0.4]) for (const fx of [0.4, 0.6, 0.2, 0.8]) {
-          const x = r.left + r.width * fx;
-          const y = r.top + r.height * fy;
-          if (document.elementFromPoint(x, y) === pane) return { x, y };
+        // O caso falhou no CI #42569318984: os 12 pontos fixos coincidiam
+        // com nós, painel e controles. Examinar a superfície VISÍVEL inteira
+        // preserva a prova de clique real no fundo (sem force nem Escape).
+        for (const fy of [0.08, 0.92, 0.16, 0.84, 0.24, 0.76, 0.32, 0.68, 0.4, 0.6, 0.5]) {
+          for (const fx of [0.08, 0.92, 0.16, 0.84, 0.24, 0.76, 0.32, 0.68, 0.4, 0.6, 0.5]) {
+            const x = Math.round(r.left + r.width * fx);
+            const y = Math.round(r.top + r.height * fy);
+            if (x < 0 || x >= window.innerWidth || y < 0 || y >= window.innerHeight) continue;
+            if (document.elementFromPoint(x, y) === pane) return { x, y };
+          }
         }
         return null;
       });

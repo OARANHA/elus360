@@ -51,15 +51,21 @@ export default async function HomePage() {
 
       <main className="mx-auto grid w-full max-w-7xl flex-1 items-center gap-5 px-5 py-5 sm:px-8 lg:min-h-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,.95fr)] lg:gap-8 lg:px-12 lg:py-5 xl:gap-12">
         <section aria-labelledby="elus-title" className="relative min-w-0">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[.18em] text-cyan-300">ELUS360 <span className="font-medium text-slate-400">by Wandora</span></p>
           <h1 id="elus-title" className="max-w-2xl text-[clamp(2.5rem,5vw,5.25rem)] leading-[1.04] font-extrabold tracking-[-.035em]">
             {t("O CRM que")} <span className="text-cyan-300">{t("trabalha por você.")}</span>
           </h1>
           <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-300 sm:text-base lg:mt-5">
             {t("O")} {marca.nome} {t("reúne em um só lugar as conversas com os clientes, o funil de vendas, a agenda de atendimentos e agentes de inteligência artificial que respondem, qualificam o interesse e passam a conversa para uma pessoa quando é preciso.")}
           </p>
-          <Link href="/login" className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
-            {t("Entrar na plataforma")} <span aria-hidden="true" className="ml-2">→</span>
-          </Link>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <Link href="/login" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
+              {t("Entrar na plataforma")} <span aria-hidden="true" className="ml-2">→</span>
+            </Link>
+            <a href="https://elus360.com.br/curso" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-cyan-300/40 px-6 py-3 font-semibold text-cyan-100 transition-colors hover:border-cyan-300 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
+              {t("Conhecer o curso ELUS360")}
+            </a>
+          </div>
           <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-3 border-t border-white/10 pt-5 sm:gap-x-8 lg:mt-7">
             {[
               [t("Atendimento centralizado"), t("Conversas e histórico em um só lugar.")],
